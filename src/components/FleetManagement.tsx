@@ -304,7 +304,7 @@ export default function FleetManagement({ user }: { user?: any }) {
             
             if (!revSnap.empty) {
               const revData = revSnap.docs[0].data();
-              if (revData.status === 'finalized' || revData.status === 'paid_to_staff') {
+              if (revData.status === 'finalized' || revData.status === 'paid_to_staff' || revData.status === 'archived') {
                 isApproved = true;
               }
             }
@@ -325,7 +325,7 @@ export default function FleetManagement({ user }: { user?: any }) {
       );
       const pendingSnap = await withTimeout(getDocs(qPending));
       const pendingList = pendingSnap.docs.map(d => d.data() as any);
-      const pendingDoc = pendingList.find(d => !['finalized', 'paid_to_staff'].includes(d.status));
+      const pendingDoc = pendingList.find(d => !['finalized', 'paid_to_staff', 'archived'].includes(d.status));
       
       if (pendingDoc) {
         setScaleError(`BLOQUEIO DE ESCALA: Existe uma declaração de renda pendente (${pendingDoc.date}). Status: ${pendingDoc.status}.`);
