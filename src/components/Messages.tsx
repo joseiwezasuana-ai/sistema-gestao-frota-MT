@@ -19,7 +19,7 @@ import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { WhatsAppMonitor } from './WhatsAppMonitor';
 
-import { collection, onSnapshot, addDoc, query, orderBy, limit, serverTimestamp, getDocs, deleteDoc, doc, where } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, query, orderBy, limit, serverTimestamp, getDocs, deleteDoc, doc, where } from '@/src/lib/firebase';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { smsService } from '../services/smsService';
 

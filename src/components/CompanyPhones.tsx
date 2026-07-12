@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, updateDoc } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 
@@ -169,13 +169,13 @@ export default function CompanyPhones() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         <AnimatePresence mode="popLayout">
-          {phones.map((phone) => (
+          {phones.map((phone, idx) => (
             <motion.div
               layout
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              key={phone.id}
+              key={`${phone.id}-${idx}`}
               className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden"
             >
               {/* Technical Skew Background */}
@@ -341,8 +341,8 @@ export default function CompanyPhones() {
                     className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-[13px] font-black uppercase italic outline-none focus:bg-white focus:ring-2 focus:ring-brand-primary transition-all tracking-tight"
                   >
                     <option value="">Não vinculado</option>
-                    {collaborators.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.type === 'driver' ? 'Motorista' : 'Staff'})</option>
+                    {collaborators.map((c, idx) => (
+                      <option key={`${c.id}-${c.type}-${idx}`} value={c.id}>{c.name} ({c.type === 'driver' ? 'Motorista' : 'Staff'})</option>
                     ))}
                   </select>
                 </div>

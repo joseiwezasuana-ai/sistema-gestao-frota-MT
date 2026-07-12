@@ -61,7 +61,7 @@ import {
   addDoc,
   getDocs,
   getDoc,
-} from "firebase/firestore";
+} from '@/src/lib/firebase';
 
 import { auth } from "../lib/firebase";
 import { signOut } from "firebase/auth";
@@ -80,6 +80,99 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
+
+// Custom markers for Driver and Passenger
+const driverMapIcon = typeof window !== 'undefined' ? L.divIcon({
+  html: `
+    <div class="relative flex flex-col items-center">
+      <!-- Label -->
+      <span class="absolute -top-6 bg-slate-950/95 border border-amber-500/30 text-amber-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap z-50">TÁXI (VOCÊ)</span>
+      <!-- Pulsing ring -->
+      <div class="absolute w-8 h-8 rounded-full bg-amber-500 animate-ping opacity-25" style="top: 0px;"></div>
+      <!-- Center Circle -->
+      <div class="relative w-8 h-8 rounded-full bg-slate-950 border-2 border-amber-500 flex items-center justify-center shadow-xl">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-car"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+      </div>
+    </div>
+  `,
+  className: '',
+  iconSize: [60, 40],
+  iconAnchor: [30, 16],
+}) : null;
+
+const passengerMapIcon = typeof window !== 'undefined' ? L.divIcon({
+  html: `
+    <div class="relative flex flex-col items-center">
+      <!-- Label -->
+      <span class="absolute -top-6 bg-slate-950/95 border border-emerald-500/30 text-emerald-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap z-50">PASSAGEIRO</span>
+      <!-- Pulsing ring -->
+      <div class="absolute w-8 h-8 rounded-full bg-emerald-500 animate-pulse opacity-35" style="top: 0px;"></div>
+      <!-- Center Circle -->
+      <div class="relative w-8 h-8 rounded-full bg-slate-950 border-2 border-emerald-500 flex items-center justify-center shadow-xl">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </div>
+    </div>
+  `,
+  className: '',
+  iconSize: [60, 40],
+  iconAnchor: [30, 16],
+}) : null;
+
+function PassengerAvatar({ src, name, size = "md" }: { src?: string; name?: string; size?: "sm" | "md" | "lg" }) {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const initials = (name || "P")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(n => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const sizeClasses = {
+    sm: "w-6 h-6 text-[10px] rounded-full",
+    md: "w-10 h-10 text-xs rounded-full",
+    lg: "w-14 h-14 text-sm rounded-full"
+  };
+
+  const bgColors = [
+    "bg-amber-500/10 text-amber-500 border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+    "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30",
+    "bg-blue-500/10 text-blue-500 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30",
+    "bg-purple-500/10 text-purple-500 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400 dark:border-purple-500/30",
+    "bg-rose-500/10 text-rose-500 border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30",
+  ];
+
+  const getStableBg = (str: string) => {
+    let sum = 0;
+    for (let i = 0; i < str.length; i++) {
+      sum += str.charCodeAt(i);
+    }
+    return bgColors[sum % bgColors.length];
+  };
+
+  if (src && !hasError) {
+    return (
+      <img
+        src={src}
+        alt={name || "Passageiro"}
+        referrerPolicy="no-referrer"
+        onError={() => setHasError(true)}
+        className={`${sizeClasses[size]} object-cover border border-white/10 shrink-0`}
+      />
+    );
+  }
+
+  return (
+    <div className={`${sizeClasses[size]} flex items-center justify-center font-black uppercase tracking-tight border shrink-0 ${getStableBg(name || "P")}`}>
+      {initials || "P"}
+    </div>
+  );
+}
 
 function parseDateSafely(val: any): Date {
   if (!val) return new Date();
@@ -134,6 +227,25 @@ export default function DriverView({ user }: DriverViewProps) {
   const [transferLoading, setTransferLoading] = useState(false);
   const [isNewCallTransferModalOpen, setIsNewCallTransferModalOpen] = useState(false);
   const [proposedPrice, setProposedPrice] = useState("");
+  const [mapMode, setMapMode] = useState<"radar" | "real">("real");
+  const [driverLiveCoords, setDriverLiveCoords] = useState<[number, number]>([-11.7833, 19.9167]);
+
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          let lat = position.coords.latitude;
+          let lng = position.coords.longitude;
+          if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+            lat = -11.7833;
+            lng = 19.9167;
+          }
+          setDriverLiveCoords([lat, lng]);
+        },
+        (err) => console.log("Initial geolocation fetch failed: ", err)
+      );
+    }
+  }, []);
 
   const attendCall = async () => {
     if (!currentService?.id) return;
@@ -155,7 +267,8 @@ export default function DriverView({ user }: DriverViewProps) {
   };
 
   const sendPriceOffer = async (priceInputInput?: number) => {
-    const finalPrice = priceInputInput || Number(proposedPrice);
+    const finalPrice = priceInputInput !== undefined ? priceInputInput : Number(proposedPrice);
+    
     if (!finalPrice || finalPrice <= 0) {
       alert("Por favor, introduza um preço válido.");
       return;
@@ -195,6 +308,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const [transferCustomerName, setTransferCustomerName] = useState("");
   const [transferPickupAddress, setTransferPickupAddress] = useState("");
   const [earnings, setEarnings] = useState(0);
+  const [approvedEarnings, setApprovedEarnings] = useState(0);
   const [stars, setStars] = useState(4.8);
   const hiddenCallIdsRef = useRef<string[]>([]);
   const forceDismissService = () => {
@@ -241,7 +355,7 @@ export default function DriverView({ user }: DriverViewProps) {
     const q = query(
       collection(db, "revenue_logs"),
       where("driverId", "==", user.uid),
-      where("status", "in", ["pending_approval", "approved_by_operator", "approved_by_accountant", "finalized", "paid_to_staff"]),
+      where("status", "in", ["pending_approval", "approved_by_operator", "approved_by_accountant", "finalized"]),
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -255,49 +369,113 @@ export default function DriverView({ user }: DriverViewProps) {
     return () => unsubscribe();
   }, [user?.uid]);
 
+  // Listen for supervisor approved earnings (approved_by_accountant, finalized) to compute the total approved revenues accurately
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "revenue_logs"),
+      where("driverId", "==", user.uid),
+      where("status", "in", ["approved_by_accountant", "finalized"]),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const total = snapshot.docs.reduce(
+        (acc, doc) => acc + (doc.data().amount || 0),
+        0,
+      );
+      setApprovedEarnings(total);
+    }, (error) => console.warn("Error listening to approved revenue logs:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
   // Listen for trip history (including pending, active, and completed)
   useEffect(() => {
-    if (!user?.name) return;
+    if (!user?.name && !user?.uid) return;
     const q = query(
       collection(db, "calls"),
-      where("driverName", "==", user.name),
-      where("status", "in", ["completed", "pending", "connected", "price_sent", "confirmed", "arrived", "active"]),
+      and(
+        or(
+          where("driverName", "==", user.name || ""),
+          where("driverId", "==", user.uid || "")
+        ),
+        where("status", "in", ["completed", "pending", "connected", "price_sent", "confirmed", "arrived", "active"])
+      ),
       limit(100),
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const sorted = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .map((doc) => ({ id: doc.id, ...doc.data() } as any))
+        .filter((trip) => trip.approvedByOperator !== true) // Filter out approved trips so they disappear from history once approved
         .sort((a: any, b: any) => parseDateSafely(b.timestamp).getTime() - parseDateSafely(a.timestamp).getTime());
       setTripHistory(sorted);
     }, (error) => handleFirestoreError(error, OperationType.GET, "calls"));
 
     return () => unsubscribe();
-  }, [user?.name]);
+  }, [user?.name, user?.uid]);
 
   const [passengerRidesConfirmed, setPassengerRidesConfirmed] = useState<any[]>([]);
   const [passengerRidesTotal, setPassengerRidesTotal] = useState(0);
+  const [passengerRidesAllTimeTotal, setPassengerRidesAllTimeTotal] = useState(0);
+  const [showThreeDotsMetrics, setShowThreeDotsMetrics] = useState(false);
 
   // Sync passenger rides in real-time
   useEffect(() => {
-    if (!user?.name) return;
+    if (!user?.name && !user?.uid) return;
     const q = query(
       collection(db, "calls"),
-      where("driverName", "==", user.name),
-      where("status", "==", "completed")
+      and(
+        or(
+          where("driverName", "==", user.name || ""),
+          where("driverId", "==", user.uid || "")
+        ),
+        where("status", "==", "completed")
+      )
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const list = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter((trip) => trip.approvedByOperator !== true); // Filter out approved trips so they disappear once approved
       setPassengerRidesConfirmed(list);
-      const total = list.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
-      setPassengerRidesTotal(total);
+      
+      // All-time historical total of completed app rides per driver
+      const allTimeTotal = list.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+      setPassengerRidesAllTimeTotal(allTimeTotal);
+
+      // Current automatic app billing (only undeclared calls)
+      const currentUndeclared = list.filter((curr: any) => curr.declared !== true);
+      const currentTotal = currentUndeclared.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+      setPassengerRidesTotal(currentTotal);
     }, (error) => {
-      console.warn("Fallowing listener of passenger rides:", error);
+      console.warn("Error listening to passenger rides:", error);
     });
 
     return () => unsubscribe();
-  }, [user?.name]);
+  }, [user?.name, user?.uid]);
+
+  const todayCompletedTrips = passengerRidesConfirmed.filter((trip: any) => {
+    try {
+      const tripDate = parseDateSafely(trip.completedAt || trip.timestamp);
+      const year = tripDate.getFullYear();
+      const month = String(tripDate.getMonth() + 1).padStart(2, '0');
+      const day = String(tripDate.getDate()).padStart(2, '0');
+      const tripDateStr = `${year}-${month}-${day}`;
+      
+      const now = new Date();
+      const nowYear = now.getFullYear();
+      const nowMonth = String(now.getMonth() + 1).padStart(2, '0');
+      const nowDay = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${nowYear}-${nowMonth}-${nowDay}`;
+      
+      return tripDateStr === todayStr;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const todayTotalRevenue = todayCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
 
   const [showNotification, setShowNotification] = useState(false);
   const [recentCalls, setRecentCalls] = useState<any[]>([]);
@@ -319,11 +497,33 @@ export default function DriverView({ user }: DriverViewProps) {
     { id: 'modern', name: 'Moderno', url: 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3' },
     { id: 'alert', name: 'Alerta', url: 'https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3' },
     { id: 'melodic', name: 'Melódico', url: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3' },
+    { id: 'voice_supertaxi', name: 'Voz: Pedido Super Táxi 🗣️', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
   ];
 
-  const playPreview = (url: string) => {
+  const speakNotification = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance("Atenção motorista: Pedido de Super Táxi em linha! Pedido de Super Táxi em linha!");
+      utterance.lang = "pt-PT";
+      utterance.rate = 1.0;
+      utterance.pitch = 1.15;
+      
+      const voices = window.speechSynthesis.getVoices();
+      const ptVoice = voices.find(v => v.lang.startsWith("pt"));
+      if (ptVoice) {
+        utterance.voice = ptVoice;
+      }
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const playPreview = (url: string, ringId?: string) => {
     if (audioRef.current) {
       audioRef.current.pause();
+    }
+    if (ringId === 'voice_supertaxi') {
+      speakNotification();
+      return;
     }
     audioRef.current = new Audio(url);
     audioRef.current.play().catch(e => console.warn(e));
@@ -720,7 +920,14 @@ export default function DriverView({ user }: DriverViewProps) {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          const { latitude, longitude } = pos.coords;
+          let { latitude, longitude } = pos.coords;
+          // Se a localização estiver fora da área operacional do Luena (e.g. Lubango), projetamos no Luena
+          if (Math.abs(latitude - (-11.7833)) > 0.8 || Math.abs(longitude - 19.9167) > 0.8) {
+            const driverHash = contractId.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            latitude = -11.7833 + (Math.sin(driverHash) * 0.015);
+            longitude = 19.9167 + (Math.cos(driverHash) * 0.015);
+            console.log(`[GPS Projection] Fora de Luena detetado. Projetando contrato para Luena: ${latitude}, ${longitude}`);
+          }
           await updateDoc(doc(db, "internal_contracts", contractId), {
             location: { lat: latitude, lng: longitude }
           });
@@ -756,7 +963,15 @@ export default function DriverView({ user }: DriverViewProps) {
               timeout: 5000,
             }),
           );
-          location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          let lat = pos.coords.latitude;
+          let lng = pos.coords.longitude;
+          if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+            const driverHash = (user.uid).split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            lat = -11.7833 + (Math.sin(driverHash) * 0.015);
+            lng = 19.9167 + (Math.cos(driverHash) * 0.015);
+            console.log(`[GPS Projection] Pânico fora de Luena. Projetando no Luena: ${lat}, ${lng}`);
+          }
+          location = { lat, lng };
         } catch (e) {
           console.warn("Geolocation failed, using default.");
         }
@@ -843,7 +1058,7 @@ export default function DriverView({ user }: DriverViewProps) {
           cash,
           transfer,
           expenses,
-          appRides: 0,
+          appRides: passengerRidesTotal,
         },
         description: revenueDetails.description,
         date: editingRevenueId 
@@ -854,11 +1069,27 @@ export default function DriverView({ user }: DriverViewProps) {
         rejectionReason: "" // Clear reason on resubmit
       };
 
+      let revenueLogId = editingRevenueId;
       if (editingRevenueId) {
         await updateDoc(doc(db, "revenue_logs", editingRevenueId), revenueData);
         setEditingRevenueId(null);
       } else {
-        await addDoc(collection(db, "revenue_logs"), revenueData);
+        const docRef = await addDoc(collection(db, "revenue_logs"), revenueData);
+        revenueLogId = docRef.id;
+      }
+
+      // Mark all currently completed calls for this driver as declared
+      const undeclaredCalls = passengerRidesConfirmed.filter((c: any) => c.declared !== true);
+      for (const call of undeclaredCalls) {
+        try {
+          await updateDoc(doc(db, "calls", call.id), {
+            declared: true,
+            declaredAt: new Date().toISOString(),
+            revenueLogId: revenueLogId || "unknown"
+          });
+        } catch (err) {
+          console.warn("Error marking call as declared in Firestore:", err);
+        }
       }
       
       setRevenueSuccess(true);
@@ -1016,8 +1247,38 @@ export default function DriverView({ user }: DriverViewProps) {
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
           async (position) => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
+            let lat = position.coords.latitude;
+            let lng = position.coords.longitude;
+            
+            // Verificação de desvio geográfico: se estiver fora do Luena (e.g. Lubango),
+            // projetamos de forma relativa ou estável para dentro do Luena para visualização correcta na central.
+            if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+              const LUENA_CENTER_LAT = -11.7833;
+              const LUENA_CENTER_LNG = 19.9167;
+              
+              // Armazena a primeira posição "fora" para servir de âncora de simulação
+              let anchor = sessionStorage.getItem("gps_sim_anchor");
+              let anchorObj = anchor ? JSON.parse(anchor) : null;
+              if (!anchorObj) {
+                anchorObj = { lat, lng };
+                sessionStorage.setItem("gps_sim_anchor", JSON.stringify(anchorObj));
+              }
+              
+              const offsetLat = lat - anchorObj.lat;
+              const offsetLng = lng - anchorObj.lng;
+              
+              const driverHash = (user?.uid || "default").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+              // Pequena variação inicial baseada no hash do motorista para que as viaturas não fiquem sobrepostas
+              const startJitterLat = (Math.sin(driverHash) * 0.012);
+              const startJitterLng = (Math.cos(driverHash + 1) * 0.012);
+              
+              lat = LUENA_CENTER_LAT + startJitterLat + offsetLat;
+              lng = LUENA_CENTER_LNG + startJitterLng + offsetLng;
+              console.log(`[GPS Projection] Geolocalização real fora de Luena. Projetando veículo de forma dinâmica no Luena.`);
+            }
+
+            setDriverLiveCoords([lat, lng]);
+
             const speed = position.coords.speed !== null && position.coords.speed !== undefined
               ? Math.round(position.coords.speed * 3.6) // m/s to km/h
               : Math.floor(Math.random() * 41) + 20; // Simulated realistic speed between 20-60 km/h
@@ -1090,21 +1351,34 @@ export default function DriverView({ user }: DriverViewProps) {
   // Handle "No Response" timeout
   useEffect(() => {
     let timeout: NodeJS.Timeout;
+    let speechInterval: any = null;
     if (showNotification && currentService?.status === "pending") {
       // Play Ringtone
       const ringtone = ringtones.find(r => r.id === selectedRingtone) || ringtones[0];
       if (audioRef.current) {
         audioRef.current.pause();
       }
-      audioRef.current = new Audio(ringtone.url);
-      audioRef.current.loop = true;
-      audioRef.current.play().catch(e => console.warn("Audio play failed:", e));
+      if (selectedRingtone !== 'voice_supertaxi') {
+        audioRef.current = new Audio(ringtone.url);
+        audioRef.current.loop = true;
+        audioRef.current.play().catch(e => console.warn("Audio play failed:", e));
+      }
+
+      if (selectedRingtone === 'voice_supertaxi') {
+        speakNotification();
+        speechInterval = setInterval(() => {
+          speakNotification();
+        }, 6000);
+      }
 
       timeout = setTimeout(async () => {
         try {
           if (!currentService?.id) return;
           const callRef = doc(db, "calls", currentService.id);
+          
+          // Marca chamada perdida no sistema
           await updateDoc(callRef, {
+            status: "missed",
             responseHistory: arrayUnion({
               action: "ignored",
               timestamp: new Date().toISOString(),
@@ -1112,22 +1386,46 @@ export default function DriverView({ user }: DriverViewProps) {
               driverName: user?.name || "Driver",
             }),
           });
+
+          // Cria mensagem / notificação de chamada perdida no motorista
+          try {
+            await addDoc(collection(db, "messages"), {
+              title: "Chamada Perdida ⚠️",
+              subject: "Chamada Perdida ⚠️",
+              content: `Você perdeu uma chamada de passageiro (${currentService.passengerName || currentService.customerName || "Desconhecido"}) às ${new Date().toLocaleTimeString('pt-PT')}.`,
+              targets: [user?.uid].filter(Boolean),
+              status: "unread",
+              timestamp: new Date().toISOString()
+            });
+          } catch (msgErr) {
+            console.error("Erro ao criar documento de mensagem para chamada perdida:", msgErr);
+          }
+
           setShowNotification(false);
           setCurrentService(null);
         } catch (error) {
           handleFirestoreError(error, OperationType.UPDATE, `calls/${currentService.id}`);
         }
-      }, 45000); // 45 seconds timeout
+      }, 60000); // 60 seconds timeout
     } else {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
       }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
     }
     return () => {
       clearTimeout(timeout);
+      if (speechInterval) {
+        clearInterval(speechInterval);
+      }
       if (audioRef.current) {
         audioRef.current.pause();
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
       }
     };
   }, [showNotification, currentService, user, selectedRingtone]);
@@ -1137,11 +1435,19 @@ export default function DriverView({ user }: DriverViewProps) {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          let lat = position.coords.latitude;
+          let lng = position.coords.longitude;
+          if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+            const driverHash = (user?.uid || "contract").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            lat = -11.7833 + (Math.sin(driverHash) * 0.015);
+            lng = 19.9167 + (Math.cos(driverHash) * 0.015);
+            console.log(`[GPS Projection] Local de contrato fora de Luena. Projetando no Luena: ${lat}, ${lng}`);
+          }
           setContractFormData({
             ...contractFormData,
             location: {
-              lat: position.coords.latitude,
-              lng: position.coords.longitude,
+              lat,
+              lng,
             },
           });
           setIsCapturingGeo(false);
@@ -1835,7 +2141,7 @@ export default function DriverView({ user }: DriverViewProps) {
               )}
             </AnimatePresence>
 
-            {currentService ? (
+            {currentService && currentService.status !== "pending" ? (
               // INTERFACE ÚNICA DE INTERAÇÃO DO SERVIÇO (DEDICATED FULL SCREEN CALL UI)
               <div className="space-y-6 max-w-2xl mx-auto py-2">
                 <div className="bg-slate-900 text-white rounded-[2.5rem] border-4 border-slate-950 p-6 sm:p-8 space-y-6 shadow-2xl overflow-hidden relative">
@@ -1902,54 +2208,157 @@ export default function DriverView({ user }: DriverViewProps) {
                     </p>
                   </div>
 
-                   {/* Interactive GPS Router Map placeholder for Unique Interface */}
-                  <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
-                    <div className="absolute inset-x-0 bottom-2 text-center z-10">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                        Rota de Viagem em Direto
-                      </p>
+                  {/* Toggle Map Mode buttons */}
+                  <div className="flex items-center justify-between bg-slate-950/40 p-1.5 rounded-2xl border border-white/5 relative z-10">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-2">
+                      VISUALIZADOR OPERACIONAL
+                    </span>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setMapMode("real")}
+                        className={cn(
+                          "px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                          mapMode === "real" 
+                            ? "bg-brand-primary text-slate-950 shadow" 
+                            : "bg-transparent text-slate-400 hover:text-white"
+                        )}
+                      >
+                        🗺️ Mapa Real
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMapMode("radar")}
+                        className={cn(
+                          "px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                          mapMode === "radar" 
+                            ? "bg-brand-primary text-slate-950 shadow" 
+                            : "bg-transparent text-slate-400 hover:text-white"
+                        )}
+                      >
+                        📡 Radar HUD
+                      </button>
                     </div>
+                  </div>
 
-                    {/* High Density Grid pattern */}
-                    <div className="absolute inset-0 opacity-10 pointer-events-none">
-                      <svg width="100%" height="100%">
-                        <pattern id="driver-grid-pat" width="15" height="15" patternUnits="userSpaceOnUse">
-                          <path d="M 15 0 L 0 0 0 15" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
-                        </pattern>
-                        <rect width="100%" height="100%" fill="url(#driver-grid-pat)" />
+                  {/* Interactive Map Container or Cinematic Radar SVG */}
+                  {mapMode === "real" ? (
+                    <div className="space-y-2">
+                      <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-64 w-full z-20">
+                        {/* @ts-ignore */}
+                        <MapContainer
+                          center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
+                          zoom={14}
+                          style={{ height: '100%', width: '100%' }}
+                          zoomControl={false}
+                        >
+                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                          
+                          {/* Driver Marker */}
+                          {driverLiveCoords && (
+                            <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
+                              <Popup>
+                                <div className="text-slate-900 font-sans p-1">
+                                  <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
+                                  <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
+                                </div>
+                              </Popup>
+                            </Marker>
+                          )}
+
+                          {/* Passenger Marker */}
+                          <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
+                            <Popup>
+                              <div className="text-slate-900 font-sans p-1">
+                                <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
+                                <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
+                              </div>
+                            </Popup>
+                          </Marker>
+
+                          <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
+                        </MapContainer>
+                        
+                        {/* Float controls inside the map */}
+                        <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1">
+                          <div className="bg-slate-950/95 backdrop-blur-sm px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1">
+                            <div className="w-1 h-1 bg-emerald-500 rounded-full animate-ping" />
+                            GPS Sincro Passageiro
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2 relative z-10 font-sans">
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 bg-brand-primary hover:bg-amber-500 text-slate-950 font-black text-[10px] uppercase tracking-wider py-3 px-4 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all"
+                        >
+                          <Navigation size={12} /> Abrir Rota no Google Maps
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (currentService.pickupLat && currentService.pickupLng) {
+                              setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
+                            }
+                          }}
+                          className="bg-slate-800 hover:bg-slate-700 text-white font-black text-[10px] uppercase tracking-wider py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all border border-white/5"
+                        >
+                          <MapPin size={12} /> Focar Cliente
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
+                      <div className="absolute inset-x-0 bottom-2 text-center z-10">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                          Rota de Viagem em Direto
+                        </p>
+                      </div>
+
+                      {/* High Density Grid pattern */}
+                      <div className="absolute inset-0 opacity-10 pointer-events-none">
+                        <svg width="100%" height="100%">
+                          <pattern id="driver-grid-pat" width="15" height="15" patternUnits="userSpaceOnUse">
+                            <path d="M 15 0 L 0 0 0 15" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
+                          </pattern>
+                          <rect width="100%" height="100%" fill="url(#driver-grid-pat)" />
+                        </svg>
+                      </div>
+
+                      {/* Satellite tracking active status indicator (JIS) */}
+                      <div className="absolute top-2.5 left-2.5 bg-black/85 px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
+                        <div className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
+                        Live GPS Sincro
+                      </div>
+
+                      {/* Match Passenger Bezier Path and animated car positioner */}
+                      <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
+                        <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray="5" />
+                        <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current animate-pulse" />
+                        <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
+                        
+                        <motion.g
+                          initial={{ x: 50, y: 150 }}
+                          animate={{
+                            x: [50, 110, 150, 200, 250],
+                            y: [150, 90, 75, 95, 120]
+                          }}
+                          transition={{
+                            duration: 12,
+                            repeat: Infinity,
+                            ease: "easeInOut"
+                          }}
+                        >
+                          <circle r="6" className="text-blue-400 fill-current shadow-lg animate-pulse" />
+                          <polygon points="-2,-2 3,0 -2,2" fill="white" />
+                        </motion.g>
                       </svg>
                     </div>
-
-                    {/* Satellite tracking active status indicator (JIS) */}
-                    <div className="absolute top-2.5 left-2.5 bg-black/85 px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
-                      <div className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
-                      Live GPS Sincro
-                    </div>
-
-                    {/* Match Passenger Bezier Path and animated car positioner */}
-                    <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
-                      <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray="5" />
-                      <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current animate-pulse" />
-                      <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
-                      
-                      <motion.g
-                        initial={{ x: 50, y: 150 }}
-                        animate={{
-                          x: [50, 110, 150, 200, 250],
-                          y: [150, 90, 75, 95, 120]
-                        }}
-                        transition={{
-                          duration: 12,
-                          repeat: Infinity,
-                          ease: "easeInOut"
-                        }}
-                      >
-                        <circle r="6" className="text-blue-400 fill-current shadow-lg animate-pulse" />
-                        <polygon points="-2,-2 3,0 -2,2" fill="white" />
-                      </motion.g>
-                    </svg>
-                  </div>
+                  )}
 
                   {/* Customer Block and Trip Info */}
                   <div className="space-y-4 bg-white/5 p-6 rounded-3xl border border-white/5 relative z-10">
@@ -1957,9 +2366,16 @@ export default function DriverView({ user }: DriverViewProps) {
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                         Passageiro / Nome
                       </span>
-                      <span className="text-sm font-black text-white uppercase italic">
-                        {currentService?.customerName || currentService?.passengerName || "Cliente Particular"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <PassengerAvatar 
+                          src={currentService?.passengerPhoto} 
+                          name={currentService?.customerName || currentService?.passengerName || "Cliente Particular"} 
+                          size="sm" 
+                        />
+                        <span className="text-sm font-black text-white uppercase italic">
+                          {currentService?.customerName || currentService?.passengerName || "Cliente Particular"}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="pt-2 border-t border-white/5">
@@ -2017,41 +2433,70 @@ export default function DriverView({ user }: DriverViewProps) {
 
                     {currentService.status === "connected" && (
                       <div className="space-y-4">
-                        <div className="bg-emerald-500/5 border border-emerald-500/20 p-4 rounded-2xl text-center">
-                          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Chamada Atendida (Conversão Estável)</p>
-                          <p className="text-[9px] text-slate-400 mt-0.5 uppercase font-bold">Defina o valor da corrida ou recuse se necessário.</p>
-                        </div>
-                        <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
-                            Propor Preço da Viagem (AKZ)
-                          </p>
-                          <div className="flex gap-2 font-sans">
-                            <input
-                              type="number"
-                              placeholder="Ex: 2500"
-                              value={proposedPrice}
-                              onChange={(e) => setProposedPrice(e.target.value)}
-                              className="flex-1 bg-black text-white border border-white/10 rounded-xl px-4 py-3 text-sm font-black focus:outline-none focus:border-brand-primary"
-                            />
-                            <button
-                              onClick={() => sendPriceOffer()}
-                              className="px-6 py-3 bg-[#10b981] text-slate-950 font-black text-xs uppercase rounded-xl transition-all hover:bg-emerald-600 shadow-md font-sans"
-                            >
-                              PROPOR
-                            </button>
+                        {currentService.usedBonus === true ? (
+                          <div className="bg-amber-500/10 border border-amber-500/35 p-4 rounded-2xl text-center space-y-3">
+                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest animate-pulse">🌟 VIAGEM DE BÓNUS SOLICITADA 🌟</p>
+                            <p className="text-[9.5px] text-slate-300 leading-relaxed">
+                              Este passageiro solicitou pagar a viagem utilizando os seus bónus acumulados. O valor proposto por si será integralmente debitado do saldo de bónus do passageiro.
+                            </p>
+                            <div className="border-t border-white/5 pt-3">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Propor Preço da Viagem (AKZ):</p>
+                              <div className="flex gap-2 font-sans">
+                                <input
+                                  type="number"
+                                  placeholder="Ex: 2500"
+                                  value={proposedPrice}
+                                  onChange={(e) => setProposedPrice(e.target.value)}
+                                  className="flex-1 bg-black text-white border border-white/10 rounded-xl px-4 py-3 text-sm font-black focus:outline-none focus:border-brand-primary"
+                                />
+                                <button
+                                  onClick={() => sendPriceOffer()}
+                                  className="px-6 py-3 bg-[#10b981] text-slate-950 font-black text-xs uppercase rounded-xl transition-all hover:bg-emerald-600 shadow-md font-sans"
+                                >
+                                  PROPOR
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex gap-2 justify-between">
-                            {[1500, 2000, 2500, 3000].map((val) => (
-                              <button
-                                key={val}
-                                onClick={() => sendPriceOffer(val)}
-                                className="flex-1 bg-white/5 hover:bg-white/10 border border-white/5 py-2 rounded-xl text-xs text-white font-black transition-all"
-                              >
-                                {val.toLocaleString()}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                        ) : (
+                          <>
+                            <div className="bg-emerald-500/5 border border-emerald-500/20 p-4 rounded-2xl text-center">
+                              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Chamada Atendida (Conversão Estável)</p>
+                              <p className="text-[9px] text-slate-400 mt-0.5 uppercase font-bold">Defina o valor da corrida ou recuse se necessário.</p>
+                            </div>
+                            <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                                Propor Preço da Viagem (AKZ)
+                              </p>
+                              <div className="flex gap-2 font-sans">
+                                <input
+                                  type="number"
+                                  placeholder="Ex: 2500"
+                                  value={proposedPrice}
+                                  onChange={(e) => setProposedPrice(e.target.value)}
+                                  className="flex-1 bg-black text-white border border-white/10 rounded-xl px-4 py-3 text-sm font-black focus:outline-none focus:border-brand-primary"
+                                />
+                                <button
+                                  onClick={() => sendPriceOffer()}
+                                  className="px-6 py-3 bg-[#10b981] text-slate-950 font-black text-xs uppercase rounded-xl transition-all hover:bg-emerald-600 shadow-md font-sans"
+                                >
+                                  PROPOR
+                                </button>
+                              </div>
+                              <div className="flex gap-2 justify-between">
+                                {[1500, 2000, 2500, 3000].map((val) => (
+                                  <button
+                                    key={val}
+                                    onClick={() => sendPriceOffer(val)}
+                                    className="flex-1 bg-white/5 hover:bg-white/10 border border-white/5 py-2 rounded-xl text-xs text-white font-black transition-all"
+                                  >
+                                    {val.toLocaleString()}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )}
                         <button
                           onClick={rejectService}
                           className="w-full py-3 bg-red-650/15 hover:bg-red-600 text-white hover:text-white border border-red-500/20 rounded-2xl text-xs uppercase font-black tracking-widest transition-colors"
@@ -2372,8 +2817,8 @@ export default function DriverView({ user }: DriverViewProps) {
                         <DollarSign size={16} />
                       </div>
                       <div className="text-left">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Ganhos (AKZ)</p>
-                        <p className="text-[13px] font-black text-white mt-0.5">{(earnings || 0).toLocaleString()}</p>
+                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Rendas Aprovadas</p>
+                        <p className="text-[13px] font-black text-emerald-400 mt-0.5">{approvedEarnings.toLocaleString()}</p>
                       </div>
                     </div>
                   </div>
@@ -2383,7 +2828,7 @@ export default function DriverView({ user }: DriverViewProps) {
                     {currentService && currentService.status === "pending" ? (
                       <>
                         <button
-                          onClick={acceptService}
+                          onClick={attendCall}
                           className="flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20 active:scale-95 animate-pulse"
                         >
                           <PhoneCall size={13} className="animate-bounce" />
@@ -2504,7 +2949,52 @@ export default function DriverView({ user }: DriverViewProps) {
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-100 to-indigo-50" />
                         <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/map/400/400')] bg-cover" />
 
-                        {currentService ? (
+                        {currentService && currentService.status === "pending" ? (
+                          <div className="absolute inset-0 bg-slate-900 text-white flex items-center justify-between p-6 relative">
+                            {/* Animated sound wave background */}
+                            <div className="absolute inset-0 bg-emerald-500/5 animate-pulse pointer-events-none" />
+                            <div className="flex items-center gap-4 z-10">
+                              {/* Passenger profile picture */}
+                              <div className="relative flex-shrink-0">
+                                <PassengerAvatar 
+                                  src={currentService.passengerPhoto} 
+                                  name={currentService.customerName || currentService.passengerName} 
+                                  size="lg" 
+                                />
+                                <span className="absolute -bottom-1 -right-1 flex h-4 w-4">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border border-slate-900"></span>
+                                </span>
+                              </div>
+
+                              <div className="text-left space-y-1">
+                                <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider animate-pulse flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                                  Recebendo Pedido...
+                                </span>
+                                <h4 className="font-extrabold text-xs sm:text-sm text-white tracking-tight uppercase leading-none">
+                                  {currentService.customerName || "Passageiro"}
+                                </h4>
+                                <p className="text-[10px] text-slate-400 font-mono tracking-tight leading-none">
+                                  {currentService.customerPhone || "Sem Número"}
+                                </p>
+                                <p className="text-[8.5px] font-bold text-slate-500 uppercase tracking-wider">
+                                  Negociação de Super Táxi 🚕
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Small decorative pulsing call widget */}
+                            <div className="hidden sm:flex flex-col items-end gap-1.5 text-right z-10">
+                              <span className="px-2.5 py-1 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-[8px] font-black uppercase tracking-widest animate-pulse">
+                                CENTRAL DE CHAMADAS
+                              </span>
+                              <span className="text-[8px] text-slate-400 font-bold uppercase">
+                                LUENA-MOXICO
+                              </span>
+                            </div>
+                          </div>
+                        ) : currentService ? (
                           <div className="absolute inset-0 flex items-center justify-center">
                             <div className="relative">
                               <motion.div
@@ -2554,7 +3044,7 @@ export default function DriverView({ user }: DriverViewProps) {
                               currentService.status === "confirmed" && "bg-emerald-500 text-white",
                               currentService.status === "active" && "bg-emerald-500 text-white"
                             )}>
-                              {currentService.status === "pending" && "📞 CHAMADA RECEBIDA (PENDENTE)"}
+                              {currentService.status === "pending" && "Recebendo Pedido... Negociação de Super Táxi"}
                               {currentService.status === "connected" && "📞 TELEFONEMA ESTABELECIDO"}
                               {currentService.status === "price_sent" && "💬 PROPOSTA ENVIADA"}
                               {currentService.status === "confirmed" && "✨ PREÇO CONFIRMADO!"}
@@ -2629,11 +3119,11 @@ export default function DriverView({ user }: DriverViewProps) {
                               <div className="space-y-4">
                                 <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/20 flex flex-col items-center text-center gap-1">
                                   <PhoneCall size={20} className="text-amber-500 animate-bounce" />
-                                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">
-                                    Telemóvel do Motorista a Tocar!
+                                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest animate-pulse">
+                                    Recebendo Pedido...
                                   </p>
                                   <p className="text-[8.5px] text-slate-400 uppercase tracking-wider">
-                                    Atenda a chamada para estabelecer conversação ou envie o preço directamente.
+                                    Negociação de Super Táxi
                                   </p>
                                 </div>
 
@@ -2658,45 +3148,74 @@ export default function DriverView({ user }: DriverViewProps) {
                             {/* CONNECTED state: established, can offer price */}
                             {(currentService.status === "connected") && (
                               <div className="space-y-3">
-                                <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-center space-y-1">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-                                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Telefonema Estabelecido (Voz Ativa)</span>
+                                {currentService.usedBonus === true ? (
+                                  <div className="bg-amber-500/10 border border-amber-500/35 p-4 rounded-xl text-center space-y-3">
+                                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest animate-pulse">🌟 VIAGEM DE BÓNUS SOLICITADA 🌟</p>
+                                    <p className="text-[9px] text-slate-300 leading-relaxed">
+                                      Este passageiro solicitou pagar a viagem utilizando os seus bónus acumulados. O valor proposto por si será integralmente debitado do saldo de bónus do passageiro.
+                                    </p>
+                                    <div className="border-t border-white/5 pt-3">
+                                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Propor Preço da Viagem (AKZ):</p>
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="number"
+                                          placeholder="Ex: 2500"
+                                          value={proposedPrice}
+                                          onChange={(e) => setProposedPrice(e.target.value)}
+                                          className="flex-1 bg-black text-white border border-white/10 rounded-lg px-3 py-2 text-xs font-black focus:outline-none focus:border-brand-primary"
+                                        />
+                                        <button
+                                          onClick={() => sendPriceOffer()}
+                                          className="px-4 py-2 bg-[#10b981] hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase rounded-lg transition-all"
+                                        >
+                                          PROPOR
+                                        </button>
+                                      </div>
+                                    </div>
                                   </div>
-                                  <p className="text-[8.5px] text-slate-400 uppercase">Proponha o valor adequado para esta viagem abaixo.</p>
-                                </div>
+                                ) : (
+                                  <>
+                                    <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-center space-y-1">
+                                      <div className="flex items-center justify-center gap-2">
+                                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Telefonema Estabelecido (Voz Ativa)</span>
+                                      </div>
+                                      <p className="text-[8.5px] text-slate-400 uppercase">Proponha o valor adequado para esta viagem abaixo.</p>
+                                    </div>
 
-                                <div className="space-y-3 bg-white/5 p-4 rounded-xl border border-white/5">
-                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">
-                                    Propor Preço da Viagem (AKZ)
-                                  </p>
-                                  <div className="flex gap-2">
-                                    <input
-                                      type="number"
-                                      placeholder="Ex: 2500"
-                                      value={proposedPrice}
-                                      onChange={(e) => setProposedPrice(e.target.value)}
-                                      className="flex-1 bg-black text-white border border-white/10 rounded-lg px-3 py-2 text-xs font-black focus:outline-none focus:border-brand-primary"
-                                    />
-                                    <button
-                                      onClick={() => sendPriceOffer()}
-                                      className="px-5 py-2 bg-[#10b981] text-slate-950 font-black text-[10px] uppercase rounded-lg transition-all hover:bg-emerald-600"
-                                    >
-                                      Propor
-                                    </button>
-                                  </div>
-                                  <div className="flex gap-1.5 justify-between">
-                                    {[1500, 2000, 2500, 3000].map((val) => (
-                                      <button
-                                        key={val}
-                                        onClick={() => sendPriceOffer(val)}
-                                        className="flex-1 bg-white/5 hover:bg-white/10 border border-white/5 py-1.5 rounded-lg text-[9px] text-white font-black transition-all"
-                                      >
-                                        {val.toLocaleString()}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
+                                    <div className="space-y-3 bg-white/5 p-4 rounded-xl border border-white/5">
+                                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">
+                                        Propor Preço da Viagem (AKZ)
+                                      </p>
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="number"
+                                          placeholder="Ex: 2500"
+                                          value={proposedPrice}
+                                          onChange={(e) => setProposedPrice(e.target.value)}
+                                          className="flex-1 bg-black text-white border border-white/10 rounded-lg px-3 py-2 text-xs font-black focus:outline-none focus:border-brand-primary"
+                                        />
+                                        <button
+                                          onClick={() => sendPriceOffer()}
+                                          className="px-5 py-2 bg-[#10b981] text-slate-950 font-black text-[10px] uppercase rounded-lg transition-all hover:bg-emerald-600"
+                                        >
+                                          Propor
+                                        </button>
+                                      </div>
+                                      <div className="flex gap-1.5 justify-between">
+                                        {[1500, 2000, 2500, 3000].map((val) => (
+                                          <button
+                                            key={val}
+                                            onClick={() => sendPriceOffer(val)}
+                                            className="flex-1 bg-white/5 hover:bg-white/10 border border-white/5 py-1.5 rounded-lg text-[9px] text-white font-black transition-all"
+                                          >
+                                            {val.toLocaleString()}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
 
                                 <button
                                   onClick={rejectService}
@@ -2885,10 +3404,33 @@ export default function DriverView({ user }: DriverViewProps) {
                       return (
                         <div
                           key={trip.id}
+                          onClick={async () => {
+                            if (!isCompleted) {
+                              try {
+                                // Remove from hiddenCallIds if any
+                                hiddenCallIdsRef.current = hiddenCallIdsRef.current.filter(id => id !== trip.id);
+                                
+                                // Update driver status in Firestore to ocupado so they are in duty
+                                if (assignedVehicle?.id) {
+                                  await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "ocupado" });
+                                }
+                                
+                                // Restore the active call view
+                                setCurrentService(trip);
+                              } catch (err) {
+                                console.error("Error resuming active trip:", err);
+                                // Fallback
+                                setCurrentService(trip);
+                              }
+                            }
+                          }}
                           className={cn(
-                            "bg-white p-4 rounded-2xl border flex items-center justify-between shadow-sm transition-all group",
-                            isCompleted ? "border-slate-100 hover:border-brand-primary/20" : "border-amber-500/40 bg-amber-50/10 shadow-md shadow-amber-500/5 animate-pulse"
+                            "bg-white p-4 rounded-2xl border flex items-center justify-between shadow-sm transition-all group text-left",
+                            isCompleted 
+                              ? "border-slate-100 hover:border-brand-primary/20" 
+                              : "border-amber-500 bg-amber-500/5 shadow-md shadow-amber-500/10 cursor-pointer hover:bg-amber-500/10 active:scale-[0.98]"
                           )}
+                          title={!isCompleted ? "Clique para reatar/abrir esta viagem em curso" : undefined}
                         >
                           <div className="flex-1 min-w-0 pr-4">
                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -2897,16 +3439,21 @@ export default function DriverView({ user }: DriverViewProps) {
                                 {(trip.destinationAddress || trip.destination || "Destino").split(",")[0]}
                               </p>
                               {!isCompleted && (
-                                <span className={cn(
-                                  "text-[7px] font-extrabold px-1.5 py-0.2 rounded uppercase tracking-widest",
-                                  isActive && "bg-amber-500 text-slate-950",
-                                  isPending && "bg-blue-500 text-white",
-                                  isWaitingApproval && "bg-emerald-500 text-white"
-                                )}>
-                                  {isActive && "Em Curso"}
-                                  {isPending && "Pendente / Chamando"}
-                                  {isWaitingApproval && "Confirmado / Chegou"}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "text-[7px] font-extrabold px-1.5 py-0.2 rounded uppercase tracking-widest",
+                                    isActive && "bg-amber-500 text-slate-950",
+                                    isPending && "bg-blue-500 text-white",
+                                    isWaitingApproval && "bg-emerald-500 text-white"
+                                  )}>
+                                    {isActive && "Em Curso"}
+                                    {isPending && "Pendente / Chamando"}
+                                    {isWaitingApproval && "Confirmado / Chegou"}
+                                  </span>
+                                  <span className="text-[7.5px] font-black text-amber-600 uppercase tracking-wider animate-pulse">
+                                    ⚡ CLIQUE PARA RETOMAR
+                                  </span>
+                                </div>
                               )}
                             </div>
                             <div className="flex items-center gap-2 mt-1">
@@ -3235,46 +3782,104 @@ export default function DriverView({ user }: DriverViewProps) {
                 </div>
               </div>
             ) : activeInternalTab === "rendas" ? (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">
-                    Declaração de Renda Diária
-                  </h3>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1 font-sans">
-                    Declare o faturamento do dia para validação.
-                  </p>
-                </div>
-
-                {/* Sincronizado cards and automatics */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans">
-                  <div className="bg-slate-900 rounded-[2rem] p-6 text-white relative overflow-hidden shadow-md">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 blur-3xl rounded-full -mr-16 -mt-16" />
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest relative z-10">
-                      Balanço Total Sincronizado
+              <div className="space-y-6 font-sans">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">
+                      Declaração de Renda Diária
+                    </h3>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1 font-sans">
+                      Declare o faturamento do dia para validação.
                     </p>
-                    <h2 className="text-3xl font-black mt-2 relative z-10 tracking-tight">
-                      {(earnings || 0).toLocaleString()} <span className="text-sm text-slate-400 font-medium font-mono">Kz</span>
-                    </h2>
-                    <div className="mt-4 flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 relative z-10 uppercase tracking-wider">
-                      <CheckCircle2 size={11} className="animate-pulse" />
-                      <span>Sincronizado com Central Luena</span>
-                    </div>
                   </div>
-
-                  <div className="bg-white rounded-[2rem] p-6 border border-slate-100 flex flex-col justify-between shadow-sm">
-                    <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
-                        Renda das Corridas Concluídas (App)
-                      </p>
-                      <h3 className="text-3xl font-black mt-2 text-emerald-600 tracking-tight">
-                        {(passengerRidesTotal || 0).toLocaleString()} <span className="text-sm text-emerald-550 font-medium font-mono">Kz</span>
-                      </h3>
-                    </div>
-                    <div className="mt-4 bg-emerald-50 text-emerald-700 p-2.5 rounded-xl text-[8.5px] font-bold uppercase tracking-wider text-center border border-emerald-100">
-                      Este campo não é editável e reflete o total automático das corridas concluídas com sucesso.
-                    </div>
-                  </div>
+                  {/* Three Dots Button for Advanced Metrics */}
+                  <button
+                    type="button"
+                    onClick={() => setShowThreeDotsMetrics(!showThreeDotsMetrics)}
+                    className={`p-2.5 rounded-full border transition-all flex items-center justify-center ${
+                      showThreeDotsMetrics
+                        ? "bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/20"
+                        : "bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 border-slate-200"
+                    }`}
+                    title="Métricas de Faturamento (App)"
+                  >
+                    <MoreVertical size={16} />
+                  </button>
                 </div>
+
+                {/* Animated Collapsible Metrics Section */}
+                <AnimatePresence>
+                  {showThreeDotsMetrics && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="bg-slate-50 border border-slate-200/60 rounded-[2rem] p-5 space-y-4 shadow-inner relative overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between border-b border-slate-200/50 pb-2 mb-1">
+                        <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                          <Activity size={12} className="text-emerald-500 animate-pulse" /> Métricas e Faturação Automática
+                        </h4>
+                        <span className="text-[8px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase">
+                          Consola Driver
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Faturamento Bruto Total (Aprovado) Card */}
+                        <div className="bg-slate-900 rounded-2xl p-4 text-white relative overflow-hidden shadow-sm">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 blur-2xl rounded-full -mr-12 -mt-12" />
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
+                            Faturamento Bruto Total (Aprovado)
+                          </p>
+                          <h2 className="text-xl font-black mt-1.5 relative z-10 tracking-tight">
+                            {(approvedEarnings || 0).toLocaleString()} <span className="text-xs text-slate-400 font-medium font-mono">Kz</span>
+                          </h2>
+                          <p className="text-[8px] text-slate-400 mt-1 font-bold uppercase relative z-10">Renda Aprovada pela Central</p>
+                        </div>
+
+                        {/* Faturação Automática (App) Card */}
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm relative overflow-hidden flex flex-col justify-between">
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 blur-2xl rounded-full -mr-10 -mt-10" />
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
+                              Faturação Automática Concluídas (App)
+                            </p>
+                            <h2 className="text-xl font-black mt-1.5 text-emerald-600 tracking-tight relative z-10">
+                              {(passengerRidesTotal || 0).toLocaleString()} <span className="text-xs text-emerald-550 font-medium font-mono">Kz</span>
+                            </h2>
+                          </div>
+                          <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 relative z-10 flex items-center gap-1">
+                            <span className={`w-1.5 h-1.5 rounded-full ${passengerRidesTotal > 0 ? "bg-amber-400 animate-ping" : "bg-emerald-400"}`} />
+                            {passengerRidesTotal > 0 ? "Acumulado Pendente de Declaração" : "Reiniciado / Em Dia"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Historical Logs and Explanatory box */}
+                      <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
+                          <div>
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider leading-none">
+                              Histórico de Faturação Automática (App)
+                            </p>
+                            <p className="text-[8px] text-slate-400 font-medium mt-0.5">
+                              Registo perpétuo acumulado de corridas deste motorista.
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-black text-slate-800 font-mono">
+                              {(passengerRidesAllTimeTotal || 0).toLocaleString()} Kz
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-[8.5px] text-slate-500 font-medium leading-relaxed">
+                          Nota: A faturação do App reinicia quando o motorista declara a renda. O bónus e a comissão das corridas do aplicativo serão integrados no seu Salário Líquido assim que declarar a renda correspondente e a mesma for aprovada pela administração de José Iweza Suana (JIS).
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 {/* Form Entrega de Renda */}
                 <div className="bg-white rounded-[2rem] p-6 border border-slate-100 space-y-4 shadow-sm">
@@ -3480,7 +4085,7 @@ export default function DriverView({ user }: DriverViewProps) {
                         onClick={() => {
                           setSelectedRingtone(ring.id);
                           localStorage.setItem('driver_ringtone', ring.id);
-                          playPreview(ring.url);
+                          playPreview(ring.url, ring.id);
                         }}
                         className={cn(
                           "w-full p-4 rounded-2xl border flex items-center justify-between transition-all active:scale-95",
@@ -4100,218 +4705,7 @@ export default function DriverView({ user }: DriverViewProps) {
           )}
         </AnimatePresence>
 
-        {/* Incoming Service Notification Modal Overlay */}
-        <AnimatePresence>
-          {showNotification && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={forceDismissService}
-                className="fixed inset-0 bg-slate-950/70 backdrop-blur-md"
-              />
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0, y: 30 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.95, opacity: 0, y: 30 }}
-                className="relative w-full max-w-lg bg-white rounded-[2.5rem] p-6 sm:p-8 space-y-6 sm:space-y-8 shadow-2xl overflow-y-auto max-h-[90vh] no-scrollbar z-10"
-              >
-                <div className="absolute top-4 right-4">
-                   <button 
-                     onClick={forceDismissService}
-                     className="w-10 h-10 flex flex-col items-center justify-center bg-slate-100 text-slate-500 rounded-full active:scale-95 transition-all text-[8px] font-black uppercase"
-                   >
-                     <XCircle size={16} className="mb-0.5" />
-                     Sair
-                   </button>
-                </div>
-                <div className="text-center space-y-2 pt-4">
-                  <div className={cn(
-                    "w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 border-2",
-                    (currentService?.type === "direct_referral" || currentService?.isForwarded)
-                      ? "bg-orange-500/10 border-orange-500/20 text-orange-500"
-                      : "bg-brand-primary/10 border-brand-primary/20 text-brand-primary"
-                  )}>
-                    <Phone
-                      size={32}
-                      className="animate-bounce"
-                    />
-                  </div>
-                  <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase leading-none">
-                    {(currentService?.type === "direct_referral" || currentService?.isForwarded) ? "Chamada Recebida!" : "Novo Serviço!"}
-                  </h3>
-                  <p className="text-sm font-medium text-slate-500 uppercase tracking-widest">
-                    {(currentService?.type === "direct_referral" || currentService?.isForwarded) 
-                      ? `De: ${currentService.transferredBy?.name || "Colega de Turno"}`
-                      : "Pedido da Central PSM"
-                    }
-                  </p>
-                </div>
-
-                <div className="space-y-4 bg-slate-50 p-6 rounded-3xl border border-slate-100">
-                  {(currentService?.type === "direct_referral" || currentService?.isForwarded) && (
-                    <div className="bg-orange-50 border border-orange-200 p-3 rounded-2xl text-left mb-2">
-                      <p className="text-[9px] font-black text-orange-800 uppercase tracking-wide">💡 NOTA DE REENCAMINHAMENTO</p>
-                      <p className="text-[10px] text-orange-700 font-bold leading-tight mt-1">
-                        O colega {currentService.transferredBy?.name || "de turno"} reencaminhou este cliente direto por estar muito ocupado com outras corridas de momento ou em Manutenção.
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                      Passageiro
-                    </span>
-                    <span className="text-[11px] font-bold text-slate-800">
-                      {currentService?.customerName || currentService?.passengerName || "Cliente Particular"}
-                    </span>
-                  </div>
-                  {(currentService?.customerPhone || currentService?.passengerPhone) && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        Telemóvel
-                      </span>
-                      <span className="text-[11px] font-black text-slate-800 tracking-wider">
-                        {currentService.customerPhone || currentService.passengerPhone}
-                      </span>
-                    </div>
-                  )}
-                  {currentService?.passengerCount !== undefined && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        Passageiros
-                      </span>
-                      <span className="text-[11px] font-black text-slate-800 font-mono">
-                        {currentService.passengerCount} {currentService.passengerCount === 1 ? "Passageiro" : "Passageiros"}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                      Valor
-                    </span>
-                    <span className="text-[11px] font-black text-emerald-600 uppercase">
-                      {currentService?.price ? `${currentService.price.toLocaleString()} AKZ` : "A Propor Preço"}
-                    </span>
-                  </div>
-                  <div className="pt-4 border-t border-slate-200">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                      Ponto de Recolha
-                    </p>
-                    <p className="text-sm font-bold text-slate-800 leading-tight">
-                      {currentService?.pickupAddress || currentService?.pickup || "Localização Detetada no Luena"}
-                    </p>
-                  </div>
-                  {currentService?.destinationAddress || currentService?.destination ? (
-                    <div className="pt-2 border-t border-slate-100">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                        Ponto de Destino
-                      </p>
-                      <p className="text-sm font-bold text-slate-800 leading-tight">
-                        {currentService.destinationAddress || currentService.destination}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-
-                {currentService?.status === "pending" ? (
-                  <div className="pt-4 border-t border-slate-200 flex gap-4">
-                    <button
-                      onClick={rejectService}
-                      className="flex-1 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 text-slate-500 font-black text-xs uppercase tracking-widest transition-all active:scale-95 border border-slate-200"
-                    >
-                      Rejeitar (15s)
-                    </button>
-                    <button
-                      onClick={attendCall}
-                      className="flex-[2] py-5 rounded-3xl bg-emerald-500 hover:bg-emerald-400 text-white font-black text-xs uppercase tracking-widest transition-all active:scale-95 shadow-xl shadow-emerald-500/20 animate-pulse flex items-center justify-center gap-2"
-                    >
-                      <PhoneCall size={16} className="animate-bounce" />
-                      Atender Chamada
-                    </button>
-                  </div>
-                ) : currentService?.status === "connected" ? (
-                  <div className="pt-4 border-t border-slate-200 space-y-4">
-                    <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl text-center">
-                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Chamada Atendida</p>
-                      <p className="text-xs font-bold text-emerald-800 mt-0.5">Indique o preço ou reencaminhe</p>
-                    </div>
-                    <div className="space-y-3">
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                        Propor Preço da Viagem (AKZ)
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          placeholder="Ex: 2500"
-                          value={proposedPrice}
-                          onChange={(e) => setProposedPrice(e.target.value)}
-                          className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                        />
-                        <button
-                          onClick={() => sendPriceOffer()}
-                          className="px-5 py-3 rounded-xl bg-slate-950 border border-slate-900 hover:bg-slate-900 text-white font-black text-xs uppercase tracking-wider transition-all shadow-lg"
-                        >
-                          PROPOR
-                        </button>
-                      </div>
-                      <div className="flex gap-1.5 justify-between">
-                        {[1500, 2000, 2500, 3000].map((val) => (
-                          <button
-                            key={val}
-                            onClick={() => sendPriceOffer(val)}
-                            className="flex-1 bg-white hover:bg-slate-100 py-2 rounded-lg text-[10px] font-black text-slate-600 transition-all border border-slate-200 shadow-sm"
-                          >
-                            {val.toLocaleString()} Kz
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="pt-2">
-                      <button 
-                        onClick={() => setIsNewCallTransferModalOpen(true)}
-                        className="w-full flex items-center justify-center gap-2 py-4 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-2xl border border-slate-200 transition-all text-xs font-black uppercase tracking-widest"
-                      >
-                        <RefreshCw size={14} />
-                        Reencaminhar a Colega
-                      </button>
-                    </div>
-                  </div>
-                ) : currentService?.status === "confirmed" ? (
-                  <div className="flex gap-4">
-                    <button
-                      onClick={rejectService}
-                      className="flex-1 py-5 rounded-3xl bg-slate-100 hover:bg-slate-200 text-slate-500 font-black text-xs uppercase tracking-widest transition-all active:scale-95 border border-slate-200"
-                    >
-                      Recusar
-                    </button>
-                    <button
-                      onClick={acceptService}
-                      className="flex-[2] py-5 rounded-3xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2 animate-pulse"
-                    >
-                      <PhoneCall size={16} />
-                      INICIAR CORRIDA ACORDADA ({currentService.price?.toLocaleString()} Kz)
-                    </button>
-                  </div>
-                ) : currentService?.status === "price_sent" ? (
-                  <div className="space-y-3">
-                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-3xl text-center">
-                      <p className="text-xs font-black text-blue-800 uppercase tracking-widest animate-pulse">A AGUARDAR O PASSAGEIRO VIP...</p>
-                      <p className="text-[10px] text-blue-600 font-bold mt-1 uppercase">O preço proposto de {currentService.price?.toLocaleString()} Kz foi enviado. Tem o controlo na consola.</p>
-                    </div>
-                    <button
-                      onClick={() => setShowNotification(false)}
-                      className="w-full py-4 rounded-3xl bg-slate-900 hover:bg-black text-white font-black text-xs uppercase tracking-widest transition-all"
-                    >
-                      Ver no Painel Posterior
-                    </button>
-                  </div>
-                ) : null}
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
+        {/* O modal flutuante foi completamente removido a pedido do administrador José Iweza Suana para evitar ecrãs duplicados; apenas a consola de controlo dedicada/painel inferior é utilizado */}
 
       {/* Bottom Navigation */}
       <div className="fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 flex justify-around items-center py-3 z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy, limit, where, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit, where, doc, updateDoc, deleteDoc, getDocs } from '@/src/lib/firebase';
 import { 
   Users, 
   AlertCircle, 
@@ -16,8 +16,68 @@ import {
   Clock,
   AlertOctagon,
   ShieldAlert,
-  Trash2
+  Trash2,
+  Smartphone,
+  Loader2
 } from 'lucide-react';
+import { getActiveTenantId } from '../lib/firebase';
+import PassengerAppConfig from './PassengerAppConfig';
+
+function PassengerAvatar({ src, name, size = "md" }: { src?: string; name?: string; size?: "sm" | "md" | "lg" }) {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const initials = (name || "P")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(n => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const sizeClasses = {
+    sm: "w-7 h-7 text-[10px] rounded-full",
+    md: "w-8 h-8 text-[11px] rounded-full",
+    lg: "w-16 h-16 text-lg rounded-full"
+  };
+
+  const bgColors = [
+    "bg-amber-500/10 text-amber-500 border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+    "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30",
+    "bg-blue-500/10 text-blue-500 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30",
+    "bg-purple-500/10 text-purple-500 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400 dark:border-purple-500/30",
+    "bg-rose-500/10 text-rose-500 border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30",
+  ];
+
+  const getStableBg = (str: string) => {
+    let sum = 0;
+    for (let i = 0; i < str.length; i++) {
+      sum += str.charCodeAt(i);
+    }
+    return bgColors[sum % bgColors.length];
+  };
+
+  if (src && !hasError) {
+    return (
+      <img
+        src={src}
+        alt={name || "Passageiro"}
+        referrerPolicy="no-referrer"
+        onError={() => setHasError(true)}
+        className={`${sizeClasses[size]} object-cover border border-slate-200 dark:border-slate-800 shrink-0`}
+      />
+    );
+  }
+
+  return (
+    <div className={`${sizeClasses[size]} flex items-center justify-center font-black uppercase tracking-tight border shrink-0 ${getStableBg(name || "P")}`}>
+      {initials || "P"}
+    </div>
+  );
+}
 
 export default function PassengerManagement({ user }: { user: any }) {
   const [passengers, setPassengers] = useState<any[]>([]);
@@ -27,6 +87,39 @@ export default function PassengerManagement({ user }: { user: any }) {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [callSearchTerm, setCallSearchTerm] = useState('');
   const [passengerSearchTerm, setPassengerSearchTerm] = useState('');
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config'>('dashboard');
+  const [activeTenantName, setActiveTenantName] = useState('SUPER Taxi');
+  const [isClearingCalls, setIsClearingCalls] = useState(false);
+  const currentTenantId = getActiveTenantId() || '';
+
+  const handleResetCallLogs = async () => {
+    const confirmMsg = `Tem a certeza absoluta de que deseja ZERAR todos os Registos de Chamadas de Passageiros?\n\nEsta ação irá remover permanentemente todos os logs de chamadas/corridas da base de dados da ${activeTenantName || 'SUPER Taxi'}.`;
+    if (window.confirm(confirmMsg)) {
+      setIsClearingCalls(true);
+      try {
+        const q = query(collection(db, 'calls'));
+        const querySnapshot = await getDocs(q);
+        const deletePromises = querySnapshot.docs.map(docSnap => deleteDoc(doc(db, 'calls', docSnap.id)));
+        await Promise.all(deletePromises);
+        alert("Todos os registos de chamadas foram removidos com sucesso!");
+      } catch (err: any) {
+        console.error("Erro ao zerar chamadas:", err);
+        alert("Ocorreu um erro ao zerar os registos de chamadas: " + err.message);
+      } finally {
+        setIsClearingCalls(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!currentTenantId) return;
+    const unsub = onSnapshot(doc(db, 'tenants', currentTenantId), (snap) => {
+      if (snap.exists() && snap.data().name) {
+        setActiveTenantName(snap.data().name);
+      }
+    });
+    return () => unsub();
+  }, [currentTenantId]);
 
   const handleToggleBan = async (p: any) => {
     const nextBanned = !p.banned;
@@ -216,8 +309,51 @@ export default function PassengerManagement({ user }: { user: any }) {
 
   return (
     <div className="space-y-6">
-      {/* High Density Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Navigation Sub-Tabs bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm">
+        <div className="text-left">
+          <h2 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+            <Users size={20} className="text-brand-primary" />
+            Ecossistema de Passageiros
+          </h2>
+          <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
+            Consola Geral & Integração Móvel • {activeTenantName.toUpperCase()}
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 self-start sm:self-center">
+          <button
+            onClick={() => setActiveSubTab('dashboard')}
+            className={`px-4 py-2 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === 'dashboard' 
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm border border-slate-200/50 dark:border-white/5' 
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-250'
+            }`}
+          >
+            <Users size={14} />
+            Estatísticas & Chamadas
+          </button>
+          
+          <button
+            onClick={() => setActiveSubTab('config')}
+            className={`px-4 py-2 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === 'config' 
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm border border-slate-200/50 dark:border-white/5' 
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-250'
+            }`}
+          >
+            <Smartphone size={14} />
+            Configurar App do Passageiro
+          </button>
+        </div>
+      </div>
+
+      {activeSubTab === 'config' ? (
+        <PassengerAppConfig tenantId={currentTenantId} tenantName={activeTenantName} />
+      ) : (
+        <>
+          {/* High Density Metric Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-white/5 shadow-sm">
           <div className="flex items-center gap-3 mb-2">
             <Users className="text-brand-primary animate-pulse" size={24} />
@@ -371,6 +507,7 @@ export default function PassengerManagement({ user }: { user: any }) {
                         onClick={() => setExpandedRow(expandedRow === p.id ? null : p.id)}
                       >
                         <td className="p-3 font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <PassengerAvatar src={p.photoUrl} name={p.name} size="sm" />
                           <span className="truncate">{p.name || 'Anónimo'}</span>
                           {p.banned && (
                             <span className="bg-red-100 text-red-800 dark:bg-rose-950/60 dark:text-rose-400 px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-tight flex items-center gap-1 shrink-0 animate-pulse border border-red-200 dark:border-red-950/40">
@@ -409,10 +546,13 @@ export default function PassengerManagement({ user }: { user: any }) {
                       {expandedRow === p.id && (
                         <tr>
                           <td colSpan={3} className="p-4 bg-slate-50 dark:bg-slate-850 rounded-xl">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-600 dark:text-slate-300 font-semibold mb-3">
-                              <div><span className="font-black uppercase text-[10px] text-slate-400 block mb-0.5">Telemóvel</span> {p.backupPhone || p.phone || 'N/A'}</div>
-                              <div><span className="font-black uppercase text-[10px] text-slate-400 block mb-0.5">Idade</span> {p.age || 'N/A'} anos</div>
-                              <div className="sm:col-span-2"><span className="font-black uppercase text-[10px] text-slate-400 block mb-0.5">Data de Registo</span> {p.createdAt ? (p.createdAt.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-PT') : new Date(p.createdAt).toLocaleDateString('pt-PT')) : 'N/A'}</div>
+                            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center mb-3">
+                              <PassengerAvatar src={p.photoUrl} name={p.name} size="lg" />
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-600 dark:text-slate-300 font-semibold flex-1 w-full">
+                                <div><span className="font-black uppercase text-[10px] text-slate-400 block mb-0.5">Telemóvel</span> {p.backupPhone || p.phone || 'N/A'}</div>
+                                <div><span className="font-black uppercase text-[10px] text-slate-400 block mb-0.5">Idade</span> {p.age || 'N/A'} anos</div>
+                                <div className="sm:col-span-2"><span className="font-black uppercase text-[10px] text-slate-400 block mb-0.5">Data de Registo</span> {p.createdAt ? (p.createdAt.seconds ? new Date(p.createdAt.seconds * 1000).toLocaleDateString('pt-PT') : new Date(p.createdAt).toLocaleDateString('pt-PT')) : 'N/A'}</div>
+                              </div>
                             </div>
                             
                             <div className="border-t border-slate-200/55 dark:border-white/5 pt-3 flex flex-wrap gap-2">
@@ -467,16 +607,29 @@ export default function PassengerManagement({ user }: { user: any }) {
               <h3 className="text-md font-black text-slate-900 dark:text-white uppercase tracking-tighter">Registos de Chamadas de Passageiros</h3>
             </div>
             
-            {/* Search Filter */}
-            <div className="relative">
-              <input 
-                type="text" 
-                placeholder="Pesquisar chamadas..." 
-                value={callSearchTerm}
-                onChange={(e) => setCallSearchTerm(e.target.value)}
-                className="pl-8 pr-3 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/5 rounded-xl text-xs text-slate-800 dark:text-slate-100 w-full sm:w-48"
-              />
-              <Search size={14} className="absolute left-2.5 top-2 text-slate-400" />
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Reset Call Logs Button */}
+              <button
+                type="button"
+                disabled={isClearingCalls}
+                onClick={handleResetCallLogs}
+                className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-400 text-white text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-xl transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
+              >
+                {isClearingCalls ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Zerar Chamadas
+              </button>
+
+              {/* Search Filter */}
+              <div className="relative">
+                <input 
+                  type="text" 
+                  placeholder="Pesquisar chamadas..." 
+                  value={callSearchTerm}
+                  onChange={(e) => setCallSearchTerm(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/5 rounded-xl text-xs text-slate-800 dark:text-slate-100 w-full sm:w-48 outline-none focus:ring-1 focus:ring-brand-primary"
+                />
+                <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+              </div>
             </div>
           </div>
 
@@ -508,9 +661,47 @@ export default function PassengerManagement({ user }: { user: any }) {
                       </td>
                       {/* Client Info */}
                       <td className="p-3">
-                        <div>
-                          <p className="font-black text-slate-900 dark:text-white leading-tight">{c.clientName || c.passengerName || 'Contacto Directo'}</p>
-                          <p className="text-[10px] text-slate-400 font-semibold">{c.phone || c.clientPhone || 'Sem número'}</p>
+                        <div className="flex items-center gap-2.5">
+                          {(() => {
+                            const passengerName = c.clientName || c.passengerName || 'P';
+                            const matchedPassenger = passengers.find(p => p.name && p.name.trim().toLowerCase() === passengerName.trim().toLowerCase());
+                            const photoSrc = c.passengerPhoto || matchedPassenger?.photoUrl;
+                            return (
+                              <PassengerAvatar 
+                                src={photoSrc} 
+                                name={passengerName} 
+                                size="md" 
+                              />
+                            );
+                          })()}
+                          <div>
+                            <p className="font-black text-slate-900 dark:text-white leading-tight">{c.clientName || c.passengerName || 'Contacto Directo'}</p>
+                            <p className="text-[10px] text-slate-400 font-semibold">{c.phone || c.clientPhone || 'Sem número'}</p>
+                          </div>
+                          {c.bonusLog && (
+                            <div className="mt-1.5 max-w-[200px] text-[9.5px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded-lg text-left leading-tight space-y-0.5 shadow-sm">
+                              <p className="font-black text-[8px] uppercase tracking-wider text-amber-600 dark:text-amber-500 mb-1">Log de Bónus (Admin):</p>
+                              <div className="flex justify-between gap-2 font-mono text-[9px]">
+                                <span>Saldo Inicial:</span>
+                                <span className="font-bold">{Number(c.bonusLog.initial || 0).toLocaleString('pt-PT')} Kz</span>
+                              </div>
+                              {c.bonusLog.type === 'deduction' ? (
+                                <div className="flex justify-between gap-2 font-mono text-[9px] text-rose-500">
+                                  <span>Subtraído:</span>
+                                  <span className="font-bold">-{Number(c.bonusLog.subtracted || 0).toLocaleString('pt-PT')} Kz</span>
+                                </div>
+                              ) : (
+                                <div className="flex justify-between gap-2 font-mono text-[9px] text-emerald-500">
+                                  <span>Acumulado:</span>
+                                  <span className="font-bold">+{Number(c.bonusLog.added || 0).toLocaleString('pt-PT')} Kz</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between gap-2 font-mono text-[9px] border-t border-amber-500/10 pt-1 mt-1 font-bold text-slate-700 dark:text-amber-300 font-black">
+                                <span>Saldo Final:</span>
+                                <span>{Number(c.bonusLog.final || 0).toLocaleString('pt-PT')} Kz</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </td>
                       {/* Route Trajeto */}
@@ -563,6 +754,8 @@ export default function PassengerManagement({ user }: { user: any }) {
         </div>
 
       </div>
+      </>
+      )}
     </div>
   );
 }

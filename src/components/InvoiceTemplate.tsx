@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
+import { db, getActiveTenantId } from '../lib/firebase';
+import { doc, onSnapshot } from '@/src/lib/firebase';
 
 interface InvoiceData {
   id: string;
@@ -20,6 +22,31 @@ interface InvoiceTemplateProps {
 }
 
 export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({ data, documentNumber }) => {
+  const [activeTenantData, setActiveTenantData] = useState<{
+    id: string;
+    name: string;
+    phone: string;
+    address: string;
+    logoUrl?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const tenantId = getActiveTenantId();
+    const unsubTenant = onSnapshot(doc(db, "tenants", tenantId), (snapshot) => {
+      if (snapshot.exists()) {
+        setActiveTenantData({ id: snapshot.id, ...snapshot.data() } as any);
+      } else {
+        setActiveTenantData({
+          id: tenantId,
+          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS. (SU), LDA LUENA-MOXICO',
+          phone: '+244 921 277 223',
+          address: 'Bairro Social Da Juventude, Luena-Moxico',
+        });
+      }
+    });
+    return () => unsubTenant();
+  }, []);
+
   const start = new Date(data.startDate);
   const end = new Date(data.endDate);
   
@@ -44,23 +71,30 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({ data, document
       <div className="flex justify-between items-start mb-8">
         <div className="flex flex-col">
           <div className="flex items-center gap-4 mb-4">
-            <div className="relative w-16 h-16 flex items-center justify-center">
-              {/* Stylized Logo similar to the image */}
-              <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-red-500 rotate-45"></div>
-              <div className="relative z-10 flex flex-col items-center leading-none">
-                <span className="text-2xl font-black text-blue-900 leading-none">PS</span>
+            {activeTenantData?.logoUrl ? (
+              <img src={activeTenantData.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded-xl" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="relative w-16 h-16 flex items-center justify-center">
+                {/* Stylized Logo similar to the image */}
+                <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-red-500 rotate-45"></div>
+                <div className="relative z-10 flex flex-col items-center leading-none">
+                  <span className="text-2xl font-black text-blue-900 leading-none">
+                    {activeTenantData?.name ? activeTenantData.name.slice(0, 2).toUpperCase() : "PS"}
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
             <div className="leading-tight">
-              <h1 className="text-3xl font-black tracking-tighter text-blue-900 italic">MOREIRA</h1>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-800">COMERCIAL (SU), LDA</p>
+              <h1 className="text-2xl font-black tracking-tighter text-blue-900 italic">
+                {activeTenantData?.name || "PSMOREIRA COMERCIAL (SU), LDA"}
+              </h1>
             </div>
           </div>
           <div className="text-[10px] space-y-0.5 mt-2">
-            <p className="font-black text-slate-800 uppercase text-xs">PSMOREIRA COMERCIAL (SU), LDA</p>
+            <p className="font-black text-slate-800 uppercase text-xs">{activeTenantData?.name || "PSMOREIRA COMERCIAL (SU), LDA"}</p>
             <p><span className="font-bold">NIF:</span> 5001062654</p>
-            <p><span className="font-bold">ENDEREÇO:</span> Bairro Social Da Juventude</p>
-            <p><span className="font-bold">TELEFONE:</span> +244 921 277 223</p>
+            <p><span className="font-bold">ENDEREÇO:</span> {activeTenantData?.address || "Bairro Social Da Juventude"}</p>
+            <p><span className="font-bold">TELEFONE:</span> {activeTenantData?.phone || "+244 921 277 223"}</p>
             <p><span className="font-bold">EMAIL:</span> paulosergio8280@gmail.com</p>
             <p className="font-bold underline decoration-blue-500">Moxico-angola</p>
           </div>
@@ -256,7 +290,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({ data, document
             <p>Documento Proforma para efeitos informais</p>
             <div className="text-right">
               <div className="w-32 h-1 bg-blue-600 mb-1"></div>
-              <p className="uppercase font-black text-slate-900 not-italic">PSMOREIRA COMERCIAL (SU), LDA</p>
+              <p className="uppercase font-black text-slate-900 not-italic">{activeTenantData?.name || "PSMOREIRA COMERCIAL (SU), LDA"}</p>
             </div>
          </div>
       </div>

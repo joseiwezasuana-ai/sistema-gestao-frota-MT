@@ -28,7 +28,7 @@ import {
   serverTimestamp,
   orderBy,
   where
-} from 'firebase/firestore';
+} from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import { cn } from '../lib/utils';

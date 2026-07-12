@@ -43,7 +43,7 @@ import RealTimeMap from "./RealTimeMap";
 import WaitingTimer from './WaitingTimer';
 import Settings from "./Settings";
 import UserManual from "./UserManual";
-import { collection, query, orderBy, onSnapshot, where, limit } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, where, limit } from '@/src/lib/firebase';
 
 interface StaffMobileViewProps {
   user: any;
@@ -240,7 +240,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     shift: 'Diurno' as 'Diurno' | 'Nocturno' | '24h',
     status: 'Ativo' as 'Ativo' | 'Folga' | 'Suspenso',
     phone: '',
-    secondaryPhone: ''
+    secondaryPhone: '',
+    passengerAppActive: true
   });
 
   // Approve Revenue Handler
@@ -278,8 +279,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
         }
       }
 
-      // Notify driver of approval
-      if (revenue.driverId) {
+      // Notify driver of approval (ONLY when approved by operator to avoid duplicates)
+      if (revenue.driverId && newStatus === 'approved_by_operator') {
         await addDoc(collection(db, 'messages'), {
           type: 'success',
           category: 'revenue_approval',
@@ -1114,7 +1115,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                           shift: 'Diurno',
                           status: 'Ativo',
                           phone: '',
-                          secondaryPhone: ''
+                          secondaryPhone: '',
+                          passengerAppActive: true
                         });
                         setIsScaleModalOpen(true);
                       }}
@@ -1608,6 +1610,22 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                    />
                 </div>
 
+                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex items-center justify-between">
+                  <div className="flex flex-col mr-3">
+                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-wider">App do Passageiro</span>
+                    <span className="text-[9px] text-slate-500 font-medium leading-normal mt-0.5">Visível no mapa de Luena para os clientes</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                    <input 
+                      type="checkbox" 
+                      checked={scaleFormData.passengerAppActive}
+                      onChange={(e) => setScaleFormData({ ...scaleFormData, passengerAppActive: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-slate-950 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-800 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-primary"></div>
+                  </label>
+                </div>
+
                 <div className="bg-brand-primary/10 border border-brand-primary/20 p-5 rounded-2xl">
                    <div className="flex items-center gap-3 text-brand-primary mb-2">
                       <Zap size={18} />
@@ -1665,6 +1683,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                           recentCalls: [],
                           rendaStatus: 'pending',
                           callCount: 0,
+                          passengerAppActive: scaleFormData.passengerAppActive !== false,
                           updatedAt: new Date().toISOString()
                         });
                       }

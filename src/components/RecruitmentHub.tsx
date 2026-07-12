@@ -15,7 +15,8 @@ import {
   ExternalLink,
   XCircle,
   Lock,
-  X
+  X,
+  TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
@@ -25,6 +26,8 @@ import DriversMaster from './DriversMaster';
 import RentACar from './RentACar';
 import InternalClients from './InternalClients';
 import VehicleRegistry from './VehicleRegistry';
+import DriverAppConfig from './DriverAppConfig';
+import DriverDashboard from './DriverDashboard';
 import { 
   Car,
   CarFront,
@@ -46,7 +49,7 @@ import {
   orderBy,
   getDocs,
   writeBatch
-} from 'firebase/firestore';
+} from '@/src/lib/firebase';
 
 const ROLES = [
   { id: 'gerente', label: 'Gerente', icon: ShieldCheck, color: 'text-rose-500', bg: 'bg-rose-50' },
@@ -56,7 +59,7 @@ const ROLES = [
   { id: 'driver', label: 'Motorista', icon: User, color: 'text-teal-500', bg: 'bg-teal-50' },
 ];
 
-type SubTab = 'access' | 'drivers_master' | 'admin_staff' | 'rent_a_car' | 'internal_clients' | 'vehicles' | 'psm_phones' | 'warehouse';
+type SubTab = 'access' | 'drivers_master' | 'admin_staff' | 'rent_a_car' | 'internal_clients' | 'vehicles' | 'psm_phones' | 'warehouse' | 'driver_config' | 'driver_dashboard';
 
 export default function RecruitmentHub({ user }: { user?: any }) {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('access');
@@ -137,6 +140,7 @@ export default function RecruitmentHub({ user }: { user?: any }) {
       { id: 'access', roles: ['admin'] },
       { id: 'drivers_master', roles: ['admin'] },
       { id: 'admin_staff', roles: ['admin'] },
+      { id: 'driver_dashboard', roles: ['admin', 'operator', 'contabilista'] },
       { id: 'vehicles', roles: ['admin'] },
       { id: 'rent_a_car', roles: ['admin'] },
       { id: 'internal_clients', roles: ['admin'] },
@@ -412,7 +416,9 @@ export default function RecruitmentHub({ user }: { user?: any }) {
         {[
           { id: 'access', label: 'Gestão de Acessos', icon: Key, roles: ['admin'] },
           { id: 'drivers_master', label: 'Banco de Motoristas', icon: User, roles: ['admin'] },
+          { id: 'driver_dashboard', label: 'Estatísticas de Motoristas', icon: TrendingUp, roles: ['admin', 'operator', 'contabilista'] },
           { id: 'admin_staff', label: 'Staff Administrativo', icon: Briefcase, roles: ['admin'] },
+          { id: 'driver_config', label: 'Configurar App Motorista', icon: Smartphone, roles: ['admin'] },
           { id: 'vehicles', label: 'Master de Viaturas', icon: Car, roles: ['admin'] },
           { id: 'rent_a_car', label: 'Rent-a-Car', icon: CarFront, roles: ['admin'] },
           { id: 'internal_clients', label: 'Clientes de Contrato', icon: UsersIcon, roles: ['admin'] },
@@ -443,6 +449,18 @@ export default function RecruitmentHub({ user }: { user?: any }) {
       </div>
 
       <AnimatePresence mode="wait">
+        {activeSubTab === 'driver_dashboard' && (
+          <motion.div
+            key="driver_dashboard"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <DriverDashboard />
+          </motion.div>
+        )}
+
         {activeSubTab === 'drivers_master' && (
           <motion.div
             key="drivers"
@@ -780,6 +798,18 @@ export default function RecruitmentHub({ user }: { user?: any }) {
             transition={{ duration: 0.2 }}
           >
             <WarehouseManager user={user} />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'driver_config' && (
+          <motion.div
+            key="driver_config"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <DriverAppConfig tenantId="default" tenantName="JIS. (SU), LDA LUENA-MOXICO" />
           </motion.div>
         )}
       </AnimatePresence>

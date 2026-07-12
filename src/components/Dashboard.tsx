@@ -10,7 +10,10 @@ import {
   ResponsiveContainer,
   Cell,
   LineChart,
-  Line
+  Line,
+  AreaChart,
+  Area,
+  Legend
 } from 'recharts';
 import { 
   ArrowUpRight, 
@@ -46,7 +49,9 @@ import {
   Car,
   ChevronRight,
   User as UserIcon,
-  Star
+  Star,
+  Award,
+  AlertTriangle
 } from 'lucide-react';
 import { format, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 import { toSafeDate, formatSafe } from '../lib/dateUtils';
@@ -65,7 +70,7 @@ import {
   Timestamp,
   where,
   doc
-} from 'firebase/firestore';
+} from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { smsService } from '../services/smsService';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
@@ -136,6 +141,7 @@ export default function Dashboard({ user }: { user: any }) {
   const { theme } = useTheme();
   const [calls, setCalls] = useState<any[]>([]);
   const [revenues, setRevenues] = useState<any[]>([]);
+  const [maintenanceLogs, setMaintenanceLogs] = useState<any[]>([]);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [driverCount, setDriverCount] = useState(0);
@@ -143,6 +149,9 @@ export default function Dashboard({ user }: { user: any }) {
   const [activeVehicles, setActiveVehicles] = useState(0);
   const [activeUnitelDrivers, setActiveUnitelDrivers] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [accidents, setAccidents] = useState<any[]>([]);
+  const [rankingFilter, setRankingFilter] = useState<'todos' | 'BOM' | 'NORMAL' | 'RUIM'>('todos');
+  const [rankingSearch, setRankingSearch] = useState('');
   const [smsLogs, setSmsLogs] = useState<any[]>([]);
   const [missedCalls, setMissedCalls] = useState<any[]>([]);
   const [criticalAlerts, setCriticalAlerts] = useState<any[]>([]);
@@ -220,6 +229,18 @@ export default function Dashboard({ user }: { user: any }) {
       setRevenues(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'revenue_logs'));
 
+    // Listen for accidents for driver performance classification
+    const qAcc = query(collection(db, 'accident_logs'));
+    const unsubAcc = onSnapshot(qAcc, (snapshot) => {
+      setAccidents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => console.error("Error listening to accident_logs in Dashboard:", error));
+
+    // Listen for Maintenance logs for financial charts
+    const qMaint = query(collection(db, 'maintenance_logs'), orderBy('timestamp', 'asc'));
+    const unsubMaint = onSnapshot(qMaint, (snapshot) => {
+      setMaintenanceLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => console.error("Error listening to maintenance_logs in Dashboard:", error));
+
     // Listen for global settings for WhatsApp link
     const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (docSnap) => {
       if (docSnap.exists()) {
@@ -234,12 +255,17 @@ export default function Dashboard({ user }: { user: any }) {
     // Listen for Panic Alerts
     const qPanic = query(
       collection(db, 'panic_alerts'), 
-      where('status', '==', 'active'),
-      orderBy('timestamp', 'desc'),
-      limit(10)
+      where('status', '==', 'active')
     );
     const unsubPanic = onSnapshot(qPanic, (snapshot) => {
-      const activePanics = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const activePanics = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() as any }))
+        .sort((a, b) => {
+          const dateA = toSafeDate(a.timestamp)?.getTime() || 0;
+          const dateB = toSafeDate(b.timestamp)?.getTime() || 0;
+          return dateB - dateA;
+        })
+        .slice(0, 10);
       setPanicAlerts(activePanics);
       
       const alerts = activePanics.map((p: any) => ({
@@ -403,8 +429,10 @@ export default function Dashboard({ user }: { user: any }) {
       unsubPanic();
       unsubSpeedLogs();
       unsubRev();
+      unsubMaint();
       unsubSettings();
       unsubInteractions();
+      unsubAcc();
     };
   }, []);
 
@@ -542,6 +570,125 @@ export default function Dashboard({ user }: { user: any }) {
     }
   };
 
+  const [selectedFinancialFleet, setSelectedFinancialFleet] = useState('todos');
+
+  const getMonthlyFinancialData = () => {
+    const monthlyMap = {};
+    const now = new Date();
+    const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthlyMap[mKey] = {
+        monthLabel: `${months[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`,
+        revenue: 0,
+        expense: 0,
+        profit: 0
+      };
+    }
+
+    if (Array.isArray(revenues)) {
+      revenues.forEach(rev => {
+        let dateStr = rev.date;
+        if (!dateStr && rev.timestamp) {
+          dateStr = typeof rev.timestamp === 'string' ? rev.timestamp.slice(0, 10) : '';
+        }
+        if (!dateStr || typeof dateStr !== 'string') return;
+
+        const parts = dateStr.split('-');
+        if (parts.length < 2) return;
+        const mKey = `${parts[0]}-${parts[1]}`;
+
+        const prefix = (rev.prefix || '').toUpperCase();
+        const isTaxi = prefix.includes('TAX');
+        const isRent = prefix.includes('ALG') || prefix.includes('RENT');
+
+        if (selectedFinancialFleet === 'taxi' && !isTaxi) return;
+        if (selectedFinancialFleet === 'rent' && !isRent) return;
+        if (selectedFinancialFleet === 'geral' && (isTaxi || isRent)) return;
+
+        if (monthlyMap[mKey]) {
+          monthlyMap[mKey].revenue += (rev.amount || 0);
+        }
+      });
+    }
+
+    if (Array.isArray(maintenanceLogs)) {
+      maintenanceLogs.forEach(maint => {
+        let dateStr = maint.date;
+        if (!dateStr && maint.timestamp) {
+          dateStr = typeof maint.timestamp === 'string' ? maint.timestamp.slice(0, 10) : '';
+        }
+        if (!dateStr || typeof dateStr !== 'string') return;
+
+        const parts = dateStr.split('-');
+        if (parts.length < 2) return;
+        const mKey = `${parts[0]}-${parts[1]}`;
+
+        const prefix = (maint.prefix || '').toUpperCase();
+        const isTaxi = prefix.includes('TAX');
+        const isRent = prefix.includes('ALG') || prefix.includes('RENT');
+
+        if (selectedFinancialFleet === 'taxi' && !isTaxi) return;
+        if (selectedFinancialFleet === 'rent' && !isRent) return;
+        if (selectedFinancialFleet === 'geral' && (isTaxi || isRent)) return;
+
+        if (monthlyMap[mKey]) {
+          monthlyMap[mKey].expense += (maint.cost || 0);
+        }
+      });
+    }
+
+    return Object.entries(monthlyMap).map(([mKey, data]) => {
+      return {
+        mKey,
+        monthLabel: data.monthLabel,
+        revenue: data.revenue,
+        expense: data.expense,
+        profit: data.revenue - data.expense
+      };
+    }).sort((a, b) => a.mKey.localeCompare(b.mKey));
+  };
+
+  const getFleetBreakdownStats = () => {
+    const stats = {
+      taxi: { revenue: 0, expense: 0 },
+      rent: { revenue: 0, expense: 0 },
+      geral: { revenue: 0, expense: 0 }
+    };
+
+    if (Array.isArray(revenues)) {
+      revenues.forEach(rev => {
+        const prefix = (rev.prefix || '').toUpperCase();
+        const amount = rev.amount || 0;
+        if (prefix.includes('TAX')) {
+          stats.taxi.revenue += amount;
+        } else if (prefix.includes('ALG') || prefix.includes('RENT')) {
+          stats.rent.revenue += amount;
+        } else {
+          stats.geral.revenue += amount;
+        }
+      });
+    }
+
+    if (Array.isArray(maintenanceLogs)) {
+      maintenanceLogs.forEach(maint => {
+        const prefix = (maint.prefix || '').toUpperCase();
+        const cost = maint.cost || 0;
+        if (prefix.includes('TAX')) {
+          stats.taxi.expense += cost;
+        } else if (prefix.includes('ALG') || prefix.includes('RENT')) {
+          stats.rent.expense += cost;
+        } else {
+          stats.geral.expense += cost;
+        }
+      });
+    }
+
+    return stats;
+  };
+
   const callsPerHourData = getCallsPerHourData();
   const averageEarningsData = getAverageEarningsData();
 
@@ -626,6 +773,141 @@ export default function Dashboard({ user }: { user: any }) {
     }
   };
 
+  const getDriverClassification = (rewards: any[], driverCallsList: any[], accidentsList: any[]) => {
+    const totalRev = rewards.reduce((sum, log) => sum + (Number(log.amount) || Number(log.value) || 0), 0);
+    const completedCallsCount = driverCallsList.filter(c => c.status === 'completed' || c.status === 'concluída').length;
+    const totalCallsCount = driverCallsList.length;
+    const compRate = totalCallsCount > 0 ? (completedCallsCount / totalCallsCount) * 100 : 0;
+    
+    const severeCount = accidentsList.filter(a => a.severity === 'Grave').length;
+    const totalAccidents = accidentsList.length;
+
+    if (severeCount > 0 || totalAccidents >= 2) {
+      return {
+        label: 'RUIM',
+        color: 'text-red-600 bg-red-50 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/30',
+        borderColor: 'border-red-200 hover:border-red-400 dark:border-red-900/40 dark:hover:border-red-800',
+        badgeColor: 'bg-red-500 text-white',
+        bulletColor: 'bg-red-500',
+        desc: 'Classificação Ruim: Registou acidentes graves ou histórico recorrente de sinistros (>1), indicando risco elevado para a frota.',
+        reason: severeCount > 0 ? 'Sinistro Grave Registado' : 'Múltiplos Sinistros / Rendimento Nulo'
+      };
+    } else if (totalAccidents === 1) {
+      if (totalRev >= 100000 && compRate >= 75) {
+        return {
+          label: 'NORMAL',
+          color: 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/30',
+          borderColor: 'border-amber-200 hover:border-amber-400 dark:border-amber-900/40 dark:hover:border-amber-800',
+          badgeColor: 'bg-amber-500 text-slate-900',
+          bulletColor: 'bg-amber-500',
+          desc: 'Classificação Normal: Enquadrado devido a um único sinistro leve ou médio registado, apesar do bom faturamento e atendimento.',
+          reason: 'Faturamento Bom com 1 Sinistro'
+        };
+      } else {
+        return {
+          label: 'RUIM',
+          color: 'text-red-600 bg-red-50 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/30',
+          borderColor: 'border-red-200 hover:border-red-400 dark:border-red-900/40 dark:hover:border-red-800',
+          badgeColor: 'bg-red-500 text-white',
+          bulletColor: 'bg-red-500',
+          desc: 'Classificação Ruim: Possui um acidente registado conjugado com baixos rendimentos monetários ou baixo volume de chamadas.',
+          reason: 'Baixo Desempenho + 1 Sinistro'
+        };
+      }
+    } else { // 0 accidents
+      if (totalRev === 0 && totalCallsCount === 0) {
+        return {
+          label: 'NORMAL',
+          color: 'text-slate-500 bg-slate-50 border-slate-200 dark:bg-slate-900/40 dark:text-slate-400 dark:border-slate-800/30',
+          borderColor: 'border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700',
+          badgeColor: 'bg-slate-500 text-white',
+          bulletColor: 'bg-slate-400',
+          desc: 'Classificação Normal: Colaborador sem histórico operacional recente ou recém-admitido na frota (0 sinistros).',
+          reason: 'Sem Atividade / Recém-admitido'
+        };
+      } else if (totalRev >= 35000 && compRate >= 70) {
+        return {
+          label: 'BOM',
+          color: 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/30',
+          borderColor: 'border-emerald-200 hover:border-emerald-400 dark:border-emerald-900/40 dark:hover:border-emerald-800 shadow-md shadow-emerald-50/50',
+          badgeColor: 'bg-emerald-500 text-white',
+          bulletColor: 'bg-emerald-400',
+          desc: 'Classificação Excelente/Bom: Rendimento financeiro consistente, bom índice de atendimento e ausência total de acidentes.',
+          reason: 'Faturamento Excelente + Sem Sinistros'
+        };
+      } else {
+        return {
+          label: 'NORMAL',
+          color: 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/30',
+          borderColor: 'border-amber-200 hover:border-amber-400 dark:border-amber-900/40 dark:hover:border-amber-800',
+          badgeColor: 'bg-amber-500 text-slate-900',
+          bulletColor: 'bg-amber-500',
+          desc: 'Classificação Normal: Histórico impecável de zero sinistros, com entregas de faturamento e chamadas moderadas.',
+          reason: 'Operação Regular + Sem Sinistros'
+        };
+      }
+    }
+  };
+
+  const rankedDrivers = React.useMemo(() => {
+    return driversMaster.map(driver => {
+      const driverRev = revenues.filter(r => r.driverName === driver.name);
+      const driverCallsList = calls.filter(c => c.driverName === driver.name);
+      const driverAccs = accidents.filter(a => a.driverName === driver.name);
+      
+      const totalRev = driverRev.reduce((sum, r) => sum + (Number(r.amount) || Number(r.value) || 0), 0);
+      const callsCount = driverCallsList.length;
+      const completedCalls = driverCallsList.filter(c => c.status === 'completed' || c.status === 'concluída').length;
+      const compRate = callsCount > 0 ? Math.round((completedCalls / callsCount) * 100) : 0;
+      const speedVioCount = speedViolations.filter(s => s.driverName === driver.name).length;
+      
+      const classif = getDriverClassification(driverRev, driverCallsList, driverAccs);
+      
+      return {
+        ...driver,
+        totalRevenue: totalRev,
+        callsCount,
+        completedCalls,
+        completionRate: compRate,
+        accidentCount: driverAccs.length,
+        speedViolationCount: speedVioCount,
+        classification: classif
+      };
+    });
+  }, [driversMaster, revenues, calls, accidents, speedViolations]);
+
+  const filteredRankedDrivers = React.useMemo(() => {
+    return rankedDrivers.filter(d => {
+      // Filter by classification label
+      if (rankingFilter !== 'todos' && d.classification.label !== rankingFilter) {
+        return false;
+      }
+      // Filter by search bar matching name or license plate
+      const search = rankingSearch.toLowerCase();
+      if (search) {
+        const matchesName = (d.name || '').toLowerCase().includes(search);
+        const matchesLicense = (d.licenseNumber || '').toLowerCase().includes(search);
+        return matchesName || matchesLicense;
+      }
+      return true;
+    }).sort((a, b) => {
+      // Sort: BOM first, then NORMAL, then RUIM, and secondary sort by revenue
+      const tierMap = { 'BOM': 1, 'NORMAL': 2, 'RUIM': 3 };
+      const tierA = tierMap[a.classification.label] || 2;
+      const tierB = tierMap[b.classification.label] || 2;
+      if (tierA !== tierB) return tierA - tierB;
+      return b.totalRevenue - a.totalRevenue; // higher revenues first
+    });
+  }, [rankedDrivers, rankingFilter, rankingSearch]);
+
+  const rankingStats = React.useMemo(() => {
+    const total = rankedDrivers.length;
+    const bom = rankedDrivers.filter(d => d.classification.label === 'BOM').length;
+    const normal = rankedDrivers.filter(d => d.classification.label === 'NORMAL').length;
+    const ruim = rankedDrivers.filter(d => d.classification.label === 'RUIM').length;
+    return { total, bom, normal, ruim };
+  }, [rankedDrivers]);
+
   return (
     <div className="space-y-8 max-w-[1500px] mx-auto pb-20 relative">
       {/* Notifications Overlay */}
@@ -695,7 +977,7 @@ export default function Dashboard({ user }: { user: any }) {
                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
                 </div>
                 <p className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  v.4.5 ESTÁVEL <span className="text-[10px] text-slate-400 font-bold ml-1 uppercase">Monitor Live</span>
+                  v.6.5 ESTÁVEL <span className="text-[10px] text-slate-400 font-bold ml-1 uppercase">Monitor Live</span>
                 </p>
              </div>
           </div>
@@ -840,300 +1122,205 @@ export default function Dashboard({ user }: { user: any }) {
                       <p className="text-sm font-black text-emerald-400 italic">TOTAL (ENCRYPTED)</p>
                    </div>
                 </div>
-            </motion.div>
+             </motion.div>
           </div>
 
-          {/* Performance Monitoring Section */}
-          <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.25rem] border border-slate-200 dark:border-white/5 shadow-sm relative group overflow-hidden">
-             <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:scale-110 transition-transform duration-1000 rotate-12">
-               <TrendingUp size={120} />
-             </div>
-             
-             <div className="flex items-center justify-between mb-10 border-b border-slate-100 dark:border-white/10 pb-6">
-                <div>
-                  <h3 className="font-black text-lg uppercase tracking-tighter text-slate-900 dark:text-white flex items-center gap-3">
-                      <TrendingUp className="text-brand-primary" size={24} />
-                      Performance Operacional & Métricas PSM
-                   </h3>
-                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">Análise baseada em dados reais de Luena, Moxico</p>
-                </div>
-                <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-                   <button className="px-4 py-2 bg-white text-[9px] font-black uppercase text-slate-900 rounded-lg shadow-sm border border-slate-100">Desta Semana</button>
-                   <button className="px-4 py-2 text-[9px] font-black uppercase text-slate-400 hover:text-slate-600">Histórico</button>
-                </div>
-             </div>
-             
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                <div className="space-y-6">
-                   <div className="flex items-center justify-between">
-                      <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.1em] flex items-center gap-2">
-                        <Phone size={14} className="text-brand-primary" />
-                        Volume de Chamadas por Período
-                      </h4>
-                      <span className="text-[9px] font-black text-slate-400 uppercase">24 Horas Monitoradas</span>
-                   </div>
-                   <div className="h-[240px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                         <BarChart data={callsPerHourData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#E2E8F0'} />
-                            <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: theme === 'dark' ? '#94a3b8' : '#64748B', fontWeight: 900 }} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: theme === 'dark' ? '#94a3b8' : '#64748B', fontWeight: 900 }} />
-                            <Tooltip cursor={{ fill: theme === 'dark' ? '#1e293b' : '#F1F5F9' }} contentStyle={{ backgroundColor: theme === 'dark' ? '#0f172a' : '#fff', borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', color: theme === 'dark' ? '#fff' : '#000' }} />
-                            <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="#2563EB">
-                               {callsPerHourData.map((entry, index) => (
-                               <Cell key={`cell-${index}`} fill={entry.count > 5 ? '#2563EB' : theme === 'dark' ? '#334155' : '#CBD5E1'} />
-                               ))}
-                            </Bar>
-                         </BarChart>
-                      </ResponsiveContainer>
-                   </div>
-                </div>
 
-                <div className="space-y-6">
-                   <div className="flex items-center justify-between">
-                      <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.1em] flex items-center gap-2">
-                        <TrendingUp size={14} className="text-emerald-500" />
-                        Faturamento Médio Diário
-                      </h4>
-                      <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded uppercase tracking-tighter italic">Tendência Positiva</span>
-                   </div>
-                   <div className="h-[240px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                         <LineChart data={averageEarningsData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#E2E8F0'} />
-                            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: theme === 'dark' ? '#94a3b8' : '#64748B', fontWeight: 900 }} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: theme === 'dark' ? '#94a3b8' : '#64748B', fontWeight: 900 }} />
-                            <Tooltip contentStyle={{ backgroundColor: theme === 'dark' ? '#0f172a' : '#fff', borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', color: theme === 'dark' ? '#fff' : '#000' }} />
-                            <Line 
-                               type="monotone" 
-                               dataKey="avg" 
-                               stroke="#10B981" 
-                               strokeWidth={4} 
-                               /* @ts-ignore */
-                               dot={{ r: 6, fill: '#10B981', strokeWidth: 3, stroke: theme === 'dark' ? '#0f172a' : '#fff' }} 
-                               /* @ts-ignore */
-                               activeDot={{ r: 8, strokeWidth: 0 }} 
-                            />
-                         </LineChart>
-                      </ResponsiveContainer>
-                   </div>
-                </div>
-             </div>
-          </div>
-
-          {/* Monitor de Reencaminhamentos de Contactos Directos */}
-          <div className="bg-white dark:bg-slate-900 rounded-[2.25rem] border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden mb-10 group">
-             <div className="px-10 py-8 border-b border-slate-100 dark:border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6 bg-gradient-to-r from-orange-500/5 to-amber-500/5">
-                <div>
-                  <h3 className="font-black text-lg text-slate-900 dark:text-white uppercase tracking-tighter italic flex items-center gap-3 font-sans">
-                    <PhoneIncoming className="text-orange-500 animate-pulse" size={24} />
-                    Painel de Reencaminhamento de Contactos Directos (Telemóvel)
-                  </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1 font-sans">
-                    Monitorização de clientes que ligam para motoristas e são delegados entre a frota SUPER Táxi / Luena
-                  </p>
-                </div>
-                <div className="px-5 py-2 bg-orange-500/10 text-orange-600 rounded-full text-[10px] font-black uppercase tracking-widest font-mono">
-                  {calls.filter(c => c.type === 'direct_referral').length} REENCAMINHAMENTOS REGISTADOS
-                </div>
-             </div>
-
-             <div className="overflow-x-auto overflow-y-auto max-h-[400px] no-scrollbar">
-                {calls.filter(c => c.type === 'direct_referral').length > 0 ? (
-                  <table className="w-full text-left border-collapse">
-                     <thead>
-                        <tr className="bg-slate-50/50 dark:bg-slate-800/10 text-slate-400 text-[10px] font-black uppercase tracking-[0.15em] border-b border-slate-100 dark:border-white/5 font-sans">
-                           <th className="px-10 py-4">Selo Temporal</th>
-                           <th className="px-10 py-4">De (Motorista Originador)</th>
-                           <th className="px-10 py-4">Para (Motorista Delegado)</th>
-                           <th className="px-10 py-4">Contacto Cliente</th>
-                           <th className="px-10 py-4">Ponto de Recolha</th>
-                           <th className="px-10 py-4 text-center font-sans">Estado do Envio</th>
-                        </tr>
-                     </thead>
-                     <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                        {calls.filter(c => c.type === 'direct_referral').map((referral) => (
-                        <tr key={referral.id} className="hover:bg-slate-50 dark:hover:bg-white/[0.01] transition-colors group/row text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300 font-mono">
-                           <td className="px-10 py-4 font-black tracking-tight text-[11px] text-slate-600 dark:text-slate-400">
-                              {formatSafe(referral.timestamp, 'dd/MM HH:mm', '--/-- --:--')}
-                           </td>
-                           <td className="px-10 py-4 font-sans">
-                              <span className="font-extrabold text-slate-900 dark:text-white block">{referral.transferredBy?.name || 'N/A'}</span>
-                              <span className="text-[9px] text-orange-500 font-black uppercase tracking-wider">Origem Telefónica</span>
-                           </td>
-                           <td className="px-10 py-4 font-sans">
-                              <span className="font-extrabold text-slate-900 dark:text-white block">{referral.driverName || 'N/A'}</span>
-                              <span className="text-[9px] text-emerald-500 font-black uppercase tracking-wider">Destinatário</span>
-                           </td>
-                           <td className="px-10 py-4">
-                              <div className="flex items-center gap-2">
-                                <span>{referral.customerPhone}</span>
-                                {referral.customerName && (
-                                  <span className="text-[10px] text-slate-400 font-bold tracking-tight">({referral.customerName})</span>
-                                )}
-                              </div>
-                           </td>
-                           <td className="px-10 py-4 max-w-[200px] truncate italic text-slate-500 dark:text-slate-400 text-[11px] font-sans">
-                              {referral.pickupAddress || 'Chamada direto p/ motorista'}
-                           </td>
-                           <td className="px-10 py-4 text-center font-sans">
-                              <span className={cn(
-                                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black tracking-wider transition-all border",
-                                referral.status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/10' :
-                                referral.status === 'active' ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-500/10' :
-                                referral.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-500/10' :
-                                'bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-500/10'
-                              )}>
-                                 <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                                 {referral.status === 'pending' ? 'PENDENTE' : 
-                                  referral.status === 'active' ? 'EM CURSO' : 
-                                  referral.status === 'completed' ? 'CONCLUÍDA' : 
-                                  'RECUSADA/CANCELADA'}
-                              </span>
-                           </td>
-                        </tr>
-                        ))}
-                     </tbody>
-                  </table>
-                ) : (
-                  <div className="py-12 text-center text-slate-400 border-2 border-dashed border-slate-100 dark:border-white/5 m-6 rounded-[2rem] font-sans">
-                    <PhoneIncoming size={32} className="mx-auto text-slate-300 dark:text-slate-700 mb-3 animate-bounce" />
-                    <p className="text-xs font-black uppercase tracking-wider leading-relaxed text-slate-700 dark:text-slate-200">Nenhum reencaminhamento direto entre motoristas hoje</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Os dados aparecem aqui quando os motoristas encaminham clientes recebidos por telefone</p>
-                  </div>
-                )}
-             </div>
-          </div>
-
-          <div className="bg-white dark:bg-slate-900 rounded-[2.25rem] border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden group">
+          {/* SECÇÃO DE RANKING DE MOTORISTAS - REMOVIDO PARA ESTATÍSTICAS */}
+          <div className="hidden bg-white dark:bg-slate-900 rounded-[2.25rem] border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden group/ranking">
              <div className="px-10 py-8 border-b border-slate-100 dark:border-white/10 bg-slate-50/50 dark:bg-slate-800/20 flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
-                  <h3 className="font-black text-lg text-slate-900 dark:text-white uppercase tracking-tighter italic flex items-center gap-3">
-                    <HistoryIcon className="text-slate-400 group-hover:rotate-180 transition-transform duration-700" size={24} />
-                    Entradas de Chamadas Recentes
-                  </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">Logs em sincronização real com centrais Unitel</p>
+                   <h3 className="font-black text-lg text-slate-900 dark:text-white uppercase tracking-tighter italic flex items-center gap-3">
+                      <Award className="text-brand-primary animate-pulse" size={24} />
+                      Classificação e Ranking de Motoristas
+                   </h3>
+                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1">Auditado com base em faturamento, chamadas atendidas e sinistros</p>
                 </div>
+                
                 <div className="flex flex-wrap items-center gap-4 flex-1 justify-end">
                    <div className="relative flex-1 max-w-sm">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                       <input 
                         type="text"
-                        placeholder="PESQUISAR CLIENTE OU TELEFONE..."
-                        value={callSearchTerm}
-                        onChange={(e) => setCallSearchTerm(e.target.value)}
+                        placeholder="Pesquisar motorista..."
+                        value={rankingSearch}
+                        onChange={(e) => setRankingSearch(e.target.value)}
                         className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-brand-primary shadow-sm text-slate-900 dark:text-white"
                       />
                    </div>
 
-                   <div className="flex items-center gap-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-6 py-2.5 rounded-[1.25rem] shadow-sm">
-                      <Calendar size={16} className="text-brand-primary" />
-                      <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent border-none text-[10px] font-black text-slate-900 dark:text-white outline-none uppercase" />
-                      <span className="text-slate-200 font-thin italic text-lg">/</span>
-                      <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-transparent border-none text-[10px] font-black text-slate-900 dark:text-white outline-none uppercase" />
+                   <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200/50 dark:border-white/5 gap-1 shadow-inner">
+                     <button
+                       onClick={() => setRankingFilter('todos')}
+                       className={cn(
+                         "px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                         rankingFilter === 'todos' ? "bg-white dark:bg-slate-900 text-slate-950 dark:text-white shadow-sm" : "text-slate-400 hover:text-slate-650 dark:hover:text-slate-350"
+                       )}
+                     >
+                       Todos ({rankingStats.total})
+                     </button>
+                     <button
+                       onClick={() => setRankingFilter('BOM')}
+                       className={cn(
+                         "px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                         rankingFilter === 'BOM' ? "bg-emerald-500 text-white shadow-sm shadow-emerald-500/20" : "text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/10"
+                       )}
+                     >
+                       Bom ({rankingStats.bom})
+                     </button>
+                     <button
+                       onClick={() => setRankingFilter('NORMAL')}
+                       className={cn(
+                         "px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                         rankingFilter === 'NORMAL' ? "bg-amber-500 text-slate-900 shadow-sm shadow-amber-500/20" : "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/10"
+                       )}
+                     >
+                       Normal ({rankingStats.normal})
+                     </button>
+                     <button
+                       onClick={() => setRankingFilter('RUIM')}
+                       className={cn(
+                         "px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                         rankingFilter === 'RUIM' ? "bg-red-500 text-white shadow-sm shadow-red-500/20" : "text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10"
+                       )}
+                     >
+                       Ruim ({rankingStats.ruim})
+                     </button>
                    </div>
-                   <button onClick={() => { setStartDate(''); setEndDate(''); setCallSearchTerm(''); }} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-xl transition-all"><X size={18} className="text-slate-500 dark:text-slate-400" /></button>
-                   <button 
-                      onClick={exportLogs}
-                      className="flex items-center gap-2 px-6 py-3 bg-slate-900 dark:bg-slate-800 border border-transparent dark:border-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black dark:hover:bg-slate-700 transition-all active:scale-95 shadow-lg shadow-black/10"
-                    >
-                       <Download size={14} /> Exportar
-                   </button>
                 </div>
              </div>
 
-             <div className="overflow-x-auto overflow-y-auto max-h-[500px] no-scrollbar">
-                <table className="w-full text-left border-collapse">
-                   <thead>
-                      <tr className="bg-white dark:bg-slate-900 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] border-b border-slate-100 dark:border-white/5">
-                         <th className="px-10 py-5">Selo Temporal</th>
-                         <th className="px-10 py-5 italic">Identificação / Cliente</th>
-                         <th className="px-10 py-5 text-center">Estado Operacional</th>
-                         <th className="px-10 py-5">Canal Operador</th>
-                         <th className="px-10 py-5">Motorista / Telefone</th>
-                         <th className="px-10 py-5 text-right">Controlo</th>
-                      </tr>
-                   </thead>
-                   <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                      {filteredCallsForList.map((call) => (
-                      <tr key={call.id} className="hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors group/row">
-                         <td className="px-10 py-5">
-                            <div className="flex items-center gap-3">
-                               <div className="w-1.5 h-1.5 bg-brand-primary rounded-full opacity-0 group-hover/row:opacity-100 transition-opacity" />
-                               <span className="font-mono font-black text-[13px] text-slate-900 dark:text-white tracking-tight">
-                                  {formatSafe(call.timestamp, 'HH:mm:ss', '--:--:--')}
-                                  {call.status === 'pending' && <WaitingTimer timestamp={call.timestamp} className="ml-2 text-amber-500 font-black" />}
-                               </span>
-                            </div>
-                         </td>
-                         <td className="px-10 py-5">
-                            <div className="flex items-center gap-4">
-                               <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 font-bold group-hover/row:bg-brand-primary group-hover/row:text-white transition-all">
-                                  {call.customerName?.[0] || 'C'}
-                               </div>
-                               <div>
-                                  <p className="font-black text-slate-900 dark:text-white uppercase tracking-tight text-[13px]">{call.customerName || 'Cliente Direto'}</p>
-                                  <p className="text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5 font-bold italic tracking-tight mt-1">
-                                     <MapPin size={10} className="text-brand-primary" /> {call.pickupAddress}
-                                  </p>
-                               </div>
-                            </div>
-                         </td>
-                         <td className="px-10 py-5 text-center">
-                            <span className={cn("inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all", (call.isForwarded || call.type === 'direct_referral' || call.status === 'forwarded') ? 'text-amber-600 bg-amber-50 border-amber-200' : getStatusColor(call.status))}>
-                               <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                               {call.isForwarded || call.type === 'direct_referral' || call.status === 'forwarded' ? 'ENCAMINHADA' : call.status === 'pending' ? 'PENDENTE' : 
-                                call.status === 'active' ? 'EM CURSO' : 
-                                call.status === 'completed' ? 'CONCLUÍDA' : 
-                                call.status === 'cancelled' ? 'CANCELADA' : 
-                                (call.status || 'STATUS').toUpperCase()}
-                            </span>
-                         </td>
-                         <td className="px-10 py-5">
-                            <div className="flex items-center gap-3">
-                               <div className="p-1.5 bg-slate-50 dark:bg-slate-800 rounded-lg group-hover/row:bg-white dark:group-hover/row:bg-slate-700 transition-colors border border-transparent group-hover/row:border-slate-100 dark:group-hover/row:border-white/5">
-                                  <User size={12} className="text-slate-400" />
-                               </div>
-                               <span className="text-[11px] font-black text-slate-600 dark:text-slate-400 uppercase italic">{call.op || 'System Central'}</span>
-                            </div>
-                         </td>
-                         <td className="px-10 py-5">
-                            <div className="flex flex-col gap-1 text-left">
-                               {call.driverName ? (
-                                 <div className="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                                    {call.driverName}
-                                 </div>
-                               ) : (
-                                 <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase italic">Central / Auto</span>
-                               )}
-                               {call.customerPhone ? (
-                                 <span className="text-[10px] font-mono font-black text-slate-500 dark:text-slate-400 tracking-wider">
-                                    {call.customerPhone}
-                                 </span>
-                               ) : (
-                                 <span className="text-[10px] font-mono text-slate-300 dark:text-slate-600">Sem Telefone</span>
-                               )}
-                            </div>
-                         </td>
-                         <td className="px-10 py-5 text-right">
-                            <button 
-                              onClick={() => {
-                                setSelectedRequest({
-                                  ...call,
-                                  pickup: call.pickupAddress || 'Chamada sem local'
-                                });
-                                setIsAssignModalOpen(true);
-                              }}
-                              className="text-[10px] font-black text-brand-primary uppercase px-4 py-2 hover:bg-brand-primary hover:text-white border border-brand-primary rounded-xl transition-all italic tracking-tighter"
-                            >
-                              Gerir Fluxo
-                            </button>
-                         </td>
-                      </tr>
-                      ))}
-                   </tbody>
-                </table>
+             <div className="p-8 bg-slate-50/10 dark:bg-slate-950/20">
+               {/* Resumo da Distribuição do Ranking */}
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 pt-2">
+                 <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-white/5 flex items-center justify-between">
+                   <div>
+                     <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Classe A (Excelente)</p>
+                     <p className="text-2xl font-black text-emerald-600 tracking-tight mt-1">
+                       {rankingStats.total > 0 ? Math.round((rankingStats.bom / rankingStats.total) * 100) : 0}%
+                     </p>
+                   </div>
+                   <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-500 rounded-xl flex items-center justify-center font-bold">A</div>
+                 </div>
+                 
+                 <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-white/5 flex items-center justify-between">
+                   <div>
+                     <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Classe B (Operação Regular)</p>
+                     <p className="text-2xl font-black text-amber-500 tracking-tight mt-1">
+                       {rankingStats.total > 0 ? Math.round((rankingStats.normal / rankingStats.total) * 100) : 0}%
+                     </p>
+                   </div>
+                   <div className="w-10 h-10 bg-amber-50 dark:bg-amber-950/30 text-amber-550 rounded-xl flex items-center justify-center font-bold">B</div>
+                 </div>
+
+                 <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-white/5 flex items-center justify-between">
+                   <div>
+                     <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Classe C (Atenção Central)</p>
+                     <p className="text-2xl font-black text-red-600 tracking-tight mt-1">
+                       {rankingStats.total > 0 ? Math.round((rankingStats.ruim / rankingStats.total) * 100) : 0}%
+                     </p>
+                   </div>
+                   <div className="w-10 h-10 bg-red-50 dark:bg-red-950/30 text-red-500 rounded-xl flex items-center justify-center font-bold">C</div>
+                 </div>
+               </div>
+
+               {/* Grid Cards of ranked drivers */}
+               {filteredRankedDrivers.length > 0 ? (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   {filteredRankedDrivers.map((driver, idx) => (
+                     <motion.div
+                       key={`${driver.id}-${idx}`}
+                       initial={{ opacity: 0, y: 10 }}
+                       animate={{ opacity: 1, y: 0 }}
+                       className={cn(
+                         "bg-white dark:bg-slate-900 p-6 rounded-3xl border transition-all hover:shadow-lg flex flex-col justify-between",
+                         driver.classification.borderColor
+                       )}
+                     >
+                       <div>
+                         {/* Card Header with Name & Classification Badge */}
+                         <div className="flex justify-between items-start mb-4">
+                           <div className="flex items-center gap-3">
+                             <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold flex items-center justify-center border border-slate-200/20">
+                               {driver.name ? driver.name[0]?.toUpperCase() : 'M'}
+                             </div>
+                             <div>
+                               <h4 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-tight">{driver.name}</h4>
+                               <p className="text-[9px] text-slate-400 font-semibold uppercase">{driver.licenseNumber || 'Licenca N/D'}</p>
+                             </div>
+                           </div>
+                           
+                           <span className={cn("px-3 py-1 rounded-full text-[9px] font-black tracking-widest border flex items-center gap-1.5", driver.classification.color)}>
+                             <span className={cn("w-1.5 h-1.5 rounded-full", driver.classification.bulletColor)} />
+                             {driver.classification.label}
+                           </span>
+                         </div>
+
+                         {/* Classification Detail Reason */}
+                         <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed mb-4 italic p-2.5 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-white/5 uppercase font-bold tracking-tight">
+                           {driver.classification.desc}
+                         </p>
+
+                         {/* Driver Operational Metrics */}
+                         <div className="grid grid-cols-3 gap-2 py-3 border-t border-b border-slate-100 dark:border-white/5 mb-4">
+                           <div className="text-center">
+                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">Rendimentos</span>
+                             <span className="text-[11px] font-black text-slate-800 dark:text-slate-200 font-mono italic">
+                               {driver.totalRevenue ? driver.totalRevenue.toLocaleString() + ' Akz' : '0 Akz'}
+                             </span>
+                           </div>
+                           
+                           <div className="text-center border-l border-r border-slate-100 dark:border-white/5">
+                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">Chamadas</span>
+                             <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">
+                               {driver.callsCount} <span className="text-[8px] text-slate-400 font-bold ml-1">({driver.completionRate}%)</span>
+                             </span>
+                           </div>
+
+                           <div className="text-center">
+                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">Sinistros</span>
+                             <span className={cn("text-[11px] font-black", driver.accidentCount > 0 ? "text-red-600 animate-pulse font-extrabold" : "text-green-600")}>
+                               {driver.accidentCount} {driver.accidentCount > 0 ? '⚠️' : '✓'}
+                             </span>
+                           </div>
+                         </div>
+                       </div>
+
+                       {/* Action Block */}
+                       <div className="flex items-center justify-between pt-2">
+                         <div className="flex gap-2">
+                           {driver.phone && (
+                             <a
+                               href={`tel:${driver.phone}`}
+                               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-650 dark:text-slate-200 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all inline-flex items-center gap-1 border border-slate-200/20"
+                             >
+                               <Phone size={10} /> Chamar
+                             </a>
+                           )}
+                           {driver.phone && (
+                             <a
+                               href={`https://wa.me/${driver.phone.replace(/\D/g, '')}?text=Aviso%20Central%20TaxiControl%3A%20Olá%20${encodeURIComponent(driver.name)}.%20Aguardamos%20contacto%20para%20revisão%20operacional.`}
+                               target="_blank"
+                               className="px-3 py-1.5 bg-emerald-50 bg-opacity-80 dark:bg-emerald-950/20 hover:bg-emerald-500 hover:text-white text-emerald-600 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all inline-flex items-center gap-1 border border-emerald-250/20"
+                             >
+                               WhatsApp
+                             </a>
+                           )}
+                         </div>
+                         
+                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic">
+                           {driver.classification.reason}
+                         </span>
+                       </div>
+                     </motion.div>
+                   ))}
+                 </div>
+               ) : (
+                 <div className="py-16 text-center bg-white dark:bg-slate-900 border border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center text-slate-400">
+                    <Award size={36} className="text-slate-300 dark:text-slate-750 mb-3 opacity-30" />
+                    <p className="text-[10px] font-black uppercase tracking-widest italic">Nenhum motorista corresponde aos critérios de pesquisa</p>
+                 </div>
+               )}
              </div>
           </div>
         </div>
@@ -1271,9 +1458,9 @@ export default function Dashboard({ user }: { user: any }) {
                 <MapContainer key={`${mapCenter[0]}-${mapCenter[1]}-${mapZoom}`} center={mapCenter} zoom={mapZoom} style={{ height: '100%', width: '100%' }} zoomControl={false} className="grayscale-[0.2] contrast-[1.1]">
                    {/* @ts-ignore */}
                    <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                   {vehicles.map(driver => (
+                   {vehicles.map((driver, idx) => (
                    /* @ts-ignore */
-                   <Marker key={driver.id} position={[Number(driver.lat) || -11.7833, Number(driver.lng) || 19.9167]} icon={createDashboardIcon(driver)}>
+                   <Marker key={`${driver.id}-${idx}`} position={[Number(driver.lat) || -11.7833, Number(driver.lng) || 19.9167]} icon={createDashboardIcon(driver)}>
                       {/* @ts-ignore */}
                       <Popup offset={[0, -15]}>
                          <div className="p-3 min-w-[140px] font-sans dark:bg-slate-900">
@@ -1530,9 +1717,9 @@ export default function Dashboard({ user }: { user: any }) {
                      <div className="space-y-2">
                        {vehicles
                         .filter(v => ['available', 'ativo', 'disponível'].includes(v.status?.toLowerCase()))
-                        .map((driver) => (
+                        .map((driver, idx) => (
                           <button
-                            key={driver.id}
+                            key={`${driver.id}-${idx}`}
                             onClick={() => selectedRequest?.id && handleAssignDriver(selectedRequest.id, driver)}
                             className="w-full p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-white/5 rounded-2xl hover:border-brand-primary hover:shadow-lg transition-all flex items-center justify-between group"
                           >

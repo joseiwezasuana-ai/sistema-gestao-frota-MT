@@ -11,7 +11,7 @@ Para que a monitorização funcione, o terminal deve estar "Vínculado":
 ## 2. Funcionamento do Gateway
 - **Automático**: Uma vez logado, o sistema interceta chamadas recebidas, perdidas e SMS.
 - **Sincronização**: Os dados são enviados instantaneamente para o "Painel de Monitorização" na Central.
-- **Segurança**: Apenas terminais com prefixos autorizados pela **PSM COMERCIAL** podem enviar dados.
+- **Segurança**: Apenas terminais com prefixos autorizados pela **COMPANHIA** podem enviar dados.
 
 ## 3. Verificação de Status
 No terminal (Smartphone):

@@ -7,7 +7,7 @@
 - **Tone:** Friendly, Professional, Collaborative.
 
 ## Project Rules
-- **Naming Convention:** Maintain "PSM COMERCIAL. (SU), LDA LUENA-MOXICO", "TaxiControl" or "SUPER Taxi" terminology.
+- **Naming Convention:** Maintain "JIS. (SU), LDA LUENA-MOXICO", "TaxiControl" or "SUPER Taxi" terminology.
 - **Prefixes:** Use `+244` for phone numbers (fixed in UI).
 - **Icons:** Use `lucide-react`.
 - **Styling:** Tailwind CSS with high-density data visualization (Technical Dashboard).

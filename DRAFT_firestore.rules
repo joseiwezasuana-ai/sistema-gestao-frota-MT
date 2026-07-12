@@ -117,10 +117,12 @@ service cloud.firestore {
 
     // 7. Finance
     match /salary_sheets/{id} {
-      allow read, write: if isContabilista();
+      allow read: if isSignedIn();
+      allow write: if isContabilista();
     }
     match /individual_reports/{id} {
-      allow read, write: if isStaff();
+      allow read: if isSignedIn();
+      allow write: if isStaff();
     }
     
     // 8. Contracts

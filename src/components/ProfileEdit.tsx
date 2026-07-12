@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Camera, X, Loader2, Save, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc } from '@/src/lib/firebase';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 

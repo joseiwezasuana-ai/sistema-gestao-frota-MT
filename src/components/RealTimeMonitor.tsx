@@ -42,7 +42,7 @@ import {
   addDoc,
   updateDoc,
   serverTimestamp
-} from 'firebase/firestore';
+} from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { format } from 'date-fns';
 import WaitingTimer from './WaitingTimer';

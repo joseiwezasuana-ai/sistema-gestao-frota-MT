@@ -16,8 +16,8 @@ import {
   setDoc,
   where,
   getDocs
-} from 'firebase/firestore';
-import { auth, db, googleProvider } from './lib/firebase';
+} from '@/src/lib/firebase';
+import { auth, db, googleProvider, setActiveTenantId, getActiveTenantId } from './lib/firebase';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import Login from './components/Login';
@@ -26,6 +26,7 @@ import FleetManagement from './components/FleetManagement';
 import RealTimeMap from './components/RealTimeMap';
 import History from './components/History';
 import Settings from './components/Settings';
+import CompanyManagement from './components/CompanyManagement';
 import Messages from './components/Messages';
 import { WhatsAppMonitor } from './components/WhatsAppMonitor';
 import RealTimeMonitor from './components/RealTimeMonitor';
@@ -47,6 +48,8 @@ import UserManual from './components/UserManual';
 import CallSmsDossier from './components/CallSmsDossier';
 import PassengerFlow from './components/PassengerFlow';
 import PassengerManagement from './components/PassengerManagement';
+import DriverDashboard from './components/DriverDashboard';
+import KeyboardShortcutManager from './components/KeyboardShortcutManager';
 
 import { 
   AlertCircle, 
@@ -55,7 +58,8 @@ import {
   Activity, 
   Map as MapIcon,
   Copy,
-  CheckCircle2
+  CheckCircle2,
+  X
 } from 'lucide-react';
 import InvoiceDrafting from './components/InvoiceDrafting';
 import { ThemeProvider } from './context/ThemeContext';
@@ -82,6 +86,16 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('view_preference', viewPreference);
   }, [viewPreference]);
+
+  // Public Passenger App Route Dispatcher (Requested by José Iweza Suana)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view')?.toLowerCase();
+    if (viewParam === 'passenger' || viewParam === 'passageiro' || window.location.hash === '#passenger') {
+      setShowPublicPassengerFlow(true);
+    }
+  }, []);
+
   const [isProfileEditOpen, setIsProfileEditOpen] = useState(false);
   const [globalSettings, setGlobalSettings] = useState<any>(null);
 
@@ -133,6 +147,35 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
         if (!firebaseUser) {
+          const savedLocalSession = localStorage.getItem('local_user_session');
+          if (savedLocalSession) {
+            try {
+              const session = JSON.parse(savedLocalSession);
+              setUser({
+                uid: session.uid,
+                email: session.email,
+                displayName: session.name,
+                isAnonymous: false,
+                emailVerified: true
+              } as any);
+              setUserProfile(session);
+              if (session.tenantId) {
+                setActiveTenantId(session.tenantId);
+              }
+              if (session.role === 'driver') {
+                setActiveTab('driver_dashboard');
+              } else if (session.role === 'mecanico') {
+                setActiveTab('maintenance');
+              } else if (session.role === 'contabilista') {
+                setActiveTab('accounting');
+              }
+              setLoading(false);
+              clearTimeout(safetyTimeout);
+              return;
+            } catch (e) {
+              console.error("Local session error:", e);
+            }
+          }
           setUser(null);
           setUserProfile(null);
           setLoading(false);
@@ -153,34 +196,71 @@ export default function App() {
         try {
           profileSnap = await Promise.race([profilePromise, timeoutPromise]) as any;
         } catch (e: any) {
-          console.error("Profile fetch failed:", e);
+          console.error("Profile fetch failed, using local/fallback profile:", e);
           
-          let errorMsg = "Falha ao carregar perfil.";
-          if (e.message === 'timeout' || e.code === 'unavailable' || e.message.includes('offline')) {
-            errorMsg = "A base de dados não está a responder. Verifique se o Cloud Firestore foi ativado no Console Firebase.";
+          // Check local storage for any existing session first
+          const savedLocalSession = localStorage.getItem('local_user_session');
+          if (savedLocalSession) {
+            try {
+              const session = JSON.parse(savedLocalSession);
+              if (session && (session.uid === firebaseUser.uid || session.email === firebaseUser.email)) {
+                setUserProfile(session);
+                setLoading(false);
+                clearTimeout(safetyTimeout);
+                return;
+              }
+            } catch (jsonErr) {
+              console.error("Error reading fallback local session:", jsonErr);
+            }
           }
-          setDbError(errorMsg);
 
-          // If it's the master admin, we can fallback to a temporary profile to allow entry
-          if (firebaseUser.email?.toLowerCase() === 'joseiwezasuana@gmail.com') {
-             const fallbackProfile = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              name: 'José Iweza Suana (Admin)',
-              role: 'admin',
-              createdAt: new Date().toISOString()
-            };
-            setUserProfile(fallbackProfile);
-            setLoading(false);
-            return;
+          // Generate fallback based on email pattern
+          const email = firebaseUser.email || '';
+          const name = firebaseUser.displayName || email.split('@')[0] || 'Utilizador';
+          const isMaster = email.toLowerCase() === 'joseiwezasuana@gmail.com';
+          
+          let resolvedRole = 'operator';
+          if (isMaster) {
+            resolvedRole = 'admin';
+          } else if (email.includes('motorista') || email.includes('driver')) {
+            resolvedRole = 'driver';
+          } else if (email.includes('mecanico') || email.includes('mechanic')) {
+            resolvedRole = 'mecanico';
+          } else if (email.includes('contabilista') || email.includes('finance')) {
+            resolvedRole = 'contabilista';
           }
-          throw e;
+
+          const fallbackProfile = {
+            uid: firebaseUser.uid,
+            email: email,
+            name: isMaster ? 'José Iweza Suana (Admin)' : name,
+            role: resolvedRole,
+            createdAt: new Date().toISOString()
+          };
+          
+          setUserProfile(fallbackProfile);
+          setLoading(false);
+          clearTimeout(safetyTimeout);
+          return;
         }
+        
+        const isMaster = firebaseUser.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
         
         if (profileSnap.exists()) {
           const profile = profileSnap.data();
           if (profile && profile.role === 'operador') {
             profile.role = 'operator';
+          }
+          const isAdminRole = isMaster || profile.role === 'admin' || profile.role === 'gerente' || profile.role === 'operator';
+          const preSelectedTenant = getActiveTenantId();
+          
+          if (isAdminRole && preSelectedTenant) {
+            // Se for administrador e escolheu uma companhia prévia, deves mantê-la
+            setActiveTenantId(preSelectedTenant);
+          } else if (profile.tenantId) {
+            setActiveTenantId(profile.tenantId);
+          } else {
+            setActiveTenantId('psm');
           }
           setUserProfile(profile);
           // If driver, reset tab or handle specific view
@@ -191,15 +271,18 @@ export default function App() {
           } else if (profile.role === 'contabilista') {
             setActiveTab('accounting');
           }
-        } else if (firebaseUser.email?.toLowerCase() === 'joseiwezasuana@gmail.com') {
+        } else if (isMaster) {
           // Auto-bootstrap master admin profile
+          const preSelectedTenant = getActiveTenantId() || 'psm';
           const adminProfile = {
             uid: firebaseUser.uid,
             email: firebaseUser.email,
             name: 'José Iweza Suana (Admin)',
             role: 'admin',
+            tenantId: preSelectedTenant,
             createdAt: new Date().toISOString()
           };
+          setActiveTenantId(preSelectedTenant);
           setUserProfile(adminProfile);
           clearTimeout(safetyTimeout);
           setLoading(false);
@@ -275,24 +358,25 @@ export default function App() {
         <div key="loading-state" className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950">
           <div className="flex flex-col items-center gap-4">
             <div className="h-12 w-12 animate-spin rounded-full border-4 border-brand-primary border-t-transparent shadow-xl shadow-brand-primary/20"></div>
-            <p className="text-slate-500 dark:text-slate-400 animate-pulse font-black text-xs uppercase tracking-[0.3em] italic">PSM TaxiControl v4.5 Inicializando...</p>
+            <p className="text-slate-500 dark:text-slate-400 animate-pulse font-black text-xs uppercase tracking-[0.3em] italic">PSM TaxiControl v6.5 Inicializando...</p>
           </div>
         </div>
       </ThemeProvider>
     );
   }
 
+  if (showPublicPassengerFlow) {
+    return (
+      <ThemeProvider>
+         <ConnectivityBanner />
+         <div className="min-h-screen relative w-full overflow-hidden bg-slate-950 flex items-center justify-center">
+            <PassengerFlow isPublicApp={true} />
+         </div>
+      </ThemeProvider>
+    );
+  }
+
   if (!user) {
-    if (showPublicPassengerFlow) {
-      return (
-        <ThemeProvider>
-           <ConnectivityBanner />
-           <div className="min-h-screen relative w-full overflow-hidden">
-              <PassengerFlow isPublicApp={true} />
-           </div>
-        </ThemeProvider>
-      );
-    }
     const handleGoogleLogin = async () => {
       // Direct call to avoid popup blocking
       return signInWithPopup(auth, googleProvider);
@@ -371,13 +455,19 @@ export default function App() {
   return (
     <ThemeProvider>
       <ConnectivityBanner />
+      <KeyboardShortcutManager user={userProfile} activeTab={activeTab} onTabChange={setActiveTab} />
       <div key="authed-layout" className="min-h-screen">
         <Layout 
           user={userProfile} 
           globalSettings={globalSettings}
           activeTab={activeTab} 
           onTabChange={setActiveTab}
-          onLogout={() => signOut(auth)}
+          onLogout={async () => {
+            localStorage.removeItem('local_user_session');
+            await signOut(auth);
+            setUser(null);
+            setUserProfile(null);
+          }}
           onToggleMobile={() => setViewPreference('mobile')}
           onEditProfile={() => setIsProfileEditOpen(true)}
         >
@@ -389,12 +479,22 @@ export default function App() {
             onUpdate={setUserProfile}
           />
           {dbError && (
-            <div className="bg-amber-100 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800/30 px-4 py-2 text-amber-800 dark:text-amber-200 text-xs font-bold flex items-center gap-2">
-              <div className="animate-pulse h-2 w-2 rounded-full bg-amber-500" />
-              {dbError}
+            <div className="bg-amber-100 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800/30 px-4 py-2 text-amber-800 dark:text-amber-200 text-xs font-bold flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="animate-pulse h-2 w-2 rounded-full bg-amber-500" />
+                <span>{dbError}</span>
+              </div>
+              <button 
+                onClick={() => setDbError(null)} 
+                className="hover:bg-amber-200 dark:hover:bg-amber-800/50 p-1 rounded transition-all text-slate-500 hover:text-slate-800 dark:hover:text-white"
+                title="Fechar aviso"
+              >
+                <X size={14} />
+              </button>
             </div>
           )}
           {activeTab === 'dashboard' && <Dashboard user={userProfile} />}
+          {activeTab === 'driver_dashboard' && <DriverDashboard />}
           {activeTab === 'recruitment' && (isAdmin ? <RecruitmentHub user={userProfile} /> : <Dashboard user={userProfile} />)}
           {activeTab === 'fleet' && (isAdmin || isOperator || isMecanico || isContabilista ? <FleetManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
           {activeTab === 'monitors' && <RealTimeMonitor user={userProfile} />}

@@ -1,14 +1,54 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0B0F19;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#020617;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Shield Left Gradient (Royal Blue/Navy) -->
+    <linearGradient id="shieldLeftGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#2563EB;stop-opacity:1" />
       <stop offset="100%" style="stop-color:#1E3A8A;stop-opacity:1" />
     </linearGradient>
-    <filter id="logo-shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="10" />
-      <feOffset dx="4" dy="4" result="offsetblur" />
+
+    <!-- Shield Right Gradient (Cyan/Teal UI) -->
+    <linearGradient id="shieldRightGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#06B6D4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0891B2;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Inner Shield Green Gradient -->
+    <linearGradient id="innerGreenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#15803D;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#22C55E;stop-opacity:0.85" />
+    </linearGradient>
+
+    <!-- Growth Arrow Green Gradient -->
+    <linearGradient id="arrowGreenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Taxi Yellow Gradient -->
+    <linearGradient id="taxiYellowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FACC15;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#EAB308;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Gold Text Gradient -->
+    <linearGradient id="textGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#FDE047;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#EAB308;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Shadow filter for 3D depth -->
+    <filter id="dropShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" />
+      <feOffset dx="2" dy="2" result="offsetblur" />
       <feComponentTransfer>
-        <feFuncA type="linear" slope="0.3" />
+        <feFuncA type="linear" slope="0.4" />
       </feComponentTransfer>
       <feMerge>
         <feMergeNode />
@@ -16,42 +56,110 @@
       </feMerge>
     </filter>
   </defs>
-  
-  <rect width="512" height="512" rx="128" fill="#0F172A" />
-  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#logo-grad)" stroke="#3B82F6" stroke-width="4" />
-  
-  <g filter="url(#logo-shadow)">
-    <!-- Stylized Suzuki S-Presso Silhouette (Compact SUV Shape) -->
-    <!-- Main Body Lower (Blue) -->
-    <path d="M140 290V340H175V320H337V340H372V290C372 275 365 270 345 270H167C147 270 140 275 140 290Z" fill="#1E40AF" />
-    
-    <!-- Body Upper / Cabin (White) -->
-    <path d="M167 270L185 225C190 215 210 210 256 210C302 210 322 215 327 225L345 270H167Z" fill="white" />
-    
-    <!-- Windows (Reflective) -->
-    <path d="M195 225L248 225V262H188L195 225Z" fill="#1E293B" opacity="0.9" />
-    <path d="M256 225L315 225L333 262H256V225Z" fill="#1E293B" opacity="0.9" />
-    
-    <!-- Characteristic S-Presso Details -->
-    <rect x="148" y="280" width="18" height="14" rx="3" fill="white" opacity="0.95" /> <!-- Square Headlights -->
-    <rect x="175" y="280" width="162" height="6" rx="1" fill="white" opacity="0.2" /> <!-- Chrome strip line -->
-    
-    <!-- Wheels with High Ground Clearance -->
-    <circle cx="195" cy="345" r="20" fill="#1E293B" />
-    <circle cx="317" cy="345" r="20" fill="#1E293B" />
-    <circle cx="195" cy="345" r="9" fill="#94A3B8" />
-    <circle cx="317" cy="345" r="9" fill="#94A3B8" />
-    
-    <!-- Top Taxi Sign -->
-    <rect x="236" y="195" width="40" height="15" rx="2" fill="#FBBF24" />
-    
-    <!-- Branding Text -->
-    <text x="256" y="430" text-anchor="middle" fill="white" font-family="system-ui, sans-serif" font-weight="900" font-size="64" style="letter-spacing: -1px;">SUPER TAXI</text>
-    <text x="256" y="455" text-anchor="middle" fill="white" font-family="system-ui, sans-serif" font-weight="500" font-size="14" style="letter-spacing: 4px; opacity: 0.8;">LUENA • ANGOLA</text>
+
+  <!-- Container rounded background card matching the clean dashboard style -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" stroke="#1E293B" stroke-width="4" />
+
+  <!-- Shield and growth arrow group -->
+  <g transform="translate(0, 10)">
+    <!-- Base Shield Structure -->
+    <g opacity="0.95" filter="url(#dropShadow)">
+      <!-- Left Outer Shield Border -->
+      <path d="M 256,40 L 160,70 Q 160,160 256,250 L 256,226 Q 180,146 180,82 L 256,58 Z" fill="url(#shieldLeftGrad)" />
+      <!-- Right Outer Shield Border -->
+      <path d="M 256,40 L 352,70 Q 352,160 256,250 L 256,226 Q 332,146 332,82 L 256,58 Z" fill="url(#shieldRightGrad)" />
+    </g>
+
+    <!-- Inner Guard Green Shield (representing security and audit) -->
+    <path d="M 256,66 L 192,86 Q 192,156 256,218 Q 320,156 320,86 Z" fill="url(#innerGreenGrad)" opacity="0.9" />
+
+    <!-- Performance Graph trendline (Audited Metrics) -->
+    <g>
+      <!-- Deep navy backdrop of graph line -->
+      <path d="M 200,150 L 230,120 L 260,135 L 290,95 L 325,80" fill="none" stroke="#0F172A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+      <!-- White trendline -->
+      <path d="M 200,150 L 230,120 L 260,135 L 290,95 L 325,80" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+      <!-- Node 1 -->
+      <circle cx="200" cy="150" r="8" fill="#0F172A" />
+      <circle cx="200" cy="150" r="4" fill="#38BDF8" />
+
+      <!-- Node 2 -->
+      <circle cx="230" cy="120" r="8" fill="#0F172A" />
+      <circle cx="230" cy="120" r="4" fill="#38BDF8" />
+
+      <!-- Node 3 -->
+      <circle cx="260" cy="135" r="8" fill="#0F172A" />
+      <circle cx="260" cy="135" r="4" fill="#38BDF8" />
+
+      <!-- Node 4 -->
+      <circle cx="290" cy="95" r="8" fill="#0F172A" />
+      <circle cx="290" cy="95" r="4" fill="#38BDF8" />
+    </g>
+
+    <!-- Green Growth Trend Arrow breaking out of the security shield -->
+    <path d="M 240,210 C 270,180 300,135 345,75 L 325,70 L 362,62 L 354,98 L 338,85 C 298,140 268,185 240,210 Z" fill="url(#arrowGreenGrad)" filter="url(#dropShadow)" />
+
+    <!-- Yellow Taxi Car riding crossing in front of the shield -->
+    <g filter="url(#dropShadow)">
+      <!-- Car silhouette -->
+      <path d="M 220,195 
+               C 220,188 230,181 245,181 
+               L 265,181 
+               L 285,160 
+               C 290,156 300,154 315,154 
+               L 335,154 
+               C 345,154 355,158 360,165 
+               L 378,181 
+               C 385,181 392,185 394,192 
+               L 397,198 
+               C 397,204 392,209 382,209 
+               L 368,209 
+               C 368,198 358,190 348,190 
+               C 338,190 328,198 328,209 
+               L 282,209 
+               C 282,198 272,190 262,190 
+               C 252,190 242,198 242,209 
+               L 225,209 
+               C 220,209 220,202 220,195 Z" 
+            fill="url(#taxiYellowGrad)" 
+            stroke="#0F172A" 
+            stroke-width="3" 
+            stroke-linejoin="round" />
+
+      <!-- Cabin windows background -->
+      <path d="M 268,180 L 288,160 L 314,160 L 314,180 Z" fill="#0F172A" stroke="#0F172A" stroke-width="1" />
+      <path d="M 319,160 L 333,160 L 348,180 L 319,180 Z" fill="#0F172A" stroke="#0F172A" stroke-width="1" />
+
+      <!-- Wheel Arches / Tires Details -->
+      <!-- Wheel Back -->
+      <circle cx="262" cy="209" r="11" fill="#1E293B" stroke="#0F172A" stroke-width="3" />
+      <circle cx="262" cy="209" r="5" fill="#F8FAFC" stroke="#0F172A" stroke-width="2" />
+      <!-- Wheel Front -->
+      <circle cx="348" cy="209" r="11" fill="#1E293B" stroke="#0F172A" stroke-width="3" />
+      <circle cx="348" cy="209" r="5" fill="#F8FAFC" stroke="#0F172A" stroke-width="2" />
+
+      <!-- TAXI Sign on Roof -->
+      <path d="M 302,154 L 304,146 L 321,146 L 323,154 Z" fill="#FBBF24" stroke="#0F172A" stroke-width="2" />
+      <text x="312.5" y="152" text-anchor="middle" fill="#0F172A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="950" font-size="5" style="letter-spacing: -0.2px;">TAXI</text>
+
+      <!-- Front Headlight Glow -->
+      <path d="M 390,188 Q 394,188 394,193 L 390,193 Z" fill="#FEF08A" stroke="#0F172A" stroke-width="1.5" />
+    </g>
   </g>
-  
-  <!-- Technical Accents -->
-  <circle cx="256" cy="256" r="230" stroke="white" stroke-width="2" stroke-dasharray="20 15" opacity="0.1" />
-  <path d="M50 256H462" stroke="white" stroke-width="1" opacity="0.05" />
-  <path d="M256 50V462" stroke="white" stroke-width="1" opacity="0.05" />
+
+  <!-- TYPOGRAPHY BRANDING LABELS -->
+  <g transform="translate(0, 10)">
+    <!-- SISTEMA AUDITADO -->
+    <text x="256" y="325" text-anchor="middle" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="24" style="letter-spacing: 5px;">SISTEMA AUDITADO</text>
+
+    <!-- SUPER TAXI -->
+    <text x="256" y="392" text-anchor="middle" fill="url(#textGoldGrad)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="58" font-style="italic" style="letter-spacing: -1px; filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.5));">SUPER TAXI</text>
+
+    <!-- GESTÃO DE FROTA E SEGURANÇA -->
+    <text x="256" y="440" text-anchor="middle" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="12.5" style="letter-spacing: 4px;">GESTÃO DE FROTA E SEGURANÇA</text>
+  </g>
+
+  <!-- Technical border crosshairs for design density aura -->
+  <circle cx="256" cy="256" r="248" stroke="#1E293B" stroke-width="1" stroke-dasharray="10 8" opacity="0.3" />
 </svg>

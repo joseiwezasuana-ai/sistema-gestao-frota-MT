@@ -1,1 +1,27 @@
-{"hosting":{"public":"dist","ignore":["firebase.json","**/.*","**/node_modules/**"],"rewrites":[{"source":"**","destination":"/index.html"}]}} 
+{
+  "hosting": {
+    "site": "jis-st",
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "firestore": [
+    {
+      "database": "(default)",
+      "rules": "firestore.rules"
+    },
+    {
+      "database": "ai-studio-292e615c-239c-404c-a14a-01830596263d",
+      "rules": "firestore.rules"
+    }
+  ]
+}

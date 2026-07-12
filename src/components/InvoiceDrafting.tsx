@@ -41,6 +41,7 @@ export default function InvoiceDrafting() {
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [zoom, setZoom] = useState(0.70);
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   const calculateTotal = () => {
@@ -286,46 +287,84 @@ export default function InvoiceDrafting() {
 
         {/* Live Preview */}
         <div className="sticky top-8 space-y-6">
-           <div className="flex items-center justify-between mb-4 px-4">
+           <div className="flex items-center justify-between px-4">
               <div className="flex items-center gap-2">
                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Live Preview Engine</span>
+                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Visualizador em Tempo Real</span>
               </div>
-              <div className="flex items-center gap-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                 <span>Zoom 75%</span>
-                 <span>A4 Sheet Size</span>
+              <div className="flex items-center gap-2">
+                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-1">Zoom:</span>
+                 <div className="flex bg-slate-100 p-0.5 rounded-lg border border-slate-200 shadow-sm">
+                    {[0.5, 0.65, 0.8, 1.0].map((z) => (
+                       <button
+                          key={z}
+                          type="button"
+                          onClick={() => setZoom(z)}
+                          className={cn(
+                             "px-2.5 py-1 rounded text-[9px] font-black tracking-wider transition-all cursor-pointer",
+                             zoom === z
+                                ? "bg-slate-900 text-white shadow-sm"
+                                : "text-slate-500 hover:text-slate-850"
+                          )}
+                       >
+                          {z * 100}%
+                       </button>
+                    ))}
+                 </div>
               </div>
            </div>
 
-           <div className="scale-[0.75] origin-top border-4 border-white shadow-[0_40px_100px_-20px_rgba(15,23,42,0.15)] rounded-lg overflow-hidden">
-             <div ref={invoiceRef}>
-               <InvoiceTemplate 
-                 data={{
-                   ...invoiceData,
-                   dailyPrice: calculateTotal() / Math.max(1, (new Date(invoiceData.endDate).getTime() - new Date(invoiceData.startDate).getTime()) / (1000 * 60 * 60 * 24)),
-                   startDate: invoiceData.startDate,
-                   endDate: invoiceData.endDate,
-                   vehicle: invoiceData.items[0]?.description || 'Serviços'
-                 } as any}
-                 documentNumber={invoiceData.id}
-               />
-             </div>
+           {/* Scrollable Container with Zoom footprint adjustment */}
+           <div className="h-[620px] overflow-y-auto rounded-[2rem] border border-slate-200 bg-slate-50 p-6 shadow-inner custom-scrollbar flex justify-center items-start">
+              <div 
+                 style={{ 
+                    height: `${1180 * zoom}px`, 
+                    width: `${800 * zoom}px`,
+                    position: 'relative'
+                 }} 
+                 className="shrink-0"
+              >
+                 <div 
+                   style={{ 
+                     transform: `scale(${zoom})`, 
+                     transformOrigin: 'top left',
+                     width: '800px',
+                     position: 'absolute',
+                     top: 0,
+                     left: 0
+                   }}
+                   className="shadow-2xl rounded-lg bg-white"
+                 >
+                   <div ref={invoiceRef}>
+                     <InvoiceTemplate 
+                       data={{
+                         ...invoiceData,
+                         dailyPrice: calculateTotal() / Math.max(1, (new Date(invoiceData.endDate).getTime() - new Date(invoiceData.startDate).getTime()) / (1000 * 60 * 60 * 24)),
+                         startDate: invoiceData.startDate,
+                         endDate: invoiceData.endDate,
+                         vehicle: invoiceData.items[0]?.description || 'Serviços'
+                       } as any}
+                       documentNumber={invoiceData.id}
+                     />
+                   </div>
+                 </div>
+              </div>
            </div>
 
-           <div className="bg-slate-900/5 backdrop-blur-xl border border-brand-primary/10 p-8 rounded-[2.5rem] mt-[-100px] relative z-10 mx-10">
+           <div className="bg-slate-900/5 backdrop-blur-xl border border-brand-primary/10 p-8 rounded-[2.5rem] relative z-10">
               <div className="flex items-start gap-4">
                  <div className="w-12 h-12 bg-brand-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand-primary/20">
                     <Info size={24} />
-                 </div>
-                 <div>
-                    <h4 className="text-sm font-black text-slate-900 uppercase italic tracking-tight">Dica de Exportação</h4>
-                    <p className="text-[11px] text-slate-600 font-medium leading-relaxed mt-1">
-                      O PDF será gerado com alta densidade de pixeis (High DPI) para garantir clareza máxima na impressão térmica ou laser. Verifique se o nome do cliente está correto antes de clicar em <strong>"Emitir & Gerar PDF"</strong>.
-                    </p>
-                 </div>
-              </div>
-           </div>
-        </div>
+                  </div>
+                  <div>
+                     <h4 className="text-sm font-black text-slate-900 uppercase italic tracking-tight">Dica de Exportação</h4>
+                     <p className="text-[11px] text-slate-600 font-medium leading-relaxed mt-1">
+                       O PDF será gerado com alta densidade de pixeis (High DPI) para garantir clareza máxima na impressão térmica ou laser. Use a barra de rolagem acima para conferir os dados bancários e o resumo final da folha A4 antes de clicar em <strong>"Emitir & Gerar PDF"</strong>.
+                     </p>
+                  </div>
+               </div>
+            </div>
+         </div>
       </div>
     </div>
   );

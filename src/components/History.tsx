@@ -8,7 +8,7 @@ import {
   User,
   Hash
 } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 

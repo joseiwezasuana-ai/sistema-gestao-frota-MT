@@ -1,6 +1,6 @@
 {
   "short_name": "SUPER Taxi",
-  "name": "SUPER Taxi - PSM TaxiControl",
+  "name": "SUPER Taxi - JIS TaxiControl",
   "icons": [
     {
       "src": "/logo.svg",
@@ -20,5 +20,5 @@
   "theme_color": "#0f172a",
   "background_color": "#0f172a",
   "orientation": "portrait",
-  "description": "Sistema de Gestão de Frotas PSM COMERCIAL.(SU),LDA LUENA-MOXICO"
+  "description": "Sistema de Gestão de Frotas JIS.(SU),LDA LUENA-MOXICO"
 }

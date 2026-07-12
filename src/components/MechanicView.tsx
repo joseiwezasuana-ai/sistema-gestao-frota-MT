@@ -28,7 +28,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
-import { collection, query, orderBy, onSnapshot, addDoc, where, limit, doc, updateDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, where, limit, doc, updateDoc, writeBatch, serverTimestamp } from '@/src/lib/firebase';
 import { format } from 'date-fns';
 import RealTimeMap from './RealTimeMap';
 import { WhatsAppMonitor } from './WhatsAppMonitor'; // Added import
@@ -928,7 +928,7 @@ export default function MechanicView({ user }: MechanicViewProps) {
               
               <div className="mt-auto pt-8 border-t border-slate-800 text-center">
                  <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">PSM COMERCIAL LUENA</p>
-                 <p className="text-[9px] font-medium text-slate-500 mt-1 uppercase">TaxiControl Version 2.0</p>
+                 <p className="text-[9px] font-medium text-slate-500 mt-1 uppercase">TaxiControl Version 6.0</p>
               </div>
             </motion.div>
           </>

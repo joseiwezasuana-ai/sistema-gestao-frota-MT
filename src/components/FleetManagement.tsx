@@ -25,10 +25,12 @@ import {
   Zap,
   AlertCircle,
   Calendar,
-  Truck
+  Truck,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, serverTimestamp, updateDoc, arrayRemove, limit, getDocs, where, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, serverTimestamp, updateDoc, arrayRemove, limit, getDocs, where, writeBatch } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType, withTimeout } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import { cn } from '../lib/utils';
@@ -93,6 +95,7 @@ export default function FleetManagement({ user }: { user?: any }) {
     prefix: '',
     plate: '',
     trackerId: '',
+    passengerAppActive: true,
   });
 
   const [shiftData, setShiftData] = useState({
@@ -266,61 +269,66 @@ export default function FleetManagement({ user }: { user?: any }) {
         return;
       }
 
-      // 2. Find their most recent shift record
+      // 2. Find their most recent shift record (in-memory sort to avoid requiring composite indexes)
       const qLastShift = query(
         collection(db, 'shifts'),
-        where('driverId', '==', driverId),
-        orderBy('date', 'desc'),
-        limit(5)
+        where('driverId', '==', driverId)
       );
         
       const lastShiftSnap = await getDocs(qLastShift);
       if (!lastShiftSnap.empty) {
-        const lastShift = lastShiftSnap.docs[0].data();
-        const lastDate = lastShift.date;
-        
-        // Check if today is the same as lastDate, we might allow scaling if it's already there?
-        // Actually the rule is about the "income being approved". 
-        // If they haven't declared/approved the LAST one, they can't have a NEXT one.
-        
-        if (lastDate !== todayStr) {
-          // Check for revenue log of that last date
-          const qRev = query(
-            collection(db, 'revenue_logs'),
-            where('driverId', '==', driverId),
-            where('date', '==', lastDate),
-            limit(1)
-          );
+        const sortedShifts = lastShiftSnap.docs
+          .map(d => d.data() as any)
+          .filter(d => typeof d.date === 'string')
+          .sort((a, b) => b.date.localeCompare(a.date));
+
+        if (sortedShifts.length > 0) {
+          const lastShift = sortedShifts[0];
+          const lastDate = lastShift.date;
           
-          const revSnap = await getDocs(qRev);
-          let isApproved = false;
+          // Check if today is the same as lastDate, we might allow scaling if it's already there?
+          // Actually the rule is about the "income being approved". 
+          // If they haven't declared/approved the LAST one, they can't have a NEXT one.
           
-          if (!revSnap.empty) {
-            const revData = revSnap.docs[0].data();
-            if (revData.status === 'finalized' || revData.status === 'paid_to_staff') {
-              isApproved = true;
+          if (lastDate !== todayStr) {
+            // Check for revenue log of that last date
+            const qRev = query(
+              collection(db, 'revenue_logs'),
+              where('driverId', '==', driverId),
+              where('date', '==', lastDate),
+              limit(1)
+            );
+            
+            const revSnap = await getDocs(qRev);
+            let isApproved = false;
+            
+            if (!revSnap.empty) {
+              const revData = revSnap.docs[0].data();
+              if (revData.status === 'finalized' || revData.status === 'paid_to_staff') {
+                isApproved = true;
+              }
             }
-          }
-          
-          if (!isApproved) {
-            setScaleError(`BLOQUEIO DE ESCALA: O motorista possui pendência financeira no dia ${lastDate}. A renda deve estar APROVADA/FINALIZADA antes de uma nova escala.`);
-            setIsSubmitting(false);
-            return;
+            
+            if (!isApproved) {
+              setScaleError(`BLOQUEIO DE ESCALA: O motorista possui pendência financeira no dia ${lastDate}. A renda deve estar APROVADA/FINALIZADA antes de uma nova escala.`);
+              setIsSubmitting(false);
+              return;
+            }
           }
         }
       }
       
-      // 3. Double check for ANY pending revenue logs (even if not from the last shift specifically)
+      // 3. Double check for ANY pending revenue logs (in-memory filter to avoid requiring composite indexes)
       const qPending = query(
         collection(db, 'revenue_logs'),
-        where('driverId', '==', driverId),
-        where('status', 'not-in', ['finalized', 'paid_to_staff']),
-        limit(1)
+        where('driverId', '==', driverId)
       );
       const pendingSnap = await withTimeout(getDocs(qPending));
-      if (!pendingSnap.empty) {
-        const pendingData = pendingSnap.docs[0].data();
-        setScaleError(`BLOQUEIO DE ESCALA: Existe uma declaração de renda pendente (${pendingData.date}). Status: ${pendingData.status}.`);
+      const pendingList = pendingSnap.docs.map(d => d.data() as any);
+      const pendingDoc = pendingList.find(d => !['finalized', 'paid_to_staff'].includes(d.status));
+      
+      if (pendingDoc) {
+        setScaleError(`BLOQUEIO DE ESCALA: Existe uma declaração de renda pendente (${pendingDoc.date}). Status: ${pendingDoc.status}.`);
         setIsSubmitting(false);
         return;
       }
@@ -340,7 +348,7 @@ export default function FleetManagement({ user }: { user?: any }) {
       }));
       setIsModalOpen(false);
       setSubmitError(null);
-      setNewDriver({ name: '', phone: '', secondaryPhone: '', prefix: '', plate: '', trackerId: '' });
+      setNewDriver({ name: '', phone: '', secondaryPhone: '', prefix: '', plate: '', trackerId: '', passengerAppActive: true });
     } catch (error: any) {
       console.error("Scale Submission Error:", error);
       let errorMessage = "Ocorreu um erro ao gravar os dados.";
@@ -615,6 +623,7 @@ export default function FleetManagement({ user }: { user?: any }) {
                 <th className="px-8 py-5 text-center font-black text-slate-400 uppercase tracking-widest text-[10px] border-b border-slate-100">Calls</th>
                 <th className="px-8 py-5 text-left font-black text-slate-400 uppercase tracking-widest text-[10px] border-b border-slate-100">Tracker ID</th>
                 <th className="px-8 py-5 text-left font-black text-slate-400 uppercase tracking-widest text-[10px] border-b border-slate-100">Sinal</th>
+                <th className="px-8 py-5 text-center font-black text-slate-400 uppercase tracking-widest text-[10px] border-b border-slate-100">App Passageiro</th>
                 <th className="px-8 py-5 text-right font-black text-slate-400 uppercase tracking-widest text-[10px] border-b border-slate-100">Ações</th>
               </tr>
             </thead>
@@ -705,6 +714,39 @@ export default function FleetManagement({ user }: { user?: any }) {
                               driver.gps === 'Signal Good' ? "text-green-600" : "text-red-600"
                             )}>{driver.gps === 'Signal Good' ? "Sinal GPS Ativo" : "Sem Sinal"}</span>
                           </div>
+                        </td>
+                        <td className="px-8 py-5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const isPassengerActive = driver.passengerAppActive !== false;
+                                await updateDoc(doc(db, 'drivers', driver.id), {
+                                  passengerAppActive: !isPassengerActive
+                                });
+                              } catch (err) {
+                                console.error("Error toggling passengerAppActive:", err);
+                              }
+                            }}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest shadow-sm transition-all active:scale-95",
+                              driver.passengerAppActive !== false 
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" 
+                                : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                            )}
+                            title={driver.passengerAppActive !== false ? "Clique para ocultar no app do passageiro" : "Clique para mostrar no app do passageiro"}
+                          >
+                            {driver.passengerAppActive !== false ? (
+                              <>
+                                <Eye size={12} className="text-emerald-500" />
+                                <span>Ativo</span>
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff size={12} className="text-rose-500" />
+                                <span>Oculto</span>
+                              </>
+                            )}
+                          </button>
                         </td>
                         <td className="px-8 py-5 text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -1135,6 +1177,22 @@ export default function FleetManagement({ user }: { user?: any }) {
                       className="w-full pl-9 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-[13px] outline-none text-slate-500 font-bold cursor-not-allowed"
                     />
                   </div>
+                </div>
+
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/60 flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[11px] font-black text-slate-800 uppercase tracking-wider">App do Passageiro</span>
+                    <span className="text-[10px] text-slate-450 font-medium leading-tight max-w-[220px]">Visível no mapa de Luena e disponível para corridas</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                    <input 
+                      type="checkbox" 
+                      checked={newDriver.passengerAppActive}
+                      onChange={(e) => setNewDriver({ ...newDriver, passengerAppActive: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-350 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-primary"></div>
+                  </label>
                 </div>
 
                 <div className="pt-4 flex gap-3">

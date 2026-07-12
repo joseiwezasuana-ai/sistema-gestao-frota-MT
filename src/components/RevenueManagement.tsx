@@ -31,7 +31,7 @@ import html2canvas from 'html2canvas';
 import { InvoiceViewerModal } from './InvoiceViewerModal';
 import autoTable from 'jspdf-autotable';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, where, addDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, where, addDoc, getDocs, deleteDoc } from '@/src/lib/firebase';
 import { cn } from '../lib/utils';
 
 interface RevenueLog {
@@ -69,7 +69,41 @@ export default function RevenueManagement({ user }: { user: any }) {
   const [calls, setCalls] = useState<any[]>([]);
   const [smsLogs, setSmsLogs] = useState<any[]>([]);
 
+  // Manual Revenue Declaration States
+  const [isManualDeclareOpen, setIsManualDeclareOpen] = useState(false);
+  const [manualDriverId, setManualDriverId] = useState('');
+  const [manualPrefix, setManualPrefix] = useState('');
+  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+  const [manualTpa, setManualTpa] = useState('');
+  const [manualCash, setManualCash] = useState('');
+  const [manualTransfer, setManualTransfer] = useState('');
+  const [manualExpenses, setManualExpenses] = useState('');
+  const [manualAppRides, setManualAppRides] = useState('');
+  const [manualDescription, setManualDescription] = useState('');
+  const [activeFleetDrivers, setActiveFleetDrivers] = useState<any[]>([]);
+
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente' || user?.email === 'joseiwezasuana@gmail.com';
+
+  useEffect(() => {
+    if (manualDriverId) {
+      const selectedDrv = drivers.find(d => d.id === manualDriverId);
+      const activeAssignment = activeFleetDrivers.find(
+        fd => fd.driverId === manualDriverId || (selectedDrv && fd.name === selectedDrv.name)
+      );
+
+      if (activeAssignment && activeAssignment.prefix) {
+        setManualPrefix(activeAssignment.prefix);
+      } else if (selectedDrv) {
+        const inferredPrefix = selectedDrv.prefix || selectedDrv.vehiclePrefix || (selectedDrv.vehicleLabel ? selectedDrv.vehicleLabel.split(' ')[0] : '');
+        setManualPrefix(inferredPrefix || '');
+      }
+
+      // Automatically default date to today's local date
+      if (!manualDate) {
+        setManualDate(new Date().toISOString().split('T')[0]);
+      }
+    }
+  }, [manualDriverId, drivers, activeFleetDrivers]);
   const isContabilista = user?.role === 'contabilista';
   const isOperator = user?.role === 'operator' || isAdmin;
   const isContabRole = isContabilista || isAdmin;
@@ -98,6 +132,7 @@ export default function RevenueManagement({ user }: { user: any }) {
     // Fetch Calls and SMS
     const qCalls = query(collection(db, 'calls'), orderBy('timestamp', 'desc'));
     const qSms = query(collection(db, 'sms_logs'), orderBy('timestamp', 'desc'));
+    const qActiveFleet = query(collection(db, 'drivers'));
 
     const unsubscribeDrivers = onSnapshot(qDrivers, (snapshot) => {
       setDrivers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -110,11 +145,17 @@ export default function RevenueManagement({ user }: { user: any }) {
     const unsubscribeSms = onSnapshot(qSms, (snapshot) => {
       setSmsLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+
+    const unsubscribeActiveFleet = onSnapshot(qActiveFleet, (snapshot) => {
+      setActiveFleetDrivers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubscribe();
       unsubscribeDrivers();
       unsubscribeCalls();
       unsubscribeSms();
+      unsubscribeActiveFleet();
     };
   }, [isContabilista, isAdmin]);
 
@@ -122,11 +163,12 @@ export default function RevenueManagement({ user }: { user: any }) {
     if (isHistoryModalOpen) {
       const q = query(
         collection(db, 'revenue_logs'), 
-        where('status', 'in', ['archived', 'finalized', 'paid_to_staff']),
         orderBy('timestamp', 'desc')
       );
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        setArchivedRevenues(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RevenueLog)));
+        const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RevenueLog));
+        const filtered = logs.filter(log => ['archived', 'finalized', 'paid_to_staff'].includes(log.status));
+        setArchivedRevenues(filtered);
       }, (error) => {
         handleFirestoreError(error, OperationType.GET, 'revenue_logs (archived)');
       });
@@ -157,6 +199,35 @@ export default function RevenueManagement({ user }: { user: any }) {
 
       await updateDoc(revRef, updateData);
 
+      // Mark matching calls as approved/reverted based on status to synchronize driver view
+      if (newStatus === 'approved_by_operator' || newStatus === 'approved_by_accountant' || newStatus === 'finalized') {
+        try {
+          const callsQuery = query(collection(db, 'calls'), where('revenueLogId', '==', revenueId));
+          const callsSnap = await getDocs(callsQuery);
+          for (const callDoc of callsSnap.docs) {
+            await updateDoc(doc(db, 'calls', callDoc.id), {
+              approvedByOperator: true,
+              approvedAt: new Date().toISOString()
+            });
+          }
+        } catch (callsErr) {
+          console.warn("Error marking calls as approved:", callsErr);
+        }
+      } else if (newStatus.includes('rejected')) {
+        try {
+          const callsQuery = query(collection(db, 'calls'), where('revenueLogId', '==', revenueId));
+          const callsSnap = await getDocs(callsQuery);
+          for (const callDoc of callsSnap.docs) {
+            await updateDoc(doc(db, 'calls', callDoc.id), {
+              declared: false,
+              revenueLogId: ""
+            });
+          }
+        } catch (callsErr) {
+          console.warn("Error reverting calls status for rejected revenue:", callsErr);
+        }
+      }
+
       // 1. Unbind driver if approved/rejected by operator (or finalized)
       if (newStatus === 'approved_by_operator' || newStatus === 'rejected_by_operator' || newStatus === 'finalized') {
         const q = query(collection(db, 'drivers'), where('driverId', '==', revenue.driverId));
@@ -174,8 +245,8 @@ export default function RevenueManagement({ user }: { user: any }) {
           }
         }
 
-        // Notify driver of approval
-        if (revenue.driverId) {
+        // Notify driver of approval (ONLY when approved by operator to avoid duplicates)
+        if (revenue.driverId && newStatus === 'approved_by_operator') {
           await addDoc(collection(db, 'messages'), {
             type: 'success',
             category: 'revenue_approval',
@@ -284,6 +355,93 @@ export default function RevenueManagement({ user }: { user: any }) {
     } catch (error) {
       console.error(error);
       alert('Erro ao eliminar registo.');
+    }
+  };
+
+  const handleManualDeclareSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualDriverId) {
+      setGlobalError("Por favor, selecione um motorista.");
+      return;
+    }
+    if (!manualPrefix) {
+      setGlobalError("Por favor, introduza o prefixo da viatura.");
+      return;
+    }
+
+    const tpa = parseFloat(manualTpa) || 0;
+    const cash = parseFloat(manualCash) || 0;
+    const transfer = parseFloat(manualTransfer) || 0;
+    const expenses = parseFloat(manualExpenses) || 0;
+    const appRides = parseFloat(manualAppRides) || 0;
+
+    const total = tpa + cash + transfer - expenses;
+
+    setIsProcessing(true);
+    setGlobalError(null);
+
+    try {
+      const selectedDrv = drivers.find(d => d.id === manualDriverId);
+      const driverName = selectedDrv ? selectedDrv.name : "Motorista Manual";
+
+      const revenueData = {
+        driverId: manualDriverId,
+        driverName: driverName,
+        prefix: manualPrefix,
+        amount: total,
+        breakdown: {
+          tpa,
+          cash,
+          transfer,
+          expenses,
+          appRides
+        },
+        description: manualDescription || "Declarado manualmente pelo Administrador",
+        date: manualDate,
+        status: "approved_by_operator", // Direct to Operator approved (Pendente Admin)
+        timestamp: new Date().toISOString(),
+        rejectionReason: ""
+      };
+
+      await addDoc(collection(db, 'revenue_logs'), revenueData);
+
+      // Unlink driver from active assignments ('drivers' collection) since manual declaration goes direct as approved
+      try {
+        const qActive = query(collection(db, 'drivers'), where('driverId', '==', manualDriverId));
+        const snapActive = await getDocs(qActive);
+        if (!snapActive.empty) {
+          for (const d of snapActive.docs) {
+            await deleteDoc(doc(db, 'drivers', d.id));
+          }
+        } else {
+          const qByName = query(collection(db, 'drivers'), where('name', '==', driverName));
+          const snapByName = await getDocs(qByName);
+          for (const d of snapByName.docs) {
+            await deleteDoc(doc(db, 'drivers', d.id));
+          }
+        }
+      } catch (unbindErr) {
+        console.warn("Error unbinding driver on manual declare:", unbindErr);
+      }
+
+      alert("Renda declarada com sucesso pelo Administrador!");
+      setIsManualDeclareOpen(false);
+      
+      // Reset form states
+      setManualDriverId('');
+      setManualPrefix('');
+      setManualDate(new Date().toISOString().split('T')[0]);
+      setManualTpa('');
+      setManualCash('');
+      setManualTransfer('');
+      setManualExpenses('');
+      setManualAppRides('');
+      setManualDescription('');
+    } catch (error: any) {
+      console.error("Error declaring manual revenue:", error);
+      setGlobalError("Erro ao declarar renda manualmente: " + error.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -401,6 +559,34 @@ export default function RevenueManagement({ user }: { user: any }) {
             </div>
           </div>
 
+          {/* Action Buttons in the Header Card */}
+          <div className="relative z-10 flex flex-wrap items-center gap-3">
+            <button 
+              onClick={() => setIsManualDeclareOpen(true)}
+              className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-emerald-600/20 cursor-pointer"
+            >
+              <ArrowUpRight size={16} />
+              Declarar Renda
+            </button>
+            {isAdmin && (
+              <button 
+                onClick={handleResetCycle}
+                disabled={isProcessing}
+                className="px-5 py-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center gap-2 border border-rose-100 italic"
+              >
+                {isProcessing ? <Clock className="animate-spin" size={14} /> : <XCircle size={14} />}
+                Zerar Ciclo
+              </button>
+            )}
+            <button 
+              onClick={() => setIsHistoryModalOpen(true)}
+              className="px-5 py-3 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2 border border-slate-200 hover:text-slate-900 group/hist"
+            >
+              <Clock size={16} className="group-hover/hist:rotate-[-45deg] transition-transform" /> 
+              Ver Histórico
+            </button>
+          </div>
+
           <div className="relative z-10 flex items-center gap-10">
              <div className="text-right">
                 <div className="flex items-center gap-2 justify-end mb-1">
@@ -428,10 +614,38 @@ export default function RevenueManagement({ user }: { user: any }) {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
-            { label: 'Cofre Finalizado (Mês)', value: (stats.totalFinalized || 0).toLocaleString() + ' Kz', color: 'text-emerald-600', border: 'border-emerald-500', icon: ShieldCheck },
-            { label: 'Processando (Mês)', value: (stats.totalProcess || 0).toLocaleString() + ' Kz', color: 'text-amber-500', border: 'border-amber-500', icon: Clock },
-            { label: 'Despesas (Mês)', value: (stats.totalExpenses || 0).toLocaleString() + ' Kz', color: 'text-rose-600', border: 'border-rose-500', icon: ArrowDownCircle },
-          { label: 'Registos Hoje', value: stats.todayCount.toString(), color: 'text-brand-primary', border: 'border-brand-primary', icon: TrendingUp },
+          { 
+            label: 'Cofre Finalizado (Mês)', 
+            value: (stats.totalFinalized || 0).toLocaleString() + ' Kz', 
+            subValue: `Plataforma (90%): ${(stats.totalFinalized * 0.9).toLocaleString()} Kz | Motorista (10%): ${(stats.totalFinalized * 0.1).toLocaleString()} Kz`,
+            color: 'text-emerald-600', 
+            border: 'border-emerald-500', 
+            icon: ShieldCheck 
+          },
+          { 
+            label: 'Processando (Mês)', 
+            value: (stats.totalProcess || 0).toLocaleString() + ' Kz', 
+            subValue: `Plataforma (90%): ${(stats.totalProcess * 0.9).toLocaleString()} Kz | Motorista (10%): ${(stats.totalProcess * 0.1).toLocaleString()} Kz`,
+            color: 'text-amber-500', 
+            border: 'border-amber-500', 
+            icon: Clock 
+          },
+          { 
+            label: 'Despesas (Mês)', 
+            value: (stats.totalExpenses || 0).toLocaleString() + ' Kz', 
+            subValue: 'Custos Operacionais do período',
+            color: 'text-rose-600', 
+            border: 'border-rose-500', 
+            icon: ArrowDownCircle 
+          },
+          { 
+            label: 'Registos Hoje', 
+            value: stats.todayCount.toString(), 
+            subValue: 'Declarações recebidas hoje',
+            color: 'text-brand-primary', 
+            border: 'border-brand-primary', 
+            icon: TrendingUp 
+          },
         ].map((s, idx) => (
           <motion.div 
             key={idx}
@@ -447,7 +661,10 @@ export default function RevenueManagement({ user }: { user: any }) {
                <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Live Sync</span>
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{s.label}</p>
-            <p className={cn("text-3xl font-black tracking-tighter", s.color)}>{s.value}</p>
+            <p className={cn("text-2xl font-black tracking-tighter", s.color)}>{s.value}</p>
+            {s.subValue && (
+              <p className="text-[9px] text-slate-400 font-bold uppercase mt-1 leading-tight">{s.subValue}</p>
+            )}
           </motion.div>
         ))}
       </div>
@@ -478,24 +695,6 @@ export default function RevenueManagement({ user }: { user: any }) {
               >
                 <Download size={16} /> PDF
               </button>
-              {isAdmin && (
-                <button 
-                  onClick={handleResetCycle}
-                  disabled={isProcessing}
-                  className="px-4 py-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-all flex items-center gap-2 border border-rose-100 italic"
-                >
-                  {isProcessing ? <Clock className="animate-spin" size={14} /> : <XCircle size={14} />}
-                  Zerar Ciclo
-                </button>
-              )}
-              
-              <button 
-                onClick={() => setIsHistoryModalOpen(true)}
-                className="px-4 py-3 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2 border border-slate-200 hover:text-slate-900 group/hist"
-              >
-                <Clock size={16} className="group-hover/hist:rotate-[-45deg] transition-transform" /> 
-                Ver Histórico
-              </button>
           </div>
           <div className="flex items-center gap-4 bg-white border border-slate-200 px-6 py-3 rounded-[1.25rem] shadow-sm">
              <User size={16} className="text-brand-primary" />
@@ -516,7 +715,8 @@ export default function RevenueManagement({ user }: { user: any }) {
               <tr className="bg-white text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">
                 <th className="px-10 py-5">Colaborador / Viatura</th>
                 <th className="px-10 py-5">Análise de Receitas & Custos</th>
-                <th className="px-10 py-5">Saldo Líquido</th>
+                <th className="px-10 py-5">Faturamento da Viatura</th>
+                <th className="px-10 py-5">Divisão (JIS 90% / Motorista 10%)</th>
                 <th className="px-10 py-5 text-center">Protocolo de Aprovação</th>
                 <th className="px-10 py-5 text-right">Acções Operacionais</th>
               </tr>
@@ -566,9 +766,15 @@ export default function RevenueManagement({ user }: { user: any }) {
                       </div>
                     </td>
                     <td className="px-10 py-6">
-                       <p className="text-lg font-black text-emerald-700 tracking-tighter italic">
+                       <p className="text-base font-black text-slate-900 tracking-tighter italic">
                          {(rev.amount || 0).toLocaleString()} <span className="text-[10px] uppercase font-bold opacity-60">Kz</span>
                        </p>
+                    </td>
+                    <td className="px-10 py-6">
+                      <div className="text-[11px] font-bold uppercase tracking-tight space-y-0.5">
+                        <p className="text-rose-600">JIS (90%): <span className="font-black font-mono">{((rev.amount || 0) * 0.9).toLocaleString()} Kz</span></p>
+                        <p className="text-emerald-600">Motorista (10%): <span className="font-black font-mono">{((rev.amount || 0) * 0.1).toLocaleString()} Kz</span></p>
+                      </div>
                     </td>
                     <td className="px-10 py-6 text-center">
                       <div className="flex flex-col items-center gap-1">
@@ -805,6 +1011,231 @@ export default function RevenueManagement({ user }: { user: any }) {
                   </button>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Manual Revenue Declaration Modal */}
+      <AnimatePresence>
+        {isManualDeclareOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsManualDeclareOpen(false)}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="px-10 py-8 bg-slate-900 text-white flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-6">
+                  <div className="w-14 h-14 bg-emerald-600 rounded-2xl flex items-center justify-center">
+                    <Wallet size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black uppercase italic tracking-tight">Declaração Manual de Renda</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Lançamento Administrativo Directo (JIS. SU)</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsManualDeclareOpen(false)}
+                  className="w-12 h-12 flex items-center justify-center hover:bg-white/10 rounded-full transition-colors"
+                >
+                  <XCircle size={32} />
+                </button>
+              </div>
+
+              <form onSubmit={handleManualDeclareSubmit} className="flex-1 overflow-auto p-10 space-y-6 custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Select Driver */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Colaborador / Motorista</label>
+                    <select
+                      value={manualDriverId}
+                      onChange={(e) => setManualDriverId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      required
+                    >
+                      <option value="">Selecione o Motorista...</option>
+                      {drivers.map(d => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} {d.vehicleLabel ? `(${d.vehicleLabel})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Prefix (Viatura) */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Prefixo da Viatura</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: TX-01"
+                      value={manualPrefix}
+                      onChange={(e) => setManualPrefix(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  {/* Date of Declaration */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Data da Renda</label>
+                    <input
+                      type="date"
+                      value={manualDate}
+                      onChange={(e) => setManualDate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  {/* Description / Notes */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Observações</label>
+                    <input
+                      type="text"
+                      placeholder="Declaração manual pelo Admin"
+                      value={manualDescription}
+                      onChange={(e) => setManualDescription(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="h-px bg-slate-100" />
+
+                <div className="space-y-4">
+                  <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest italic flex items-center gap-2">
+                    <DollarSign size={14} className="text-emerald-600" />
+                    Discriminação dos Valores de Entrada & Saída
+                  </h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* TPA */}
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Multicaixa / TPA (Kz)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={manualTpa}
+                        onChange={(e) => setManualTpa(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-850 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    {/* Cash */}
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Dinheiro Físico (Kz)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={manualCash}
+                        onChange={(e) => setManualCash(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-850 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    {/* Transfer */}
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Transferência (Kz)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={manualTransfer}
+                        onChange={(e) => setManualTransfer(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-850 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    {/* App Rides */}
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Corridas por App (Kz)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={manualAppRides}
+                        onChange={(e) => setManualAppRides(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    {/* Expenses */}
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Saídas / Despesas (Kz)</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={manualExpenses}
+                        onChange={(e) => setManualExpenses(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-rose-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Preview Calculation */}
+                {(() => {
+                  const netTotal = (parseFloat(manualTpa) || 0) + (parseFloat(manualCash) || 0) + (parseFloat(manualTransfer) || 0) - (parseFloat(manualExpenses) || 0);
+                  return (
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Total Líquido Estimado</span>
+                        <span className={cn(
+                          "text-3xl font-black tracking-tighter italic",
+                          netTotal >= 0 ? "text-emerald-600" : "text-rose-600"
+                        )}>
+                          {netTotal.toLocaleString()} Kz
+                        </span>
+                      </div>
+                      <div className="text-right border-t md:border-t-0 md:border-l border-slate-200 pt-4 md:pt-0 md:pl-6 space-y-1">
+                        <div>
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mr-2">JIS (90%):</span>
+                          <span className="text-xs font-black text-rose-600 font-mono">{(netTotal * 0.9).toLocaleString()} Kz</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mr-2">Motorista (10%):</span>
+                          <span className="text-xs font-black text-emerald-600 font-mono">{(netTotal * 0.1).toLocaleString()} Kz</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Submit & Cancel Buttons */}
+                <div className="pt-4 flex justify-end gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsManualDeclareOpen(false)}
+                    className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isProcessing}
+                    className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-emerald-600/20"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="animate-spin" size={16} />
+                        Declarando...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 size={16} />
+                        Declarar Renda
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

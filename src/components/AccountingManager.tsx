@@ -47,7 +47,7 @@ import {
   PieChart,
   Pie,
 } from "recharts";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { db, handleFirestoreError, OperationType, getActiveTenantId } from "../lib/firebase";
 import {
   collection,
   query,
@@ -61,7 +61,7 @@ import {
   serverTimestamp,
   deleteDoc,
   writeBatch,
-} from "firebase/firestore";
+} from '@/src/lib/firebase';
 import { cn } from "../lib/utils";
 import RevenueManagement from "./RevenueManagement";
 import InvoiceDrafting from "./InvoiceDrafting";
@@ -70,7 +70,9 @@ export default function AccountingManager({ user }: { user?: any }) {
   const [activeView, setActiveView] = useState<
     "revenue" | "income" | "salaries" | "individual" | "balance" | "invoicing"
   >("income");
+  const [currentMonth] = useState(new Date().toISOString().slice(0, 7));
   const [finalizedRevenues, setFinalizedRevenues] = useState<any[]>([]);
+  const [allRevenues, setAllRevenues] = useState<any[]>([]);
   const [salarySheets, setSalarySheets] = useState<any[]>([]);
   const [individualReports, setIndividualReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,6 +88,38 @@ export default function AccountingManager({ user }: { user?: any }) {
   const [isPrintingInvoice, setIsPrintingInvoice] = useState<string | null>(null);
   const [isInvoiceViewerOpen, setIsInvoiceViewerOpen] = useState(false);
   const [selectedInvoiceData, setSelectedInvoiceData] = useState<any>(null);
+  const [activeTenantData, setActiveTenantData] = useState<{
+    id: string;
+    name: string;
+    phone: string;
+    address: string;
+    logoUrl?: string;
+  } | null>(null);
+
+  // Filtros rápidos para conciliação mensal na aba de Relatório Individual Analítico
+  const monthlyPendingLogs = allRevenues.filter(r => {
+    const rMonth = r.date ? r.date.slice(0, 7) : (r.timestamp ? r.timestamp.slice(0, 7) : '');
+    return r.status === 'pending_approval' && rMonth === currentMonth;
+  });
+  
+  const monthlyApprovedLogs = allRevenues.filter(r => {
+    const rMonth = r.date ? r.date.slice(0, 7) : (r.timestamp ? r.timestamp.slice(0, 7) : '');
+    return (r.status === 'approved_by_operator' || r.status === 'approved_by_accountant' || r.status === 'finalized' || r.status === 'paid_to_staff') && rMonth === currentMonth;
+  });
+
+  const totalPendingSum = monthlyPendingLogs.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const totalApprovedSum = monthlyApprovedLogs.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+  // Estados para intervalo customizável do PDF Consolidado de Receita de Rendas (José Iweza Suana)
+  const [consolidatedStartDate, setConsolidatedStartDate] = useState<string>(() => {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(today.getDate() - 6); // default 7 dias incluindo hoje
+    return start.toISOString().split('T')[0];
+  });
+  const [consolidatedEndDate, setConsolidatedEndDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
 
   const isAdmin =
     user?.email === "joseiwezasuana@gmail.com" || user?.role === "admin" || user?.role === "gerente";
@@ -98,7 +132,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       // Header
       doc.setFontSize(22);
       doc.setTextColor(15, 23, 42); // slate-900
-      doc.text("PSM COMERCIAL LUENA MOXICO", 105, 20, { align: "center" });
+      doc.text(activeTenantData?.name.toUpperCase() || "JIS LUENA MOXICO", 105, 20, { align: "center" });
       doc.setFontSize(10);
       doc.setTextColor(100, 116, 139); // slate-500
       doc.text("HUB DE CONTABILIDADE & GESTÃO DE FROTA", 105, 28, {
@@ -167,7 +201,6 @@ export default function AccountingManager({ user }: { user?: any }) {
   };
 
   // Month filter (current month by default)
-  const [currentMonth] = useState(new Date().toISOString().slice(0, 7));
 
   const [administrativeStaff, setAdministrativeStaff] = useState<any[]>([]);
   const [showAdminStaffForm, setShowAdminStaffForm] = useState(false);
@@ -185,18 +218,37 @@ export default function AccountingManager({ user }: { user?: any }) {
   const [driversMaster, setDriversMaster] = useState<any[]>([]);
 
   useEffect(() => {
-    // 1. Fetch FINALIZED revenues for the current month
+    // Fetch Active Tenant Info
+    const tenantId = getActiveTenantId();
+    const unsubTenant = onSnapshot(doc(db, "tenants", tenantId), (snapshot) => {
+      if (snapshot.exists()) {
+        setActiveTenantData({ id: snapshot.id, ...snapshot.data() } as any);
+      } else {
+        setActiveTenantData({
+          id: tenantId,
+          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS. (SU), LDA LUENA-MOXICO',
+          phone: '+244 921 277 223',
+          address: 'Bairro Social Da Juventude, Luena-Moxico',
+        });
+      }
+    });
+
+    // 1. Fetch APPROVED and FINALIZED revenues for the current month
     const qRev = query(
       collection(db, "revenue_logs"),
-      where("status", "==", "finalized"),
       orderBy("timestamp", "desc"),
     );
     const unsubRev = onSnapshot(qRev, (snapshot) => {
+      const logs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setAllRevenues(logs);
       // Local filter as extra safety
       setFinalizedRevenues(
-        snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((r: any) => r.status !== 'archived')
+        logs.filter((r: any) => 
+          r.status !== 'archived' &&
+          r.status !== 'rejected_by_operator' &&
+          r.status !== 'rejected_by_accountant' &&
+          (r.status === 'approved_by_operator' || r.status === 'approved_by_accountant' || r.status === 'finalized' || r.status === 'paid_to_staff')
+        )
       );
     }, (error) => handleFirestoreError(error, OperationType.GET, "revenue_logs"));
 
@@ -217,14 +269,37 @@ export default function AccountingManager({ user }: { user?: any }) {
     const qInd = query(
       collection(db, "individual_reports"),
       where("month", "==", currentMonth),
-      orderBy("driverName", "asc"),
     );
     const unsubInd = onSnapshot(qInd, (snapshot) => {
-      setIndividualReports(
-        snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((r: any) => r.status !== 'archived')
-      );
+      const reports = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((r: any) => r.status !== 'archived');
+
+      // Deduplicate reports to guarantee each driver only appears once per period/month
+      const uniqueReportsMap = new Map<string, any>();
+      reports.forEach((report: any) => {
+        const key = report.driverId || report.driverName;
+        if (!uniqueReportsMap.has(key)) {
+          uniqueReportsMap.set(key, report);
+        } else {
+          // If duplicate exists, keep the one with higher totalGross or updatedAt (most recent)
+          const existing = uniqueReportsMap.get(key);
+          const existingTime = existing.updatedAt?.seconds || 0;
+          const reportTime = report.updatedAt?.seconds || 0;
+          if (reportTime > existingTime) {
+            uniqueReportsMap.set(key, report);
+          }
+        }
+      });
+      const uniqueReports = Array.from(uniqueReportsMap.values());
+
+      // Sort client-side by driverName to avoid composite index requirement
+      uniqueReports.sort((a: any, b: any) => {
+        const nameA = (a.driverName || "").toUpperCase();
+        const nameB = (b.driverName || "").toUpperCase();
+        return nameA.localeCompare(nameB);
+      });
+      setIndividualReports(uniqueReports);
     }, (error) => handleFirestoreError(error, OperationType.GET, "individual_reports"));
 
     // 4. Fetch Administrative Staff
@@ -248,6 +323,7 @@ export default function AccountingManager({ user }: { user?: any }) {
     }, (error) => handleFirestoreError(error, OperationType.GET, "drivers_master"));
 
     return () => {
+      unsubTenant();
       unsubRev();
       unsubSal();
       unsubInd();
@@ -344,7 +420,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       // Header
       doc.setFontSize(22);
       doc.setTextColor(15, 23, 42); 
-      doc.text("PSM COMERCIAL LUENA MOXICO", pageWidth / 2, 20, { align: "center" });
+      doc.text(activeTenantData?.name.toUpperCase() || "PSM COMERCIAL LUENA MOXICO", pageWidth / 2, 20, { align: "center" });
       doc.setFontSize(10);
       doc.setTextColor(100, 116, 139);
       doc.text("RECIBO DE SALÁRIO - PROCESSAMENTO ELECTRÓNICO", pageWidth / 2, 28, { align: "center" });
@@ -407,7 +483,8 @@ export default function AccountingManager({ user }: { user?: any }) {
       doc.setTextColor(148, 163, 184);
       doc.text("Este documento é um recibo de salário gerado electronicamente.", pageWidth / 2, 285, { align: "center" });
 
-      doc.save(`RECIBO_PSM_${data.name}_${receiptMonth}.pdf`);
+      const tenantSlug = activeTenantData?.id.toUpperCase() || "JIS";
+      doc.save(`RECIBO_${tenantSlug}_${data.name}_${receiptMonth}.pdf`);
     } catch (err) {
       console.error(err);
       alert("Erro ao gerar PDF.");
@@ -435,7 +512,8 @@ export default function AccountingManager({ user }: { user?: any }) {
       cleanPhone = '244' + cleanPhone;
     }
     
-    const message = `*BILHETE DE SALÁRIO - PSM COMERCIAL*\n\n` +
+    const companyTitle = activeTenantData?.name.toUpperCase() || "JIS. (SU), LDA";
+    const message = `*BILHETE DE SALÁRIO - ${companyTitle}*\n\n` +
       `Olá *${data.name}*,\n` +
       `O seu bilhete de salário referente a *${month}* já está disponível.\n\n` +
       `*RESUMO FINANCEIRO:*\n` +
@@ -480,27 +558,42 @@ export default function AccountingManager({ user }: { user?: any }) {
         return;
       }
 
-      const driverStaff = approvedReports.map((report) => {
-        const grossSalary = report.baseSalary + report.subs;
+      const driverMapConsolidated = new Map<string, any>();
+      approvedReports.forEach((report) => {
+        const driverId = report.driverId;
+        const grossSalary = (report.baseSalary || 0) + (report.subs || 0);
         const inssEmployee = grossSalary * 0.03;
         const netSalary = grossSalary - inssEmployee - (report.discounts || 0);
 
-        return {
-          id: report.driverId,
-          name: report.driverName,
-          role: "Motorista",
-          baseSalary: report.baseSalary,
-          subsAliment: report.subs / 2,
-          subsTransp: report.subs / 2,
-          grossSalary,
-          inssEmployee,
-          inssEmployer: grossSalary * 0.08,
-          irt: 0,
-          discounts: report.discounts || 0,
-          netSalary,
-          status: "pending",
-        };
+        if (!driverMapConsolidated.has(driverId)) {
+          driverMapConsolidated.set(driverId, {
+            id: driverId,
+            name: report.driverName,
+            role: "Motorista",
+            baseSalary: report.baseSalary || 0,
+            subsAliment: (report.subs || 0) / 2,
+            subsTransp: (report.subs || 0) / 2,
+            grossSalary,
+            inssEmployee,
+            inssEmployer: grossSalary * 0.08,
+            irt: 0,
+            discounts: report.discounts || 0,
+            netSalary,
+            status: "pending",
+          });
+        } else {
+          const existing = driverMapConsolidated.get(driverId);
+          existing.baseSalary += report.baseSalary || 0;
+          existing.subsAliment += (report.subs || 0) / 2;
+          existing.subsTransp += (report.subs || 0) / 2;
+          existing.grossSalary += grossSalary;
+          existing.inssEmployee += inssEmployee;
+          existing.inssEmployer += grossSalary * 0.08;
+          existing.discounts += report.discounts || 0;
+          existing.netSalary += netSalary;
+        }
       });
+      const driverStaff = Array.from(driverMapConsolidated.values());
 
       // 2. Add Administrative Staff (From Firestore)
       const adminStaffMapped = administrativeStaff.map((admin) => {
@@ -557,7 +650,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       const doc = new jsPDF();
       doc.setFontSize(22);
       doc.setTextColor(15, 23, 42);
-      doc.text("PSM COMERCIAL LUENA MOXICO", 105, 20, { align: "center" });
+      doc.text(activeTenantData?.name.toUpperCase() || "PSM COMERCIAL LUENA MOXICO", 105, 20, { align: "center" });
       doc.setFontSize(10);
       doc.setTextColor(100, 116, 139);
       doc.text("MAPA DE RENDIMENTOS - FECHO DE CAIXA", 105, 28, {
@@ -591,26 +684,19 @@ export default function AccountingManager({ user }: { user?: any }) {
     try {
       const doc = new jsPDF();
       
-      // Get current week Monday and Sunday
-      const today = new Date();
-      const day = today.getDay();
-      const mondayOffset = day === 0 ? -6 : 1 - day;
+      const startDateObj = new Date(consolidatedStartDate);
+      startDateObj.setHours(0, 0, 0, 0);
       
-      const monday = new Date(today);
-      monday.setDate(today.getDate() + mondayOffset);
-      monday.setHours(0, 0, 0, 0);
-      
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      sunday.setHours(23, 59, 59, 999);
+      const endDateObj = new Date(consolidatedEndDate);
+      endDateObj.setHours(23, 59, 59, 999);
 
       const formatDatePT = (d: Date) => {
         return d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
       };
 
-      const dateRangeStr = `Período: ${formatDatePT(monday)} a ${formatDatePT(sunday)}`;
+      const dateRangeStr = `Período: ${formatDatePT(startDateObj)} a ${formatDatePT(endDateObj)}`;
 
-      // Filter revenues for the current week
+      // Filter revenues for the custom period
       const weeklyRevenues = finalizedRevenues.filter((rev: any) => {
         if (!rev.date && !rev.timestamp) return false;
         let itemDate: Date;
@@ -622,7 +708,7 @@ export default function AccountingManager({ user }: { user?: any }) {
         } else {
           itemDate = rev.timestamp.seconds ? new Date(rev.timestamp.seconds * 1000) : new Date(rev.timestamp);
         }
-        return itemDate >= monday && itemDate <= sunday;
+        return itemDate >= startDateObj && itemDate <= endDateObj;
       });
 
       // Calculate aggregates
@@ -651,7 +737,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(18);
       doc.setTextColor(15, 23, 42); // slate-900
-      doc.text("PSM COMERCIAL. (SU), LDA LUENA-MOXICO", 105, 20, { align: "center" });
+      doc.text(activeTenantData?.name.toUpperCase() || "PSM COMERCIAL. (SU), LDA LUENA-MOXICO", 105, 20, { align: "center" });
       
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
@@ -661,7 +747,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
       doc.setTextColor(220, 100, 20); // highlight/brand color
-      doc.text("RESUMO CONSOLIDADO DE RECEITA DE RENDAS (SEMANA ATUAL)", 105, 34, { align: "center" });
+      doc.text("RESUMO CONSOLIDADO DE RECEITA DE RENDAS", 105, 34, { align: "center" });
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
@@ -680,7 +766,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
       doc.setTextColor(71, 85, 105);
-      doc.text("RENDIMENTO BRUTO DA SEMANA:", 20, 56);
+      doc.text("RENDIMENTO BRUTO DO PERÍODO:", 20, 56);
       doc.setFont("helvetica", "normal");
       doc.text(`Dinheiro: ${totalDinheiro.toLocaleString()} Kz`, 20, 62);
       doc.text(`Transferências: ${totalTransferencias.toLocaleString()} Kz`, 20, 68);
@@ -702,7 +788,8 @@ export default function AccountingManager({ user }: { user?: any }) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(5, 150, 105); // emerald-600
-      doc.text("TOTAL LÍQUIDO PSM:", 152, 58);
+      const tenantSlug = activeTenantData?.id.toUpperCase() || "PSM";
+      doc.text(`TOTAL LÍQUIDO ${tenantSlug}:`, 152, 58);
       doc.setFontSize(13);
       doc.text(`${totalLiquidoPSM.toLocaleString()} Kz`, 152, 67);
       
@@ -749,10 +836,10 @@ export default function AccountingManager({ user }: { user?: any }) {
 
       autoTable(doc, {
         startY: 92,
-        head: [["Pref.", "Motorista", "Data Fecho", "Dinheiro", "Transf.", "TPA", "Desp. / Ofic.", "Líq. PSM"]],
+        head: [["Pref.", "Motorista", "Data Fecho", "Dinheiro", "Transf.", "TPA", "Desp. / Ofic.", `Líq. ${tenantSlug}`]],
         body: tableRows,
-        theme: "striped",
-        headStyles: { fillColor: [15, 23, 42], fontSize: 8.5 },
+        theme: "grid",
+        headStyles: { fillColor: [15, 23, 42], fontSize: 8.5, fontStyle: "bold" },
         columnStyles: {
           0: { cellWidth: 12 },
           1: { cellWidth: 32 },
@@ -828,7 +915,7 @@ export default function AccountingManager({ user }: { user?: any }) {
         { align: "center" },
       );
 
-      doc.save(`PSM_Consolidado_Rendas_Semana_${formatDatePT(monday)}.pdf`);
+      doc.save(`${tenantSlug}_Consolidado_Rendas_${consolidatedStartDate}_a_${consolidatedEndDate}.pdf`);
     } catch (err) {
       console.error("Erro ao gerar PDF Consolidado:", err);
       alert("Erro ao carregar renderizador PDF ou processar dados de receita.");
@@ -937,10 +1024,16 @@ export default function AccountingManager({ user }: { user?: any }) {
       // 1. Group revenue logs by driver for the current month
       const driverMap = new Map();
       
-      finalizedRevenues.forEach(rev => {
+      const monthlyRevenues = finalizedRevenues.filter(rev => {
+        if (!rev.driverId) return false;
+        const revDate = rev.date || (rev.timestamp ? rev.timestamp.split("T")[0] : "");
+        return revDate && revDate.startsWith(currentMonth);
+      });
+      
+      monthlyRevenues.forEach(rev => {
         if (!driverMap.has(rev.driverId)) {
           driverMap.set(rev.driverId, {
-            driverName: rev.driverName,
+            driverName: rev.driverName || "Motorista Desconhecido",
             totalGross: 0,
             totalCosts: 0,
             revenueCount: 0
@@ -957,16 +1050,23 @@ export default function AccountingManager({ user }: { user?: any }) {
         const netIncome = stats.totalGross - stats.totalCosts;
         const tenPercent = netIncome * 0.1;
         
-        // Check if report already exists for this driver/month
-        const existing = individualReports.find(r => r.driverId === driverId);
-        if (existing) {
-          batch.update(doc(db, "individual_reports", existing.id), {
+        // Find all existing reports for this driver in state
+        const existingReports = individualReports.filter(r => r.driverId === driverId);
+        
+        if (existingReports.length > 0) {
+          // Update the first one
+          batch.update(doc(db, "individual_reports", existingReports[0].id), {
             totalGross: stats.totalGross,
             totalCosts: stats.totalCosts,
             baseSalary: tenPercent,
             days: stats.revenueCount,
             updatedAt: serverTimestamp()
           });
+          
+          // Delete any subsequent duplicate documents to clean up the database
+          for (let i = 1; i < existingReports.length; i++) {
+            batch.delete(doc(db, "individual_reports", existingReports[i].id));
+          }
         } else {
           const newReportRef = doc(collection(db, "individual_reports"));
           batch.set(newReportRef, {
@@ -1093,42 +1193,89 @@ export default function AccountingManager({ user }: { user?: any }) {
         lastApprovedAt: serverTimestamp(),
       });
 
-      if (nextStatus === "approved") {
-        // Trigger automatic messages
-        for (const person of sheet.staff) {
-          await addDoc(collection(db, "messages"), {
-            to: person.id,
-            toName: person.name,
-            content: `Olá ${person.name}, o seu salário referente a ${sheet.month} foi aprovado. Base: ${person.baseSalary.toLocaleString()} Kz, Subsídios: ${(person.subsAliment + person.subsTransp).toLocaleString()} Kz, Descontos: ${person.discounts.toLocaleString()} Kz. Valor Líquido a Receber: ${person.netSalary.toLocaleString()} Kz. PSM MOXICO.`,
-            type: "system",
-            timestamp: serverTimestamp(),
-            read: false,
-          });
-        }
-
-        // RESET LOGIC:
-        // Gross income, expenses, etc are "archived" by moving finalized logs to a history status if needed,
-        // but here we just mean the "current flow" for metrics will naturally move to the next month.
-        // 3. Mark ONLY relevant month revenues as 'paid' to reset current cycle stats while guarding history
-        const relevantRevenues = finalizedRevenues.filter((r) =>
-          r.date?.startsWith(sheet.month),
-        );
-        for (const rev of relevantRevenues) {
-          await updateDoc(doc(db, "revenue_logs", rev.id), {
-            status: "paid_to_staff",
-          });
-        }
-
-        // Archive related individual reports
+      if (nextStatus === "analyzed") {
+        // "uma vez que o balanço e validado, zera o Relatório Analítico Individual para nao duplicar as mesmas contas"
+        // 1. Set all related individual reports status to archived (which hides them from view and locks them)
         const relevantReports = individualReports.filter((r) => r.month === sheet.month);
         for (const report of relevantReports) {
           await updateDoc(doc(db, "individual_reports", report.id), {
-            status: "paid",
+            status: "archived",
+          });
+        }
+
+        // 2. Archive corresponding revenues so they won't be counted again or duplicate the accounts
+        const relevantRevenues = finalizedRevenues.filter((r) =>
+          r.date?.startsWith(sheet.month)
+        );
+        for (const rev of relevantRevenues) {
+          await updateDoc(doc(db, "revenue_logs", rev.id), {
+            status: "archived",
+            archivedAt: serverTimestamp(),
           });
         }
 
         alert(
-          "Folha APROVADA e PAGAMENTOS PROCESSADOS! Mensagens enviadas e fluxo reiniciado.",
+          "Balanço validado com sucesso! Relatório Analítico Individual foi arquivado/zerado e as contas correspondentes foram guardadas para evitar duplicações."
+        );
+      }
+
+      if (nextStatus === "approved") {
+        // Trigger automatic messages (with proper targets and status so collaborators receive notifications on their dashboard)
+        for (const person of sheet.staff) {
+          if (person.id) {
+            await addDoc(collection(db, "messages"), {
+              type: "success",
+              category: "salary_approval",
+              title: "Salário Aprovado 💰",
+              subject: "Salário Aprovado 💰",
+              content: `Olá ${person.name}, o seu salário referente a ${sheet.month} foi aprovado e processado com sucesso. Base: ${person.baseSalary.toLocaleString()} Kz, Subsídios: ${(person.subsAliment + person.subsTransp).toLocaleString()} Kz, Descontos: ${person.discounts.toLocaleString()} Kz. Valor Líquido a Receber: ${person.netSalary.toLocaleString()} Kz. PSM LUENA MOXICO.`,
+              targets: [person.id],
+              to: person.id,
+              toName: person.name,
+              status: "unread",
+              read: false,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+
+        // RESET LOGIC: "uma vez que os salários forem transferido, o sistema zera tudo para começar um ciclo novo limpo"
+        // 1. Archive related revenues of this month/sheet to paid_to_staff / archived status to reset current cycle
+        const relevantRevenues = finalizedRevenues.filter((r) =>
+          r.date?.startsWith(sheet.month)
+        );
+        for (const rev of relevantRevenues) {
+          await updateDoc(doc(db, "revenue_logs", rev.id), {
+            status: "archived",
+            archivedAt: serverTimestamp(),
+          });
+        }
+
+        // 2. Archive related individual reports
+        const relevantReports = individualReports.filter((r) => r.month === sheet.month);
+        for (const report of relevantReports) {
+          await updateDoc(doc(db, "individual_reports", report.id), {
+            status: "archived",
+          });
+        }
+
+        // 3. Reset internal drivers' call counts and recent alerts so everything starts completely fresh
+        try {
+          const driversDocs = await getDocs(collection(db, "drivers"));
+          const driversBatch = writeBatch(db);
+          driversDocs.docs.forEach(d => {
+            driversBatch.update(d.ref, { 
+              callCount: 0,
+              recentCalls: [] 
+            });
+          });
+          await driversBatch.commit();
+        } catch (e) {
+          console.warn("Erro ao zerar contadores de chamadas:", e);
+        }
+
+        alert(
+          "Folha APROVADA e PAGAMENTOS PROCESSADOS! Mensagens de confirmação de salário enviadas e ciclo contábil reiniciado (tudo zerado e limpo!).",
         );
       }
     } catch (error) {
@@ -1139,149 +1286,129 @@ export default function AccountingManager({ user }: { user?: any }) {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-6 pb-20">
-      {/* Navigation & Header */}
-      <div className="bg-white px-8 py-8 rounded-2xl border border-slate-200 shadow-sm transition-all">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
-          <div className="flex items-center gap-6">
-            <div className="w-24 h-24 bg-slate-900 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl relative overflow-hidden group border-4 border-slate-100 ring-4 ring-slate-900/5">
-              <Calculator className="relative z-10" size={42} />
-              <div className="absolute inset-0 bg-gradient-to-br from-brand-primary/40 to-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-              <div className="absolute top-0 right-0 w-12 h-12 bg-brand-primary/20 blur-xl animate-pulse" />
-            </div>
-            <div>
-              <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-4">
-                <h2 className="text-4xl lg:text-5xl font-black text-slate-900 tracking-tighter uppercase italic flex items-center gap-3 leading-none">
-                  PS MOREIRA
-                </h2>
-                <div className="inline-flex w-fit px-4 py-1.5 bg-brand-primary text-white rounded-xl text-[11px] font-black uppercase tracking-[0.2em] italic shadow-lg shadow-brand-primary/20">
-                  HUB DE CONTABILIDADE
-                </div>
-              </div>
-              <div className="text-[12px] text-slate-500 font-black uppercase tracking-[0.3em] mt-3 flex items-center gap-3">
-                <div className="w-1.5 h-1.5 bg-brand-primary rounded-full animate-ping" />
-                CENTRO INTEGRADO DE TESOURARIA & AUDITORIA FINANCEIRA
-              </div>
-              <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-2 text-[10px] font-black text-slate-400 uppercase tracking-widest italic border-t border-slate-100 pt-4">
-                <span className="flex items-center gap-2.5">
-                  <span className="text-slate-300">NIF:</span>
-                  <span className="text-slate-800">5001062654</span>
-                </span>
-                <span className="flex items-center gap-2.5">
-                  <span className="text-slate-300">UNIDADE:</span>
-                  <span className="text-slate-800">LUENA, MOXICO</span>
-                </span>
-                <span className="flex items-center gap-2.5 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg border border-emerald-100 shadow-sm">
-                  <ShieldCheck size={12} /> SISTEMA AUDITADO V.4.5 ESTÁVEL
-                </span>
-              </div>
-            </div>
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-20">
+      {/* Navigation & Header matching RecruitmentPortal style */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between bg-white px-10 py-10 rounded-[2.5rem] border border-slate-200 shadow-sm relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-brand-primary/5 rounded-full -mr-48 -mt-48 blur-[80px] opacity-50 group-hover:bg-brand-primary/10 transition-colors duration-700 pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col sm:flex-row items-center gap-6">
+          <div className="w-24 h-24 bg-slate-900 rounded-[2.5rem] flex items-center justify-center text-white shadow-2xl relative overflow-hidden group border-4 border-slate-100 ring-4 ring-slate-900/5 shrink-0">
+            <Calculator className="relative z-10" size={42} />
+            <div className="absolute inset-0 bg-gradient-to-br from-brand-primary/40 to-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+            <div className="absolute top-0 right-0 w-12 h-12 bg-brand-primary/20 blur-xl animate-pulse" />
           </div>
-
-          <div className="flex bg-slate-100 p-1 rounded-xl shadow-inner border border-slate-200">
-            {(user?.role === 'operator' || user?.role === 'contabilista' || isAdmin) && (
-              <button
-                onClick={() => setActiveView("revenue")}
-                className={cn(
-                  "px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                  activeView === "revenue"
-                    ? "bg-white text-slate-900 shadow-sm scale-[1.02]"
-                    : "text-slate-400 hover:text-slate-600",
-                )}
-              >
-                <Wallet size={14} />
-                Fluxo de Renda
-              </button>
-            )}
-            <button
-              onClick={() => setActiveView("income")}
-              className={cn(
-                "px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                activeView === "income"
-                  ? "bg-white text-slate-900 shadow-sm scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-600",
-              )}
-            >
-              <TrendingUp size={14} />
-              Mapa de Faturamento
-            </button>
-            <button
-              onClick={() => setActiveView("salaries")}
-              className={cn(
-                "px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                activeView === "salaries"
-                  ? "bg-white text-slate-900 shadow-sm scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-600",
-              )}
-            >
-              <Users size={14} />
-              Folha de Salários
-            </button>
-            <button
-              onClick={() => setActiveView("individual")}
-              className={cn(
-                "px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                activeView === "individual"
-                  ? "bg-white text-slate-900 shadow-sm scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-600",
-              )}
-            >
-              <FileText size={14} />
-              Relatório Individual
-            </button>
-            {isAdmin && (
-              <button
-                onClick={() => setActiveView("balance")}
-                className={cn(
-                  "px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                  activeView === "balance"
-                    ? "bg-white text-slate-900 shadow-sm scale-[1.02]"
-                    : "text-slate-400 hover:text-slate-600",
-                )}
-              >
-                <TrendingUp size={14} />
-                Balanço de Análise
-              </button>
-            )}
-            <button
-              onClick={() => setActiveView("invoicing")}
-              className={cn(
-                "px-5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                activeView === "invoicing"
-                  ? "bg-white text-slate-900 shadow-sm scale-[1.02]"
-                  : "text-slate-400 hover:text-slate-600",
-              )}
-            >
-              <FileText size={14} />
-              Redactor Faturas
-            </button>
-            <div className="flex items-center gap-2 ml-auto pl-2">
-              <button
-                onClick={generateWeeklyConsolidatedPDF}
-                className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-all flex items-center gap-2 border border-emerald-150 shadow-sm active:scale-95"
-                title="Descarregar PDF consolidado com o total de rendas fechadas na semana atual"
-              >
-                <Download size={11} />
-                Resumo Semanal (PDF)
-              </button>
-
-              {isAdmin && (
-                <button
-                  onClick={handleResetAccountingCycle}
-                  disabled={isProcessing}
-                  className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 hover:bg-rose-100 transition-all flex items-center gap-2 border border-rose-100 active:scale-95"
-                >
-                  {isProcessing ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <TrendingUp size={12} className="rotate-180" />
-                  )}
-                  Zerar Hub
-                </button>
-              )}
+          <div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+              <h2 className="text-4xl lg:text-5xl font-black text-slate-900 tracking-tighter uppercase italic flex items-center gap-3 leading-none">
+                PS MOREIRA
+              </h2>
+              <div className="inline-flex w-fit px-4 py-1.5 bg-brand-primary text-white rounded-xl text-[11px] font-black uppercase tracking-[0.2em] italic shadow-lg shadow-brand-primary/20">
+                HUB DE CONTABILIDADE
+              </div>
+            </div>
+            <p className="text-[12px] text-slate-500 font-black uppercase tracking-[0.3em] mt-3 flex items-center gap-3">
+              <span className="w-1.5 h-1.5 bg-brand-primary rounded-full animate-ping shrink-0" />
+              CENTRO INTEGRADO DE TESOURARIA & AUDITORIA FINANCEIRA
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-2 text-[10px] font-black text-slate-400 uppercase tracking-widest italic border-t border-slate-100 pt-4">
+              <span className="flex items-center gap-2.5">
+                <span className="text-slate-300">NIF:</span>
+                <span className="text-slate-800">5001062654</span>
+              </span>
+              <span className="flex items-center gap-2.5">
+                <span className="text-slate-300">UNIDADE:</span>
+                <span className="text-slate-800">LUENA, MOXICO</span>
+              </span>
+              <span className="flex items-center gap-2.5 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg border border-emerald-100 shadow-sm">
+                <ShieldCheck size={12} /> SISTEMA AUDITADO V.6.5 ESTÁVEL
+              </span>
             </div>
           </div>
         </div>
+
+        {/* Separator */}
+        <div className="hidden lg:block w-px h-20 bg-slate-100 mx-10 relative z-10" />
+
+        {/* Actions Group (Right Hand Side) */}
+        <div className="relative z-10 flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center gap-4 mt-6 lg:mt-0">
+          {/* Seletor Dinâmico de Período do Relatório Consolidado */}
+          <div className="flex items-center gap-2 bg-slate-100 px-4 py-2.5 rounded-xl border border-slate-200 shadow-inner">
+            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">De:</span>
+            <input
+              type="date"
+              value={consolidatedStartDate}
+              onChange={(e) => setConsolidatedStartDate(e.target.value)}
+              className="bg-transparent border-none text-[10px] font-extrabold text-slate-700 outline-none p-0 focus:ring-0 cursor-pointer"
+            />
+            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest border-l border-slate-300 pl-2">Até:</span>
+            <input
+              type="date"
+              value={consolidatedEndDate}
+              onChange={(e) => setConsolidatedEndDate(e.target.value)}
+              className="bg-transparent border-none text-[10px] font-extrabold text-slate-700 outline-none p-0 focus:ring-0 cursor-pointer"
+            />
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            <button
+              onClick={generateWeeklyConsolidatedPDF}
+              className="flex-1 sm:flex-initial px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-700 text-white transition-all flex items-center justify-center gap-2 border border-emerald-500 shadow-md active:scale-95 hover:shadow-lg whitespace-nowrap cursor-pointer"
+              title="Descarregar PDF consolidado com o total de rendas fechadas no período selecionado"
+            >
+              <Download size={13} />
+              Consolidado (PDF)
+            </button>
+
+            {isAdmin && (
+              <button
+                onClick={handleResetAccountingCycle}
+                disabled={isProcessing}
+                className="flex-1 sm:flex-initial px-5 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest bg-rose-50 text-rose-600 hover:bg-rose-100 transition-all flex items-center justify-center gap-2 border border-rose-100 active:scale-95 whitespace-nowrap cursor-pointer"
+              >
+                {isProcessing ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <TrendingUp size={13} className="rotate-180" />
+                )}
+                Zerar Hub
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Tab selector row below header, matching RecruitmentPortal tabs style */}
+      <div className="flex flex-wrap gap-4 p-1.5 bg-white border border-slate-200 rounded-[1.5rem] w-full max-w-[1400px] shadow-sm">
+        {[
+          { id: "revenue", label: "Fluxo de Renda", icon: Wallet, roles: ["operator", "contabilista", "admin"] },
+          { id: "income", label: "Mapa de Faturamento", icon: TrendingUp },
+          { id: "balance", label: "Balanço de Análise", icon: Calculator, roles: ["admin"] },
+          { id: "individual", label: "Relatório Individual Analítico", icon: User, roles: ["operator", "contabilista", "admin"] },
+          { id: "salaries", label: "Folha de Salários", icon: Users },
+          { id: "invoicing", label: "Redactor Faturas", icon: FileText },
+        ]
+        .filter(tab => {
+          if (!tab.roles) return true;
+          return tab.roles.includes(user?.role) || (tab.roles.includes("admin") && isAdmin);
+        })
+        .map((tab) => {
+          const TabIcon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveView(tab.id as any)}
+              className={cn(
+                "flex items-center gap-3 px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all whitespace-nowrap cursor-pointer",
+                activeView === tab.id
+                  ? "bg-brand-primary text-slate-900 shadow-sm"
+                  : "text-slate-400 hover:text-slate-650 hover:bg-slate-50"
+              )}
+            >
+              <TabIcon size={14} />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {activeView === "revenue" && <RevenueManagement user={user} />}
@@ -1417,7 +1544,7 @@ export default function AccountingManager({ user }: { user?: any }) {
                  >
                    <Send size={16} /> Enviar p/ Colaborador (WhatsApp)
                  </button>
-                 <p className="text-[7px] text-slate-400 text-center font-black uppercase tracking-[0.2em] italic">Comprovativo PSM TAXICONTROL • Luena, Moxico • v.4.5</p>
+                 <p className="text-[7px] text-slate-400 text-center font-black uppercase tracking-[0.2em] italic">Comprovativo PSM TAXICONTROL • Luena, Moxico • v.6.5</p>
               </div>
             </motion.div>
           </div>
@@ -2074,7 +2201,7 @@ export default function AccountingManager({ user }: { user?: any }) {
                       <tbody className="divide-y divide-slate-100">
                         {sheet.staff.map((person: any, idx: number) => (
                           <tr
-                            key={person.id}
+                            key={`${person.id}-${idx}`}
                             className="hover:bg-slate-50/50 transition-colors group/row"
                           >
                             <td className="px-10 py-6">
@@ -2225,7 +2352,7 @@ export default function AccountingManager({ user }: { user?: any }) {
             )}
           </div>
         </div>
-      ) : (
+      ) : activeView === "individual" ? (
         <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-2xl overflow-hidden min-h-[600px]">
           <div className="px-10 py-10 bg-slate-900 text-white flex flex-col md:flex-row md:items-center justify-between gap-8 relative">
             <div className="absolute top-0 left-0 w-full h-full bg-brand-primary/5 opacity-50 skew-y-3 -mt-20 pointer-events-none" />
@@ -2260,6 +2387,43 @@ export default function AccountingManager({ user }: { user?: any }) {
                 )}
                 Sincronizar Dados de Renda
               </button>
+            </div>
+          </div>
+
+          {/* PAINEL INFORMATIVO DE CONCILIAÇÃO DE RENDAS */}
+          <div className="px-10 py-8 bg-slate-50 border-b border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Mês de Referência</div>
+              <div className="text-xl font-black text-slate-800 mt-1 uppercase italic tracking-tight">{currentMonth}</div>
+              <div className="text-[10px] text-slate-500 mt-1">Todas as conciliações e relatórios são limitados a este período.</div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm shadow-emerald-500/5">
+              <div className="text-[9px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Rendas Aprovadas (Sincronizáveis)
+              </div>
+              <div className="text-xl font-black text-emerald-700 mt-1">{monthlyApprovedLogs.length} Envios</div>
+              <div className="text-[11px] font-bold text-slate-600 mt-1">Total pronto: <span className="font-mono text-emerald-600 font-extrabold">{totalApprovedSum.toLocaleString()} Kz</span></div>
+            </div>
+            <div className={`p-5 rounded-2xl border shadow-sm transition-all ${
+              monthlyPendingLogs.length > 0 
+                ? "bg-amber-500/5 border-amber-200 shadow-amber-500/5" 
+                : "bg-white border-slate-200"
+            }`}>
+              <div className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 ${
+                monthlyPendingLogs.length > 0 ? "text-amber-600" : "text-slate-400"
+              }`}>
+                {monthlyPendingLogs.length > 0 && <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />}
+                Rendas Pendentes de Aprovação
+              </div>
+              <div className={`text-xl font-black mt-1 ${monthlyPendingLogs.length > 0 ? "text-amber-700" : "text-slate-800"}`}>
+                {monthlyPendingLogs.length} Envios Pendentes
+              </div>
+              <div className="text-[10px] text-slate-500 mt-1">
+                {monthlyPendingLogs.length > 0 
+                  ? "⚠️ IMPORTANTE: Estas rendas precisam ser APROVADAS na aba 'Gestão de Receitas' para aparecerem no relatório."
+                  : "Não existem rendas pendentes de aprovação para este mês."}
+              </div>
             </div>
           </div>
 
@@ -2503,7 +2667,7 @@ export default function AccountingManager({ user }: { user?: any }) {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
       {/* Invoice Viewer Modal */}
       {isInvoiceViewerOpen && selectedInvoiceData && (
         <InvoiceViewerModal 

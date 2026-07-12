@@ -24,7 +24,7 @@ import {
   Filter
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, getDocs, where, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, getDocs, where, serverTimestamp } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { smsService } from '../services/smsService';
@@ -67,6 +67,7 @@ export default function CallSmsDossier() {
   const [callStatus, setCallStatus] = useState('completed');
   const [callSubmitting, setCallSubmitting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
+  const [isClearingCalls, setIsClearingCalls] = useState(false);
 
   // Subscribe to central collections real-time
   useEffect(() => {
@@ -335,6 +336,25 @@ export default function CallSmsDossier() {
     }
   };
 
+  const handleClearAllCalls = async () => {
+    const confirmMsg = "Tem a certeza absoluta de que deseja ZERAR todos os Registos de Chamadas de Passageiros?\n\nEsta ação apagará permanentemente todos os logs de chamadas da central de dados.";
+    if (window.confirm(confirmMsg)) {
+      setIsClearingCalls(true);
+      try {
+        const q = query(collection(db, "calls"));
+        const snap = await getDocs(q);
+        const promises = snap.docs.map(docSnap => deleteDoc(doc(db, "calls", docSnap.id)));
+        await Promise.all(promises);
+        alert("Todos os registos de chamadas foram apagados com sucesso!");
+      } catch (err: any) {
+        console.error("Erro ao zerar chamadas:", err);
+        alert("Ocorreu um erro ao limpar as chamadas do Dossiê: " + err.message);
+      } finally {
+        setIsClearingCalls(false);
+      }
+    }
+  };
+
   // Export Complete communications dossier
   const handleExportDossier = () => {
     const reportHeader = `===========================================================\n` + 
@@ -375,33 +395,33 @@ export default function CallSmsDossier() {
   const overallConversion = totalCallsCount > 0 ? Math.round((overallCompletedCalls / totalCallsCount) * 100) : 0;
 
   return (
-    <div className="space-y-8 max-w-[1450px] mx-auto pb-20">
+    <div className="space-y-4 max-w-5xl mx-auto pb-10">
       
       {/* Title & Actions Row */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between bg-white px-10 py-10 rounded-[2.5rem] border border-slate-200 shadow-sm relative overflow-hidden group">
+      <div className="flex flex-col md:flex-row md:items-center justify-between bg-white px-6 py-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group">
         <div className="absolute top-0 right-0 w-[30%] h-full bg-slate-50 border-l border-slate-100 -mr-16 rotate-12 -z-0 opacity-50 group-hover:rotate-6 transition-transform duration-1000" />
         
-        <div className="relative z-10 flex items-center gap-8">
-          <div className="w-16 h-16 bg-slate-900 rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl rotate-2 group-hover:rotate-0 transition-all duration-500 border border-white/10">
-             <FileText size={32} />
+        <div className="relative z-10 flex items-center gap-4 lg:gap-6">
+          <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-xl rotate-2 group-hover:rotate-0 transition-all duration-500 border border-white/10">
+             <FileText size={20} />
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="font-black text-3xl text-slate-900 tracking-tighter uppercase italic">
+              <h2 className="font-black text-xl lg:text-2xl text-slate-900 tracking-tighter uppercase italic">
                 Dossiê de Comunicações
               </h2>
               <span className="px-2 py-0.5 bg-brand-primary/10 text-brand-primary text-[8px] font-black rounded-full uppercase tracking-tighter border border-brand-primary/20">
                 AUDITORIA INTERNA
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.3em] mt-2 flex items-center gap-2">
-              <Activity size={12} className="text-brand-primary" />
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-1 flex items-center gap-2">
+              <Activity size={10} className="text-brand-primary" />
               Logs integrados de Chamadas e SMS por Motorista da PSM COMERCIAL COM LUENA-MOXICO
             </p>
           </div>
         </div>
 
-        <div className="relative z-10 flex items-center gap-3 mt-4 md:mt-0">
+        <div className="relative z-10 flex flex-wrap items-center gap-2 mt-4 md:mt-0">
           <button 
             onClick={() => {
               setSmsTargetNumber('');
@@ -409,9 +429,9 @@ export default function CallSmsDossier() {
               setSmsError(null);
               setIsSmsModalOpen(true);
             }}
-            className="flex items-center gap-2 px-6 py-3 bg-white text-slate-800 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-white text-slate-800 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
           >
-            <Send size={14} className="text-brand-primary" />
+            <Send size={12} className="text-brand-primary" />
             SMS Alerta
           </button>
           
@@ -420,80 +440,90 @@ export default function CallSmsDossier() {
               setCallError(null);
               setIsCallModalOpen(true);
             }}
-            className="flex items-center gap-2 px-6 py-3 bg-white text-slate-800 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 bg-white text-slate-800 rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-slate-50 transition-all border border-slate-200 shadow-sm"
           >
-            <Plus size={14} className="text-emerald-500" />
+            <Plus size={12} className="text-emerald-500" />
             Registar Chamada
           </button>
 
           <button 
-            onClick={handleExportDossier}
-            className="flex items-center gap-2 px-8 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-md active:scale-95"
+            type="button"
+            disabled={isClearingCalls}
+            onClick={handleClearAllCalls}
+            className="flex items-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-400 text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-transparent shadow-sm active:scale-95 cursor-pointer"
           >
-            <Download size={14} className="text-brand-primary" />
+            {isClearingCalls ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            Zerar Chamadas
+          </button>
+
+          <button 
+            onClick={handleExportDossier}
+            className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-md active:scale-95"
+          >
+            <Download size={12} className="text-brand-primary" />
             Exportar Dossier
           </button>
         </div>
       </div>
 
       {/* Metrics Strips */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Chamadas Registadas</span>
-            <p className="text-3xl font-black text-slate-900 mt-1">{totalCallsCount}</p>
-            <span className="text-[9px] text-emerald-500 font-bold flex items-center gap-1 mt-1">
-              <TrendingUp size={10} /> Central PSM Luena
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Chamadas Registadas</span>
+            <p className="text-2xl font-black text-slate-900 mt-0.5">{totalCallsCount}</p>
+            <span className="text-[8.5px] text-emerald-500 font-bold flex items-center gap-1 mt-0.5">
+              <TrendingUp size={9} /> Central PSM Luena
             </span>
           </div>
-          <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-white">
-            <Phone size={20} />
+          <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white">
+            <Phone size={18} />
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Disparos de SMS Alerta</span>
-            <p className="text-3xl font-black text-slate-900 mt-1">{totalSmsCount}</p>
-            <span className="text-[9px] text-brand-primary font-bold flex items-center gap-1 mt-1">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Disparos de SMS Alerta</span>
+            <p className="text-2xl font-black text-slate-900 mt-0.5">{totalSmsCount}</p>
+            <span className="text-[8.5px] text-brand-primary font-bold flex items-center gap-1 mt-0.5">
               Gateway Ativo Unitel
             </span>
           </div>
-          <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-white">
-            <MessageSquare size={20} />
+          <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-white">
+            <MessageSquare size={18} />
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Taxa Conclusão Média</span>
-            <p className="text-3xl font-black text-slate-900 mt-1">{overallConversion}%</p>
-            <div className="w-24 bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Taxa Conclusão Média</span>
+            <p className="text-2xl font-black text-slate-900 mt-0.5">{overallConversion}%</p>
+            <div className="w-24 bg-slate-100 h-1 rounded-full mt-1.5 overflow-hidden">
               <div className="bg-emerald-500 h-full" style={{ width: `${overallConversion}%` }} />
             </div>
           </div>
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-black">
+          <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center font-black">
             %
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Logs Unificados</span>
-            <p className="text-3xl font-black text-slate-900 mt-1">{totalCallsCount + totalSmsCount}</p>
-            <span className="text-[9px] text-slate-500 font-bold mt-1 block">Comunicação Acumulada</span>
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Total Logs Unificados</span>
+            <p className="text-2xl font-black text-slate-900 mt-0.5">{totalCallsCount + totalSmsCount}</p>
+            <span className="text-[8.5px] text-slate-500 font-bold mt-0.5 block">Comunicação Acumulada</span>
           </div>
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-            <FileText size={20} />
+          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center">
+            <FileText size={18} />
           </div>
         </div>
       </div>
 
       {/* Main List & Controls */}
-      <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         
         {/* Search & Filters Toolbar */}
-        <div className="p-8 border-b border-slate-100 flex flex-col lg:flex-row gap-6 justify-between items-center bg-slate-50/50">
+        <div className="p-5 border-b border-slate-100 flex flex-col lg:flex-row gap-4 justify-between items-center bg-slate-50/50">
           <div className="relative w-full lg:max-w-md">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input 

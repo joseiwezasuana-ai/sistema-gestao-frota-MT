@@ -18,6 +18,7 @@ export const InvoiceViewerModal: React.FC<InvoiceViewerModalProps> = ({ isOpen, 
   const [isEditMode, setIsEditMode] = React.useState(true);
   const [invoiceData, setInvoiceData] = React.useState({ ...initialData });
   const [documentNumber, setDocumentNumber] = React.useState(initialDocNumber);
+  const [zoom, setZoom] = React.useState(0.8);
   
   const invoiceRef = useRef<HTMLDivElement>(null);
 
@@ -267,9 +268,57 @@ export const InvoiceViewerModal: React.FC<InvoiceViewerModalProps> = ({ isOpen, 
             </AnimatePresence>
 
             {/* Preview Area */}
-            <div className="flex-1 overflow-y-auto p-12 bg-slate-100 dark:bg-slate-950/50 flex justify-center custom-scrollbar">
-               <div ref={invoiceRef} className="shadow-2xl h-fit">
-                  <InvoiceTemplate data={invoiceData} documentNumber={documentNumber} />
+            <div className="flex-1 flex flex-col bg-slate-100 dark:bg-slate-950/50 overflow-hidden">
+               {/* Inner Zoom Toolbar */}
+               <div className="px-6 py-2 bg-slate-200/50 dark:bg-slate-900 border-b border-slate-300 dark:border-white/10 flex items-center justify-between shrink-0">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">A4 Folha Inteira (Visualização)</span>
+                  <div className="flex items-center gap-2">
+                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Redimensionar:</span>
+                     <div className="flex bg-white dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300/60 dark:border-white/5 shadow-sm">
+                        {[0.5, 0.65, 0.8, 1.0].map((z) => (
+                           <button
+                              key={z}
+                              type="button"
+                              onClick={() => setZoom(z)}
+                              className={cn(
+                                 "px-2 py-1 rounded text-[9px] font-black tracking-wider transition-all cursor-pointer",
+                                 zoom === z
+                                    ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm"
+                                    : "text-slate-500 dark:text-slate-450 hover:text-slate-800 dark:hover:text-white"
+                              )}
+                           >
+                              {z * 100}%
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+               </div>
+
+               <div className="flex-1 overflow-auto p-8 flex justify-center items-start custom-scrollbar">
+                  <div 
+                     style={{ 
+                        height: `${1180 * zoom}px`, 
+                        width: `${800 * zoom}px`,
+                        position: 'relative'
+                     }} 
+                     className="shrink-0"
+                  >
+                     <div 
+                       style={{ 
+                         transform: `scale(${zoom})`, 
+                         transformOrigin: 'top left',
+                         width: '800px',
+                         position: 'absolute',
+                         top: 0,
+                         left: 0
+                       }}
+                       className="shadow-2xl rounded-lg bg-white"
+                     >
+                       <div ref={invoiceRef}>
+                          <InvoiceTemplate data={invoiceData} documentNumber={documentNumber} />
+                       </div>
+                     </div>
+                  </div>
                </div>
             </div>
           </div>

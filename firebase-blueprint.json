@@ -156,7 +156,7 @@
         "id": { "type": "string" },
         "vehicleId": { "type": "string" },
         "prefix": { "type": "string" },
-        "type": { "type": "string", "enum": ["Troca de Óleo", "Travões", "Pneus", "Seguro", "Inspeção", "Outro"] },
+        "type": { "type": "string", "enum": ["Manuntençao geral", "Troca de Óleo", "Travões", "Pneus", "Seguro", "Inspeção", "Outro"] },
         "mileage": { "type": "number" },
         "date": { "type": "string", "format": "date" },
         "cost": { "type": "number" },
@@ -400,6 +400,40 @@
         "status": { "type": "string" }
       },
       "required": ["vehicle", "clientPhone", "type"]
+    },
+    "AccidentLog": {
+      "title": "Registro de Sinistros / Acidentes",
+      "description": "Log registers for vehicle collision/incidents.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "driverId": { "type": "string" },
+        "driverName": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "vehicleLabel": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "severity": { "type": "string", "enum": ["Leve", "Moderado", "Grave"] },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["driverName", "vehicleId", "date", "severity"]
+    },
+    "RacContract": {
+      "title": "Rent-A-Car Contract",
+      "description": "Contracts for the Rent-A-Car public/private hiring service.",
+      "type": "object",
+      "properties": {
+        "client": { "type": "string" },
+        "vehicle": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "dailyPrice": { "type": "number" },
+        "phone": { "type": "string" },
+        "neighborhood": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "returned"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["client", "vehicle", "startDate", "endDate", "dailyPrice", "phone", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -498,6 +532,14 @@
     "/warehouse_logs/{logId}": {
       "schema": "WarehouseLog",
       "description": "Log of inventory entries, exits and usage."
+    },
+    "/accident_logs/{accidentId}": {
+      "schema": "AccidentLog",
+      "description": "Collection of driver/vehicle accident reports."
+    },
+    "/rac_contracts/{contractId}": {
+      "schema": "RacContract",
+      "description": "Collection of Rent-A-Car active/returned contracts."
     }
   }
 }

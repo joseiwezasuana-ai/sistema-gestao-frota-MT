@@ -4,10 +4,65 @@ import { useTheme } from '../context/ThemeContext';
 import { 
   Car, MapPin, Phone, User, Camera, Sun, Moon, Sparkles, ShieldCheck, 
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
-  Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon
+  Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
+  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical
 } from 'lucide-react';
-import { db } from '../lib/firebase';
-import { addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion } from '../lib/firebase';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix default marker icon issues with Vite
+// @ts-ignore
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+// Custom distinct Leaflet icons using divIcon with Tailwind classes
+const passengerIcon = L.divIcon({
+  className: 'custom-gps-marker-container',
+  html: `
+    <div class="relative flex items-center justify-center w-8 h-8">
+      <div class="absolute w-7 h-7 bg-blue-500/35 rounded-full animate-ping"></div>
+      <div class="w-4.5 h-4.5 bg-blue-600 rounded-full border-2 border-white shadow-lg flex items-center justify-center">
+        <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+      </div>
+    </div>
+  `,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
+const driverIconAvailable = L.divIcon({
+  className: 'custom-driver-available-container',
+  html: `
+    <div class="relative flex items-center justify-center w-10 h-10">
+      <div class="absolute w-9 h-9 bg-emerald-500/20 rounded-full animate-pulse"></div>
+      <div class="w-7 h-7 bg-amber-400 text-slate-950 rounded-full border-2 border-slate-950 shadow-lg flex items-center justify-center text-xs select-none">
+        🚕
+      </div>
+    </div>
+  `,
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+});
+
+const driverIconAssigned = L.divIcon({
+  className: 'custom-driver-assigned-container',
+  html: `
+    <div class="relative flex items-center justify-center w-12 h-12">
+      <div class="absolute w-11 h-11 bg-amber-500/35 rounded-full animate-ping"></div>
+      <div class="w-8.5 h-8.5 bg-amber-500 text-slate-950 rounded-full border-2 border-slate-950 shadow-xl flex items-center justify-center text-sm font-black select-none">
+        🚕
+      </div>
+    </div>
+  `,
+  iconSize: [48, 48],
+  iconAnchor: [24, 24],
+});
 
 interface VehicleOption {
   id: string;
@@ -16,6 +71,8 @@ interface VehicleOption {
   phone: string;
   model: string;
   driverId?: string;
+  lat?: number;
+  lng?: number;
 }
 
 // 4 custom preset themes for the Passenger Smart App to fulfill "alterar temas de sua preferência"
@@ -77,16 +134,245 @@ const PRESETS_AVATARS = [
   "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80"
 ];
 
-export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: boolean }) {
+function PassengerAvatar({ src, name, size = "md" }: { src?: string; name?: string; size?: "sm" | "md" | "lg" }) {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const initials = (name || "P")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(n => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const sizeClasses = {
+    sm: "w-7 h-7 text-[10px] rounded-full",
+    md: "w-10 h-10 text-xs rounded-full",
+    lg: "w-16 h-16 text-lg rounded-full"
+  };
+
+  const bgColors = [
+    "bg-amber-500/10 text-amber-500 border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+    "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30",
+    "bg-blue-500/10 text-blue-500 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30",
+    "bg-purple-500/10 text-purple-500 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400 dark:border-purple-500/30",
+    "bg-rose-500/10 text-rose-500 border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30",
+  ];
+
+  const getStableBg = (str: string) => {
+    let sum = 0;
+    for (let i = 0; i < str.length; i++) {
+      sum += str.charCodeAt(i);
+    }
+    return bgColors[sum % bgColors.length];
+  };
+
+  if (src && !hasError) {
+    return (
+      <img
+        src={src}
+        alt={name || "Passageiro"}
+        referrerPolicy="no-referrer"
+        onError={() => setHasError(true)}
+        className={`${sizeClasses[size]} object-cover border border-white/20 shrink-0`}
+      />
+    );
+  }
+
+  return (
+    <div className={`${sizeClasses[size]} flex items-center justify-center font-black uppercase tracking-tight border shrink-0 ${getStableBg(name || "P")}`}>
+      {initials || "P"}
+    </div>
+  );
+}
+
+export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: { isPublicApp?: boolean; isEmbed?: boolean }) {
   const [activePalette, setActivePalette] = useState<PassengerTheme>(() => {
     return (localStorage.getItem('psm-passenger-theme') as PassengerTheme) || 'gold';
   });
 
-  const currentTheme = PALETTES[activePalette];
+  const [hasClickedTheme, setHasClickedTheme] = useState(() => {
+    return localStorage.getItem('psm-passenger-theme-clicked') === 'true';
+  });
+
+  // Dynamically loaded config from back-office Settings (with fallback parameters for Luena / AOA)
+  const [appConfig, setAppConfig] = useState<any>({
+    enabled: true,
+    bookingEnabled: true,
+    historyEnabled: true,
+    supportChatEnabled: true,
+    panicSosEnabled: true,
+    fareEstimateEnabled: true,
+    driverRatingEnabled: true,
+    routeSharingEnabled: true,
+    bonusClubEnabled: true,
+    bonusClubCashbackPercent: 5,
+    searchRadiusKm: 15,
+    driverWaitTimeSec: 90,
+    baseFareKz: 500,
+    perKmFareKz: 250,
+    supportPhone: '+244999123456',
+    primaryColor: '#eab308', // Amber/Yellow
+    customWelcomeMsg: 'Bem-vindo ao SUPER Taxi! Para onde vamos hoje?',
+    darkModeByDefault: false,
+  });
+
+  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+
+  useEffect(() => {
+    const configDocRef = doc(db, 'settings', 'passenger_app');
+    const unsub = onSnapshot(configDocRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setAppConfig({
+          enabled: data.enabled !== false,
+          bookingEnabled: data.bookingEnabled !== false,
+          historyEnabled: data.historyEnabled !== false,
+          supportChatEnabled: data.supportChatEnabled !== false,
+          panicSosEnabled: data.panicSosEnabled !== false,
+          fareEstimateEnabled: data.fareEstimateEnabled !== false,
+          driverRatingEnabled: data.driverRatingEnabled !== false,
+          routeSharingEnabled: data.routeSharingEnabled !== false,
+          bonusClubEnabled: data.bonusClubEnabled !== false,
+          bonusClubCashbackPercent: data.bonusClubCashbackPercent || 5,
+          searchRadiusKm: data.searchRadiusKm || 15,
+          driverWaitTimeSec: data.driverWaitTimeSec || 90,
+          baseFareKz: data.baseFareKz || 500,
+          perKmFareKz: data.perKmFareKz || 250,
+          supportPhone: data.supportPhone || '+244999123456',
+          primaryColor: data.primaryColor || '#eab308',
+          customWelcomeMsg: data.customWelcomeMsg || 'Bem-vindo ao SUPER Taxi! Para onde vamos hoje?',
+          darkModeByDefault: data.darkModeByDefault || false,
+        });
+        setIsConfigLoaded(true);
+      } else {
+        setIsConfigLoaded(true);
+      }
+    }, (err) => {
+      console.warn("Erro ao carregar configurações do DB:", err);
+      setIsConfigLoaded(true);
+    });
+    return () => unsub();
+  }, []);
+
+  const isDark = appConfig?.darkModeByDefault !== false;
+  const primaryHex = (appConfig?.primaryColor && !hasClickedTheme) ? appConfig.primaryColor : PALETTES[activePalette].accentColor;
+
+  const getDynamicTheme = () => {
+    let textClass = PALETTES[activePalette].textClass;
+    let btnClass = PALETTES[activePalette].btnClass;
+    let borderClass = PALETTES[activePalette].borderClass;
+    let accentColor = PALETTES[activePalette].accentColor;
+
+    if (appConfig?.primaryColor && !hasClickedTheme) {
+      const hex = appConfig.primaryColor;
+      accentColor = hex;
+      if (hex === '#0d6efd') { // Blue
+        textClass = isDark ? 'text-blue-400' : 'text-blue-600';
+        btnClass = 'bg-blue-600 hover:bg-blue-700 text-white';
+        borderClass = isDark ? 'border-blue-500' : 'border-blue-400';
+      } else if (hex === '#10b981') { // Emerald
+        textClass = isDark ? 'text-emerald-400' : 'text-emerald-600';
+        btnClass = 'bg-emerald-600 hover:bg-emerald-700 text-white';
+        borderClass = isDark ? 'border-emerald-500 font-extrabold' : 'border-emerald-400 font-extrabold';
+      } else if (hex === '#f97316') { // Orange
+        textClass = isDark ? 'text-orange-400' : 'text-orange-600';
+        btnClass = 'bg-orange-500 hover:bg-orange-600 text-white';
+        borderClass = isDark ? 'border-orange-500' : 'border-orange-400';
+      } else if (hex === '#f43f5e') { // Rose
+        textClass = isDark ? 'text-rose-400' : 'text-rose-600';
+        btnClass = 'bg-rose-500 hover:bg-rose-600 text-white';
+        borderClass = isDark ? 'border-rose-500' : 'border-rose-400';
+      } else if (hex === '#eab308') { // Amber
+        textClass = isDark ? 'text-amber-400' : 'text-amber-600';
+        btnClass = 'bg-amber-500 hover:bg-amber-600 text-slate-950';
+        borderClass = isDark ? 'border-amber-500' : 'border-amber-400';
+      } else if (hex === '#6366f1') { // Indigo
+        textClass = isDark ? 'text-indigo-400' : 'text-indigo-600';
+        btnClass = 'bg-indigo-600 hover:bg-indigo-700 text-white';
+        borderClass = isDark ? 'border-indigo-500' : 'border-indigo-400';
+      }
+    }
+
+    const bgClass = isDark ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900';
+    const cardClass = isDark 
+      ? 'bg-slate-900 border border-white/5 text-slate-100' 
+      : 'bg-white border border-slate-200 shadow-sm text-slate-800';
+
+    return {
+      name: PALETTES[activePalette].name,
+      bgClass,
+      cardClass,
+      textClass,
+      btnClass,
+      accentColor,
+      borderClass
+    };
+  };
+
+  const currentTheme = getDynamicTheme();
 
   const handlePaletteChange = (pal: PassengerTheme) => {
     setActivePalette(pal);
+    setHasClickedTheme(true);
     localStorage.setItem('psm-passenger-theme', pal);
+    localStorage.setItem('psm-passenger-theme-clicked', 'true');
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passengerProfile) return;
+    setIsSavingProfile(true);
+    setSaveSuccessMsg('');
+    try {
+      const updated = {
+        ...passengerProfile,
+        name: editName.trim(),
+        province: editProvince,
+        backupPhone: editBackupPhone.trim(),
+        age: editAge,
+        gender: editGender
+      };
+
+      // 1. Save to local state and localStorage
+      setPassengerProfile(updated);
+      localStorage.setItem('psm-passenger-profile', JSON.stringify(updated));
+
+      // 2. Persist to Firestore
+      if (passengerProfile.id) {
+        await updateDoc(doc(db, 'passengers', passengerProfile.id), {
+          name: editName.trim(),
+          province: editProvince,
+          backupPhone: editBackupPhone.trim(),
+          age: editAge,
+          gender: editGender
+        });
+      } else {
+        // Fallback search by name
+        const q = query(collection(db, 'passengers'), where('name', '==', passengerProfile.name));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await updateDoc(doc(db, 'passengers', snap.docs[0].id), {
+            name: editName.trim(),
+            province: editProvince,
+            backupPhone: editBackupPhone.trim(),
+            age: editAge,
+            gender: editGender
+          });
+        }
+      }
+
+      setSaveSuccessMsg('Perfil atualizado com sucesso!');
+      setTimeout(() => setSaveSuccessMsg(''), 3000);
+    } catch (err) {
+      console.error("Erro ao salvar perfil:", err);
+    } finally {
+      setIsSavingProfile(false);
+    }
   };
 
   // Passenger Logged-in State
@@ -98,6 +384,34 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
       return null;
     }
   });
+
+  // Profile edit fields and states
+  const [editName, setEditName] = useState('');
+  const [editProvince, setEditProvince] = useState('Luena, Moxico');
+  const [editBackupPhone, setEditBackupPhone] = useState('');
+  const [editAge, setEditAge] = useState('');
+  const [editGender, setEditGender] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+
+  useEffect(() => {
+    if (passengerProfile) {
+      setEditName(passengerProfile.name || '');
+      setEditProvince(passengerProfile.province || 'Luena, Moxico');
+      setEditBackupPhone(passengerProfile.backupPhone || '');
+      setEditAge(passengerProfile.age || '');
+      setEditGender(passengerProfile.gender || '');
+    }
+  }, [passengerProfile]);
+
+  useEffect(() => {
+    if (passengerProfile && isConfigLoaded && !hasWelcomedRef.current) {
+      hasWelcomedRef.current = true;
+      setTimeout(() => {
+        triggerBonusClubNotification(passengerProfile.name);
+      }, 1200);
+    }
+  }, [passengerProfile, isConfigLoaded]);
 
   // Form Inputs
   const [name, setName] = useState('');
@@ -125,6 +439,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
   // Active Booking state
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  const [useBonusForRide, setUseBonusForRide] = useState(false);
   
   // Terms & Conditions and Safety Policies for Registration (JIS)
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -133,6 +448,8 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
   // New States requested by José Iweza Suana (JIS)
   const [showRidesHistoryModal, setShowRidesHistoryModal] = useState(false);
   const [showProfilePicModal, setShowProfilePicModal] = useState(false);
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
   const [showComplaintsModal, setShowComplaintsModal] = useState(false);
   
   // Custom states for complaint submission
@@ -148,6 +465,46 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
   const [passengerCount, setPassengerCount] = useState<number>(1);
   const [availableVehicles, setAvailableVehicles] = useState<VehicleOption[]>([]);
   const [isLoadingFleet, setIsLoadingFleet] = useState(false);
+
+  // Real-time GPS location state for exact passenger coordinates
+  const [passengerCoords, setPassengerCoords] = useState<[number, number]>([-11.784422, 20.067332]);
+  const [isGpsExact, setIsGpsExact] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          let lat = position.coords.latitude;
+          let lng = position.coords.longitude;
+          if (lat && lng) {
+            // Se a localização estiver fora da área operacional do Luena (e.g. Lubango), projetamos no Luena
+            if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+              // Projetar no centro do Luena com um pequeno desvio aleatório controlado para dispersar os pedidos
+              lat = -11.7833 + (Math.random() - 0.5) * 0.015;
+              lng = 19.9167 + (Math.random() - 0.5) * 0.015;
+              console.log(`[GPS Projection] Passageiro fora de Luena detetado (${position.coords.latitude}, ${position.coords.longitude}). Projetando para Luena: ${lat}, ${lng}`);
+            }
+            setPassengerCoords([lat, lng]);
+            setIsGpsExact(true);
+            console.log("GPS exato obtido com sucesso para o Passageiro:", lat, lng);
+          }
+        },
+        (error) => {
+          console.warn("Permissão de GPS negada ou indisponível no iFrame/Browser. Usando centro de Luena:", error);
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+      );
+    }
+  }, []);
+
+  // Selected company / tenant states
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [activeTenant, setActiveTenant] = useState<string>(() => getActiveTenantId());
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+
+  const activeCompany = companies.find(c => c.id === activeTenant);
+  const activeWhatsappLink = activeCompany?.whatsappLink || (appConfig?.supportPhone ? `https://wa.me/${(appConfig?.supportPhone || '').replace(/\D/g, '')}` : "https://wa.me/244923456789");
+  const activeWhatsappGroupLink = activeCompany?.whatsappGroupLink || "";
 
   // Call Sequence states
   // 'idle' | 'calling' | 'connected' | 'pricing' | 'offer_received' | 'ride_confirmed' | 'ride_completed' | 'cancelled_by_driver'
@@ -167,6 +524,21 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
     message: string;
     visible: boolean;
   }>({ title: '', message: '', visible: false });
+
+  const hasWelcomedRef = useRef(false);
+
+  const triggerBonusClubNotification = (profileName: string, configData?: any) => {
+    const activeConfig = configData || appConfig;
+    if (activeConfig?.bonusClubEnabled !== false) {
+      const cashbackPct = activeConfig?.bonusClubCashbackPercent || 5;
+      setNotificationBanner({
+        title: "🌟 CLUBE DE BÓNUS ATIVO!",
+        message: `Olá, ${profileName}! O Clube de Bónus está ativo. Receba ${cashbackPct}% de cashback em cada viagem para acumular e viajar de graça!`,
+        visible: true
+      });
+      playNotificationSound('success');
+    }
+  };
 
   // Pure Web Audio API Premium Sound Generators - 100% Reliable Offline Sound Chimes
   const playNotificationSound = (type: 'ding' | 'success' | 'alert', extTitle?: string, extBody?: string) => {
@@ -276,6 +648,68 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
 
   // Stats / Confirmed Rides History
   const [myRides, setMyRides] = useState<any[]>([]);
+
+  const getRidePriceText = (rd: any) => {
+    if (rd.status === 'cancelled') return 'Cancelada';
+    if (rd.status === 'rejected') return 'Recusada';
+    if (rd.status === 'ignored') return 'Expirada';
+    return rd.price ? `${Number(rd.price).toLocaleString()} Kz` : 'A negociar';
+  };
+
+  const getRideStatusBadge = (rd: any, isLarge = false) => {
+    const sizeClass = isLarge ? "text-[8px] tracking-widest block text-center" : "text-[7.5px]";
+    switch (rd.status) {
+      case 'completed':
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-emerald-500/10 text-emerald-400 border-emerald-500/20`}>
+            Sucesso
+          </span>
+        );
+      case 'confirmed':
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-blue-500/10 text-blue-400 border-blue-500/20`}>
+            Aceite
+          </span>
+        );
+      case 'active':
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-teal-500/10 text-teal-400 border-teal-500/20 animate-pulse`}>
+            Em Curso
+          </span>
+        );
+      case 'price_sent':
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-yellow-500/10 text-yellow-400 border-yellow-500/20`}>
+            Proposta
+          </span>
+        );
+      case 'cancelled':
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-slate-500/10 text-slate-400 border-slate-500/20`}>
+            Cancelada
+          </span>
+        );
+      case 'rejected':
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-red-500/10 text-red-400 border-red-500/20`}>
+            Recusada
+          </span>
+        );
+      case 'ignored':
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-rose-500/10 text-rose-400 border-rose-500/20`}>
+            Expirada
+          </span>
+        );
+      default:
+        return (
+          <span className={`${sizeClass} font-black px-1.5 py-0.5 rounded border uppercase bg-amber-500/10 text-amber-400 border-amber-500/20`}>
+            Aguardando
+          </span>
+        );
+    }
+  };
+
   const [passengerTab, setPassengerTab] = useState<'viagem' | 'seguranca' | 'perfil'>('viagem');
 
   // Fetch Vehicles & Drivers to Book
@@ -289,14 +723,17 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
       activeDriversSnap.forEach(docSnap => {
         const data = docSnap.data();
         const status = (data.status || '').toLowerCase().trim();
-        if (activeStatuses.includes(status) || data.isOnline === true || data.online === true) {
+        const isPassengerActive = data.passengerAppActive !== false;
+        if ((activeStatuses.includes(status) || data.isOnline === true || data.online === true) && isPassengerActive) {
           activeDriversList.push({
             id: docSnap.id,
             plate: data.plate || 'LD-92-33-PX',
             driverName: data.name,
             phone: data.phone || data.secondaryPhone || '+244 923 456 789',
             model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
-            driverId: data.driverId || ''
+            driverId: data.driverId || '',
+            lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
+            lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
           });
         }
       });
@@ -314,10 +751,73 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
     }
   };
 
+  // Real-time listener for live GPS tracking of active drivers/vehicles on the satellite map
+  useEffect(() => {
+    const activeStatuses = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em curso'];
+    const q = query(collection(db, 'drivers'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const activeDriversList: VehicleOption[] = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        const status = (data.status || '').toLowerCase().trim();
+        const isPassengerActive = data.passengerAppActive !== false;
+        if ((activeStatuses.includes(status) || data.isOnline === true || data.online === true) && isPassengerActive) {
+          activeDriversList.push({
+            id: docSnap.id,
+            plate: data.plate || 'LD-92-33-PX',
+            driverName: data.name,
+            phone: data.phone || data.secondaryPhone || '+244 923 456 789',
+            model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
+            driverId: data.driverId || '',
+            lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
+            lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
+          });
+        }
+      });
+      setAvailableVehicles(activeDriversList);
+    }, (error) => {
+      console.warn("Error listening to real-time driver coordinates:", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const fetchCompanies = async () => {
+    setIsLoadingCompanies(true);
+    const list: any[] = [];
+    try {
+      const snap = await getDocs(collection(db, 'tenants'));
+      snap.forEach(docSnap => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+    } catch (err) {
+      console.error("Error fetching companies in passenger flow, using local fallbacks:", err);
+    }
+
+    if (!list.some(c => c.id === 'psm')) {
+      list.unshift({ 
+        id: 'psm', 
+        name: 'PSM', 
+        address: 'Luena, Moxico', 
+        phone: '+244 923 456 789' 
+      });
+    }
+    setCompanies(list);
+    setIsLoadingCompanies(false);
+  };
+
+  const handleSelectCompany = (companyId: string) => {
+    setActiveTenantId(companyId);
+    setActiveTenant(companyId);
+    loadFleetData();
+  };
+
   const generateToken = () => Math.floor(1000 + Math.random() * 9000).toString();
 
   useEffect(() => {
     loadFleetData();
+    fetchCompanies();
     // Request notification permission to actively wake up passenger when backgrounded (JIS)
     if ('Notification' in window && Notification.permission === 'default') {
       try {
@@ -487,6 +987,64 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
               message: 'O motorista encerrou com sucesso. Obrigado por viajar connosco.',
               visible: true
             });
+
+            // --- CLUB BONUS SYSTEM (JIS) ---
+            if (passengerProfile) {
+              const usedBonus = data.usedBonus === true || data.paidWithBonus === true;
+              const initialBonus = Number(passengerProfile.bonusBalance || 0);
+              let currentBonus = initialBonus;
+              let bonusDelta = 0;
+              let logData: any = null;
+
+              if (usedBonus) {
+                // Deduct exactly the price proposed by the driver (exchange bonus for ride directly)
+                const finalPrice = Number(data.price || negotiatedPrice || 0);
+                currentBonus = Math.max(0, initialBonus - finalPrice);
+                console.log(`Passenger used bonus. Subtracted proposed price of ${finalPrice} Kz. New bonus:`, currentBonus);
+                logData = {
+                  initial: initialBonus,
+                  subtracted: finalPrice,
+                  final: currentBonus,
+                  type: 'deduction',
+                  timestamp: new Date().toISOString()
+                };
+              } else {
+                // Add dynamic cashback percent from appConfig
+                const finalPrice = Number(data.price || negotiatedPrice || 0);
+                const cashbackPct = Number(appConfig?.bonusClubCashbackPercent || 5) / 100;
+                bonusDelta = Math.round(finalPrice * cashbackPct);
+                currentBonus = initialBonus + bonusDelta;
+                console.log(`Passenger earned ${bonusDelta} Kz from ${finalPrice} Kz spend. New bonus:`, currentBonus);
+                logData = {
+                  initial: initialBonus,
+                  added: bonusDelta,
+                  final: currentBonus,
+                  type: 'cashback',
+                  timestamp: new Date().toISOString()
+                };
+              }
+
+              // Update profile locally
+              const updatedProfile = { ...passengerProfile, bonusBalance: currentBonus };
+              setPassengerProfile(updatedProfile);
+              localStorage.setItem('psm-passenger-profile', JSON.stringify(updatedProfile));
+
+              // Update profile in Firestore
+              if (passengerProfile.id) {
+                updateDoc(doc(db, 'passengers', passengerProfile.id), {
+                  bonusBalance: currentBonus
+                }).catch((err: any) => console.error("Error updating passenger bonusBalance in Firestore:", err));
+              }
+
+              // Write detailed transaction log to the call record
+              if (docSnap.id) {
+                updateDoc(doc(db, 'calls', docSnap.id), {
+                  bonusLog: logData
+                }).catch((err: any) => console.error("Error updating call bonusLog in Firestore:", err));
+              }
+            }
+            setUseBonusForRide(false); // Reset checkbox for future bookings
+            // ---------------------------------
           }
         }
         if (data.status !== prevStatusRef.current && prevStatusRef.current !== undefined && prevStatusRef.current !== null) {
@@ -515,8 +1073,8 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
           setCallState('ride_completed');
           // Note: We deliberately do NOT set activeRideRecord to null here so the success/receipt screen 
           // can display the actual trip details (driverName, vehiclePlate, negotiatedPrice) rather than fallback defaults!
-        } else if (data.status === 'cancelled' || data.status === 'rejected' || data.status === 'ignored') {
-          console.log("[PassengerFlow] Sync detected ride cancelled/rejected.");
+        } else if (data.status === 'cancelled' || data.status === 'rejected' || data.status === 'ignored' || data.status === 'missed') {
+          console.log("[PassengerFlow] Sync detected ride cancelled/rejected/missed.");
           setCallState('cancelled_by_driver');
           // Note: We deliberately do NOT set activeRideRecord to null here so the cancellation screen can read details.
         }
@@ -577,7 +1135,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
       setCallState('ride_confirmed');
     } else if (dbStatus === 'completed') {
       setCallState('ride_completed');
-    } else if (dbStatus === 'cancelled' || dbStatus === 'rejected' || dbStatus === 'ignored') {
+    } else if (dbStatus === 'cancelled' || dbStatus === 'rejected' || dbStatus === 'ignored' || dbStatus === 'missed') {
       setCallState('cancelled_by_driver');
     }
   }, [activeRideRecord?.status, activeRideRecord?.price]);
@@ -723,6 +1281,9 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
         localStorage.setItem('psm-passenger-profile', JSON.stringify(profile));
         setPassengerProfile(profile);
         alert(`Bem-vindo de volta, ${profile.name}!`);
+        setTimeout(() => {
+          triggerBonusClubNotification(profile.name);
+        }, 1000);
       } else {
         alert("Credenciais inválidas. Verifique o seu nome/telefone e palavra-passe.");
       }
@@ -781,6 +1342,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
         passengerPhone: passengerProfile?.backupPhone || passengerProfile?.phone || '+244 9XX XXX XXX',
         passengerAge: passengerProfile?.age || 'N/A',
         passengerProvince: passengerProfile ? passengerProfile.province : 'Luena, Moxico',
+        passengerPhoto: passengerProfile?.photoUrl || '',
         pickup,
         destination,
         passengerCount,
@@ -788,6 +1350,8 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
         customerPhone: passengerProfile?.backupPhone || passengerProfile?.phone || '+244 9XX XXX XXX',
         pickupAddress: pickup,
         destinationAddress: destination,
+        pickupLat: passengerCoords[0],
+        pickupLng: passengerCoords[1],
         vehiclePlate: selectedVehicle.plate,
         driverName: selectedVehicle.driverName,
         driverPhone: selectedVehicle.phone,
@@ -796,6 +1360,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
         price: null,
         status: 'pending',
         boardingToken,
+        usedBonus: useBonusForRide,
         createdAt: new Date().toISOString(),
         timestamp: new Date().toISOString()
       });
@@ -806,6 +1371,8 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
         id: docRef.id, 
         status: 'pending', // Explicitly initialize as 'pending' to resolve state conflicts with driver statuses
         price: null,
+        usedBonus: useBonusForRide,
+        passengerPhoto: passengerProfile?.photoUrl || '',
         pickup, 
         destination, 
         passengerCount,
@@ -846,6 +1413,16 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
   // Passenger confirms proposed price
   const handlePassengerConfirmRide = async () => {
     if (!activeRideRecord?.id) return;
+
+    if (activeRideRecord?.usedBonus) {
+      const extraPrice = negotiatedPrice || Number(activeRideRecord?.price || 0);
+      const reqBonus = extraPrice; // Use only the trip price, remove the 1000 Kz base
+      const currentBonus = Number(passengerProfile?.bonusBalance || 0);
+      if (currentBonus < reqBonus) {
+        alert(`Bónus Insuficiente! Esta corrida requer ${reqBonus.toLocaleString()} Kz em bónus, mas você possui apenas ${currentBonus.toLocaleString()} Kz.`);
+        return;
+      }
+    }
 
     try {
       activeStatusRef.current = 'confirmed';
@@ -986,220 +1563,71 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
   };
 
   return (
-    <div className={isPublicApp 
-      ? `w-full min-h-screen ${currentTheme.bgClass} flex flex-col transition-colors duration-300` 
-      : `p-4 lg:p-10 max-w-7xl mx-auto min-h-[calc(100vh-80px)] bg-slate-100 dark:bg-slate-900 grid grid-cols-1 ${!isPublicApp ? 'lg:grid-cols-2' : ''} gap-10 items-start`
-    }>
-      
-      {/* Exclusivo Painel de Controle e Feedback da Simulação */}
-      {!isPublicApp && (
-      <div className="space-y-6">
-        <div className="bg-white dark:bg-slate-950 p-6 rounded-3xl border border-slate-200 dark:border-white/5 shadow-xl space-y-4">
+    <div className={isEmbed ? "w-full flex flex-col font-sans select-none h-full justify-center items-center" : `min-h-screen w-full flex flex-col font-sans select-none ${isPublicApp ? (isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900') : ''}`}>
+      {isPublicApp && !isEmbed && (
+        <header className={`w-full shadow-xl px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 ${isDark ? 'bg-slate-900 border-b border-white/5 text-white' : 'bg-white border-b border-slate-200 text-slate-900'}`}>
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl bg-orange-500/10 text-orange-500`}>
-              <Sparkles size={18} />
+            <div className="p-2 bg-amber-500 rounded-xl text-slate-950 shadow-lg shrink-0">
+              <Car size={18} />
             </div>
-            <div>
-              <h2 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter">
-                Controlador da Simulação (JIS)
-              </h2>
-              <p className="text-[9px] text-slate-400 font-extrabold uppercase tracking-widest mt-0.5">
-                Área de Testes & Audioria do Fluxo de Passageiros
-              </p>
+            <div className="min-w-0">
+              <h1 className={`text-xs sm:text-sm font-black uppercase tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>SUPER Taxi Passageiro Oficial</h1>
+              <p className="text-[8px] sm:text-[9.5px] font-mono text-amber-500 uppercase font-black tracking-widest leading-none mt-1">Ambiente de Simulação em Tempo Real - Luena, Moxico (JIS)</p>
             </div>
           </div>
-
-          <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-white/5 space-y-3">
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed">
-              José Iweza Suana (**JIS**), esta ferramenta simula a experiência completa de um Passageiro utilizando telemóvel para encomendar viagens com telefonema directo ao motorista no Luena.
-            </p>
-
+          
+          <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
+            <span className="text-[8.5px] sm:text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full font-black uppercase tracking-wider animate-pulse flex items-center gap-1.5 border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+              Sincronizado c/ Controlo
+            </span>
+            <button
+              onClick={() => window.location.href = '/'}
+              className={`px-3 py-1.5 font-black text-[9px] uppercase tracking-widest rounded-xl transition-all border shrink-0 cursor-pointer ${
+                isDark 
+                  ? 'hover:bg-white/10 text-white border-white/10' 
+                  : 'hover:bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+            >
+              Voltar ao Início
+            </button>
           </div>
-
-          {/* Interactive Driver Response Pane inside Controller during calls */}
-          {(callState === 'calling' || callState === 'connected' || callState === 'pricing' || callState === 'offer_received' || callState === 'ride_confirmed') && activeRideRecord && (
-            <div className="border border-amber-500/30 bg-amber-500/5 p-5 rounded-2xl space-y-4 animate-pulse">
-              <div className="flex items-center justify-between">
-                <span className="px-2 py-0.5 bg-amber-500 text-slate-950 font-black text-[9px] rounded uppercase tracking-wider">
-                  PAINEL DE ATENDIMENTO DO MOTORISTA
-                </span>
-                <span className="text-[10px] font-mono text-amber-500 font-bold">
-                  Sinal Live Estável
-                </span>
-              </div>
-
-              <div className="text-xs space-y-2">
-                <div className="flex justify-between border-b border-amber-500/15 pb-1">
-                  <span className="text-slate-500 uppercase font-black text-[9px]">Motorista Alocado:</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-bold">{activeRideRecord.driverName}</span>
-                </div>
-                <div className="flex justify-between border-b border-amber-500/15 pb-1">
-                  <span className="text-slate-500 uppercase font-black text-[9px]">Telefone da Viatura:</span>
-                  <span className="text-slate-800 dark:text-slate-200 font-mono font-bold">{activeRideRecord.phone}</span>
-                </div>
-                <div className="flex justify-between border-b border-amber-500/15 pb-1">
-                  <span className="text-slate-500 uppercase font-black text-[9px]">Ponto de Partida:</span>
-                  <span className="text-slate-900 dark:text-white font-black truncate max-w-[200px]">{activeRideRecord.pickup}</span>
-                </div>
-                <div className="flex justify-between border-b border-amber-500/15 pb-1">
-                  <span className="text-slate-500 uppercase font-black text-[9px]">Destino Final:</span>
-                  <span className="text-slate-900 dark:text-white font-black truncate max-w-[200px]">{activeRideRecord.destination}</span>
-                </div>
-                {activeRideRecord.passengerCount !== undefined && (
-                  <div className="flex justify-between border-b border-amber-500/15 pb-1">
-                    <span className="text-slate-500 uppercase font-black text-[9px]">Qtd. Passageiros:</span>
-                    <span className="text-slate-900 dark:text-white font-black font-mono">{activeRideRecord.passengerCount} {activeRideRecord.passengerCount === 1 ? 'Passageiro' : 'Passageiros'}</span>
-                  </div>
-                )}
-                {activeRideRecord.boardingToken && (
-                  <div className="flex justify-between bg-emerald-500/10 p-2 rounded border border-emerald-500/20">
-                    <span className="text-emerald-500 uppercase font-black text-[9px]">Token p/ Validar:</span>
-                    <span className="text-emerald-400 font-mono font-black text-xs">{activeRideRecord.boardingToken}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Action according to call state */}
-              {callState === 'calling' && (
-                <div className="flex flex-col items-center py-4 bg-amber-500/10 rounded-xl space-y-3 px-3">
-                  <div className="flex items-center gap-2">
-                    <RefreshCw className="animate-spin text-amber-500" size={16} />
-                    <p className="text-[10px] uppercase font-black text-amber-500 tracking-wider m-0">Telemóvel do Motorista a tocar...</p>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      if (activeRideRecord?.id) {
-                        try {
-                          const rideRef = doc(db, 'calls', activeRideRecord.id);
-                          await setDoc(rideRef, { 
-                            status: 'connected',
-                            responseHistory: arrayUnion({
-                              action: 'attended_manual',
-                              driverId: 'simulated_driver',
-                              driverName: activeRideRecord.driverName || 'Motorista de Teste',
-                              timestamp: new Date().toISOString()
-                            })
-                          }, { merge: true });
-                          setCallState('connected');
-                        } catch (err) {
-                          console.error("Erro ao atender chamada no simulador:", err);
-                        }
-                      } else {
-                        setCallState('connected');
-                      }
-                    }}
-                    className="w-full py-2 bg-[#10b981] text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-lg hover:bg-emerald-600 transition-colors"
-                  >
-                    📞 ATENDER CHAMADA (Simular Condutor)
-                  </button>
-                </div>
-              )}
-
-              {(callState === 'connected' || callState === 'pricing') && (
-                <div className="bg-slate-900/90 p-4 rounded-xl border border-white/5 space-y-3">
-                  <p className="text-[10px] text-amber-400 font-black uppercase tracking-wider">
-                    Telefonema Estabelecido! Diga o Preço:
-                  </p>
-                  <div className="flex gap-2">
-                    <input 
-                      type="number" 
-                      placeholder="Preço em Kwanza, ex: 3500" 
-                      id="sim-price-input"
-                      className="flex-1 bg-black text-white p-2 text-xs border border-white/10 rounded-lg font-black"
-                      defaultValue={3000}
-                    />
-                    <button 
-                      onClick={() => {
-                        const val = Number((document.getElementById('sim-price-input') as HTMLInputElement)?.value || 3000);
-                        handleDriverSendPrice(val);
-                      }}
-                      className="px-4 py-2 bg-[#10b981] text-slate-950 font-black text-xs uppercase tracking-wider rounded-lg hover:bg-emerald-600"
-                    >
-                      Enviar Preço
-                    </button>
-                  </div>
-                  <p className="text-[8.5px] text-slate-400">
-                    O motorista também pode reencaminhar chamadas se não puder realizar a corrida.
-                  </p>
-                </div>
-              )}
-
-              {callState === 'offer_received' && (
-                <div className="bg-blue-500/10 p-4 rounded-xl border border-blue-500/30 text-center space-y-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-ping mx-auto" />
-                  <p className="text-xs font-black text-blue-400 uppercase tracking-wide">Proposta de Preço Recebida</p>
-                  <p className="text-[10px] text-slate-300">
-                    O motorista propôs o valor de <strong className="text-white font-black">{(negotiatedPrice || Number(activeRideRecord?.price || 0)).toLocaleString()} Kz</strong>. Por favor, confirme ou cancele a corrida no painel principal acima!
-                  </p>
-                </div>
-              )}
-
-              {callState === 'ride_confirmed' && (
-                <div className="bg-[#10b981]/15 p-4 rounded-xl border border-emerald-500/30 text-center space-y-2">
-                  <CheckCircle className="text-emerald-500 mx-auto" size={24} />
-                  <p className="text-xs font-black text-emerald-400 uppercase tracking-wide">Corrida em Andamento</p>
-                  <p className="text-[9.5px] text-slate-400">Quando a viagem terminar com sucesso, clique abaixo para finalizar de forma segura.</p>
-                  <div className="flex flex-col gap-2">
-                    <button 
-                      onClick={handleFinishRideSuccess}
-                      className="w-full py-2 bg-[#10b981] hover:bg-[#059669] transition-colors text-slate-950 font-black text-[10px] uppercase tracking-widest rounded-lg flex items-center justify-center gap-2"
-                    >
-                      <CheckCircle size={14} /> Encerrar Viagem c/ Sucesso & Carregar Renda
-                    </button>
-                    <button 
-                      onClick={handleForwardCall}
-                      className="w-full py-2 bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-800 transition-colors font-black text-[10px] uppercase tracking-widest rounded-lg flex items-center justify-center gap-2"
-                    >
-                      <Navigation size={14} /> Reencaminhar Chamada
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Real-time Global Passenger Log */}
-          <div className="space-y-2">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Historial Recente de Pedidos (Global)</span>
-            {myRides.length === 0 ? (
-              <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-white/5 text-center text-[10px] text-slate-400 uppercase">
-                Sem registos de viagens nesta sessão.
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1 no-scrollbar">
-                {myRides.map((it) => (
-                  <div key={it.id} className="p-3 bg-slate-50 dark:bg-zinc-900 border border-slate-200/50 dark:border-white/5 rounded-xl flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-black text-slate-800 dark:text-slate-100 uppercase truncate">{it.passengerName}</span>
-                        <span className="text-[8px] font-bold text-slate-400">• {it.vehiclePlate}</span>
-                      </div>
-                      <p className="text-[9px] text-slate-400 truncate mt-0.5">{it.pickup} → {it.destination}</p>
-                    </div>
-                    <div className="text-right flex flex-col items-end shrink-0">
-                      <span className="text-[10px] font-black">{it.price ? `${it.price.toLocaleString()} Kz` : 'A negociar'}</span>
-                      <span className={`text-[8px] font-black uppercase tracking-widest ${
-                        it.status === 'completed' ? 'text-emerald-500' : 
-                        it.status === 'confirmed' ? 'text-blue-500 animate-pulse' : 
-                        it.status === 'cancelled' ? 'text-red-500' : 'text-amber-500'
-                      }`}>{it.status === 'completed' ? 'Concluída' : it.status === 'confirmed' ? 'Confirmada' : it.status === 'cancelled' ? 'Cancelada' : 'A chamar'}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+        </header>
       )}
 
-      {/* SMARTPHONE VIEW SIMULATOR FRAME */}
-      <div className={isPublicApp ? "w-full min-h-screen flex flex-col" : "flex justify-center h-[800px]"}>
-        {/* INTERFACE LIVRE E REAL */}
-        <div className={isPublicApp 
-          ? `w-full flex-1 flex flex-col ${currentTheme.bgClass} transition-colors duration-300 relative` 
-          : `w-full rounded-3xl overflow-hidden relative flex flex-col shadow-2xl ${currentTheme.bgClass} transition-colors duration-300`
-        }>
+      {/* Centered Smartphone Layout - Simulator Controller panel removed for a clean, direct passenger experience by request of José Iweza Suana (JIS) */}
+      <div className={isEmbed ? "w-full flex justify-center items-center h-full" : (isPublicApp ? "w-full flex-1 flex flex-col justify-stretch items-stretch" : "p-4 py-8 max-w-sm mx-auto w-full flex justify-center items-center min-h-[calc(100vh-80px)]")}>
+        
+
+      {/* Real-time Smartphone structure mockup */}
+      <div className={isPublicApp 
+        ? "w-full flex flex-col flex-1 bg-transparent overflow-hidden" 
+        : "relative mx-auto w-full aspect-[9/18.5] bg-slate-900 rounded-[44px] p-3.5 shadow-2xl border-4 border-slate-800 shadow-slate-950/40 overflow-hidden ring-1 ring-white/10 flex flex-col h-[740px]"
+      }>
+        
+        {/* Dynamic Status bar phone decoration */}
+        {!isPublicApp && (
+          <div className="absolute top-0 inset-x-0 h-10 bg-slate-900 flex items-end justify-between px-7 pb-1.5 z-[110] select-none text-white shrink-0">
+            <span className="text-[10px] font-bold tracking-widest font-mono">09:41</span>
+            
+            {/* Speaker / Camera Notch */}
+            <div className="w-24 h-4 bg-slate-900 rounded-b-xl absolute left-1/2 -translate-x-1/2 top-0" />
+            
+            <div className="flex items-center gap-1.5 text-white font-mono">
+              <Wifi size={10} className="text-white" />
+              <span className="text-[9px] font-black tracking-tighter text-white">PSM LTE</span>
+              <div className="w-4 h-2.5 border border-white/70 rounded-sm bg-white/20 p-0.5 flex">
+                <div className="h-full bg-white flex-1 animate-pulse" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Spacer for phone status bar header inside screen */}
+        {!isPublicApp && <div className="h-4 shrink-0 bg-slate-900" />}
+
+        {/* INTERFACE LIVRE E REAL - Passenger App Interactive Screen */}
+        <div className={`w-full h-full overflow-hidden relative flex flex-col ${isPublicApp ? '' : 'rounded-[30px] shadow-inner'} ${currentTheme.bgClass} transition-colors duration-300 flex-1`}>
           
           {/* TOAST NOTIFICATION BANNER SINCRO SUPER TAXI (JIS) - FLUTUANTE COM Z-INDEX IMPEDIDOR DE OVERLAY COVERING */}
           <AnimatePresence>
@@ -1228,35 +1656,134 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
           </AnimatePresence>
           
           {/* Passenger App Interactive Header */}
-          <header className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20 shrink-0">
+          <header className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20 shrink-0 relative z-50">
               <div className="flex items-center gap-2">
                 <div className={`p-1.5 rounded-lg ${currentTheme.cardClass}`}>
                   <Car size={14} className={currentTheme.textClass} />
                 </div>
                 <div>
-                  <h1 className="text-xs font-black uppercase tracking-tighter italic">SUPER TAXI Pass</h1>
-                  <p className="text-[7.5px] text-slate-500 font-extrabold uppercase tracking-widest">Acesso Passageiro</p>
+                  <h1 className="text-xs font-black uppercase tracking-tighter italic">SUPER TÁXI</h1>
+                  <p className="text-[7.5px] text-slate-500 font-extrabold uppercase tracking-widest leading-none mt-0.5">Passageiro Oficial</p>
+                  <div className="mt-1 flex items-center gap-1 bg-black/45 px-1.5 py-0.5 rounded border border-white/5 shadow-inner">
+                    <label htmlFor="passenger-company-select" className="text-[6.5px] text-slate-400 font-extrabold uppercase tracking-widest shrink-0">Central:</label>
+                    <select
+                      id="passenger-company-select"
+                      value={activeTenant}
+                      onChange={(e) => handleSelectCompany(e.target.value)}
+                      className="text-[8px] font-black bg-transparent text-amber-400 outline-none uppercase tracking-normal cursor-pointer max-w-[110px] truncate border-0 p-0 focus:ring-0"
+                    >
+                      {companies.map((comp) => (
+                        <option key={comp.id} value={comp.id} className="text-[8px] uppercase font-bold bg-slate-950 text-white">
+                          {comp.id === 'psm' ? 'PSMOREIRA' : comp.name || comp.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* Theme Selector Popover / Floating Button */}
-              <div className="flex items-center gap-1">
-                {(Object.keys(PALETTES) as PassengerTheme[]).map((pal) => (
+              {/* Theme Selector & Navigation Menu */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-black/30 px-2 py-1 rounded-full border border-white/5 shadow-inner">
+                  {(Object.keys(PALETTES) as PassengerTheme[]).map((pal) => (
+                    <button
+                      key={pal}
+                      onClick={() => handlePaletteChange(pal)}
+                      className={`w-3.5 h-3.5 rounded-full border transition-all cursor-pointer ${
+                        activePalette === pal && hasClickedTheme 
+                          ? 'scale-125 border-white shadow-lg ring-1 ring-white/50' 
+                          : 'border-white/20 hover:scale-110 opacity-70 hover:opacity-100'
+                      }`}
+                      style={{ backgroundColor: PALETTES[pal].accentColor }}
+                      title={PALETTES[pal].name}
+                    />
+                  ))}
+                  {hasClickedTheme && (
+                    <button
+                      onClick={() => {
+                        setHasClickedTheme(false);
+                        localStorage.removeItem('psm-passenger-theme-clicked');
+                      }}
+                      className="text-[7px] font-black text-amber-400 hover:text-white uppercase tracking-tighter px-1 cursor-pointer transition-colors"
+                      title="Restaurar cor oficial da companhia"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
+                {/* 3-Dots Navigation Menu Button */}
+                <div className="relative z-[60]">
                   <button
-                    key={pal}
-                    onClick={() => handlePaletteChange(pal)}
-                    className={`w-4 h-4 rounded-full border border-white/40`}
-                    style={{ backgroundColor: PALETTES[pal].accentColor }}
-                    title={PALETTES[pal].name}
-                  />
-                ))}
+                    onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
+                    className={`p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-all active:scale-95 focus:outline-none border border-white/5 bg-black/35 flex items-center justify-center ${
+                      isNavMenuOpen ? 'ring-1 ring-amber-500' : ''
+                    }`}
+                    title="Menu de Opções"
+                  >
+                    <MoreVertical size={14} />
+                  </button>
+
+                  {isNavMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-44 bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-100">
+                      <div className="px-3 py-1.5 border-b border-white/5 bg-black/40">
+                        <p className="text-[7.5px] text-slate-500 font-extrabold uppercase tracking-widest">Navegação Rápida</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setPassengerTab('viagem');
+                          setIsNavMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all ${
+                          passengerTab === 'viagem'
+                            ? 'bg-amber-500 text-slate-950 font-black'
+                            : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <Car size={13} />
+                        Pedir Táxi
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setPassengerTab('seguranca');
+                          setIsNavMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all ${
+                          passengerTab === 'seguranca'
+                            ? 'bg-rose-500 text-white font-black'
+                            : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <ShieldCheck size={13} />
+                        Segurança
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setPassengerTab('perfil');
+                          setIsNavMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all ${
+                          passengerTab === 'perfil'
+                            ? 'bg-[#3b82f6] text-white font-black'
+                            : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                        }`}
+                      >
+                        <User size={13} />
+                        Minha Conta
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </header>
 
+
             {/* SCREEN SCROLLABLE AREA */}
-            <div className={`flex-1 overflow-y-auto no-scrollbar relative ${isPublicApp ? 'p-6 sm:p-10 max-w-2xl mx-auto w-full' : 'p-5'}`}>
+            <div className="flex-1 overflow-y-auto no-scrollbar relative p-5">
               
-              {!passengerProfile ? (
+              {!passengerProfile && passengerTab !== 'seguranca' ? (
                 /* PROFILE CREATION OR PORTAL (REGISTER / LOGIN Toggle) */
                 <div className="space-y-4 py-2">
                   <div className="text-center space-y-1">
@@ -1267,16 +1794,16 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Luena - Moxico • Angola</p>
                   </div>
 
-                  <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 mb-2">
+                  <div className={`flex p-1 rounded-xl border mb-2 ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-200/50 border-slate-300/60'}`}>
                     <button 
                       onClick={() => setAuthMode('register')}
-                      className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'register' ? currentTheme.btnClass : 'text-slate-400 hover:text-white'}`}
+                      className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'register' ? currentTheme.btnClass : `text-slate-400 ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}`}
                     >
                       Criar Conta
                     </button>
                     <button 
                       onClick={() => setAuthMode('login')}
-                      className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'login' ? currentTheme.btnClass : 'text-slate-400 hover:text-white'}`}
+                      className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'login' ? currentTheme.btnClass : `text-slate-400 ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}`}
                     >
                       Entrar
                     </button>
@@ -1318,7 +1845,11 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                             placeholder="Nome Completo" 
                             value={name}
                             onChange={e => setName(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white"
+                            className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all ${
+                              isDark 
+                                ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
+                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                            }`}
                           />
                         </div>
                       </div>
@@ -1331,7 +1862,11 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                             placeholder="Ex: 24" 
                             value={age}
                             onChange={e => setAge(e.target.value)}
-                            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white"
+                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all ${
+                              isDark 
+                                ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
+                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                            }`}
                           />
                         </div>
                         <div className="space-y-1">
@@ -1339,12 +1874,16 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                           <select 
                             value={gender}
                             onChange={e => setGender(e.target.value)}
-                            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white appearance-none"
+                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border appearance-none transition-all ${
+                              isDark 
+                                ? 'bg-white/5 border-white/10 text-white focus:border-white' 
+                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500'
+                            }`}
                           >
-                            <option value="" className="bg-slate-800 text-slate-400">Selecione...</option>
-                            <option value="Masculino" className="bg-slate-800 text-white">Masculino</option>
-                            <option value="Feminino" className="bg-slate-800 text-white">Feminino</option>
-                            <option value="Outro" className="bg-slate-800 text-white">Outro / Mais</option>
+                            <option value="" className={isDark ? "bg-slate-800 text-slate-400" : "bg-white text-slate-500"}>Selecione...</option>
+                            <option value="Masculino" className={isDark ? "bg-slate-800 text-white" : "bg-white text-slate-900"}>Masculino</option>
+                            <option value="Feminino" className={isDark ? "bg-slate-800 text-white" : "bg-white text-slate-900"}>Feminino</option>
+                            <option value="Outro" className={isDark ? "bg-slate-800 text-white" : "bg-white text-slate-900"}>Outro / Mais</option>
                           </select>
                         </div>
                       </div>
@@ -1356,7 +1895,11 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                           placeholder="Moxico" 
                           value={province}
                           onChange={e => setProvince(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white"
+                          className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all ${
+                            isDark 
+                              ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
+                              : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                          }`}
                         />
                       </div>
 
@@ -1373,7 +1916,11 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                               if (!val.startsWith('+244')) val = '+244 ' + val.replace('+244', '').trim();
                               setBackupPhone(val);
                             }}
-                            className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white"
+                            className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all ${
+                              isDark 
+                                ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
+                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                            }`}
                           />
                         </div>
                         <p className="text-[8px] text-slate-400 mt-1 font-extrabold uppercase tracking-tight">
@@ -1388,20 +1935,24 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                           placeholder="••••••••" 
                           value={password}
                           onChange={e => setPassword(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white"
+                          className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all ${
+                            isDark 
+                              ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
+                              : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                          }`}
                         />
                       </div>
 
                       {/* Checkbox de Termos e Politica de Segurança */}
-                      <div className="flex items-start gap-2.5 bg-white/5 border border-white/5 p-3 rounded-xl mt-2">
+                      <div className={`flex items-start gap-2.5 border p-3 rounded-xl mt-2 ${isDark ? 'bg-white/5 border-white/5 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
                         <input 
                           type="checkbox" 
                           id="accept_security_terms"
                           checked={acceptedTerms}
                           onChange={(e) => setAcceptedTerms(e.target.checked)}
-                          className="mt-0.5 rounded border-white/10 text-brand-primary accent-slate-800"
+                          className={`mt-0.5 rounded border-white/10 text-brand-primary ${isDark ? 'accent-slate-800' : 'accent-slate-300'}`}
                         />
-                        <label htmlFor="accept_security_terms" className="text-[10px] text-slate-300 font-bold leading-tight cursor-pointer">
+                        <label htmlFor="accept_security_terms" className={`text-[10px] font-bold leading-tight cursor-pointer ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                           Aceito e comprometo-me com os{' '}
                           <button 
                             type="button"
@@ -1432,7 +1983,11 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                             placeholder="Nome de utilizador ou Telefone (+244...)" 
                             value={loginName}
                             onChange={e => setLoginName(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white"
+                            className={`w-full pl-10 pr-4 py-3 rounded-xl text-xs font-bold outline-none border transition-all ${
+                              isDark 
+                                ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
+                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                            }`}
                           />
                         </div>
                       </div>
@@ -1446,7 +2001,11 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                             placeholder="••••••••" 
                             value={loginPassword}
                             onChange={e => setLoginPassword(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold outline-none focus:border-white text-white"
+                            className={`w-full pl-10 pr-4 py-3 rounded-xl text-xs font-bold outline-none border transition-all ${
+                              isDark 
+                                ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
+                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                            }`}
                           />
                         </div>
                       </div>
@@ -1458,6 +2017,8 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                       >
                         {isLoggingIn ? <RefreshCw className="animate-spin" size={14} /> : 'Aceder à Minha Conta'}
                       </button>
+
+
                     </form>
                   )}
                 </div>
@@ -1505,68 +2066,29 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
               ) : (
                 /* IN-APP LOGGED-IN PASSENGER HOME VIEW */
                 <div className="space-y-4">
-                  
+                   
                   {/* Miniature Header Card Welcome */}
-                  <div className={`p-4 rounded-2xl ${currentTheme.cardClass} flex items-center justify-between`}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl overflow-hidden border border-white/20">
-                        <img src={passengerProfile.photoUrl || selectedAvatar} alt="Photo" className="w-full h-full object-cover" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1">
-                          <p className="text-xs font-black uppercase tracking-tight truncate max-w-[120px]">{passengerProfile.name}</p>
-                          <ShieldCheck size={11} className={currentTheme.textClass} />
+                  {passengerProfile && (
+                    <div className={`p-4 rounded-2xl ${currentTheme.cardClass} flex items-center justify-between`}>
+                      <div className="flex items-center gap-3">
+                        <PassengerAvatar src={passengerProfile.photoUrl || selectedAvatar} name={passengerProfile.name} size="md" />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1">
+                            <p className="text-xs font-black uppercase tracking-tight truncate max-w-[120px]">{passengerProfile.name}</p>
+                            <ShieldCheck size={11} className={currentTheme.textClass} />
+                          </div>
+                          <p className="text-[8.5px] text-slate-400 font-bold uppercase tracking-widest">{passengerProfile.province} • {passengerProfile.backupPhone || 'Sem Backup'}</p>
                         </div>
-                        <p className="text-[8.5px] text-slate-400 font-bold uppercase tracking-widest">{passengerProfile.province} • {passengerProfile.backupPhone || 'Sem Backup'}</p>
                       </div>
+
+                      <button 
+                        onClick={handleLogout}
+                        className="text-[8px] font-black uppercase text-rose-400 hover:text-rose-500 bg-rose-500/10 px-2 py-1 rounded"
+                      >
+                        Sair
+                      </button>
                     </div>
-
-                    <button 
-                      onClick={handleLogout}
-                      className="text-[8px] font-black uppercase text-rose-400 hover:text-rose-500 bg-rose-500/10 px-2 py-1 rounded"
-                    >
-                      Sair
-                    </button>
-                  </div>
-
-                  {/* Sub-Tabs Selector para Organização de Elevado Nível de Informação (Solicitado por JIS) */}
-                  <div className="grid grid-cols-3 bg-slate-950 p-1 rounded-xl border border-white/5 gap-1">
-                    <button
-                      onClick={() => setPassengerTab('viagem')}
-                      className={`py-2 px-1 text-[9.5px] font-black uppercase tracking-tight rounded-lg flex items-center justify-center gap-1 transition-all ${
-                        passengerTab === 'viagem'
-                          ? 'bg-amber-500 text-slate-950 font-black shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      <Car size={13} />
-                      Pedir Táxi
-                    </button>
-                    
-                    <button
-                      onClick={() => setPassengerTab('seguranca')}
-                      className={`py-2 px-1 text-[9.5px] font-black uppercase tracking-tight rounded-lg flex items-center justify-center gap-1 transition-all ${
-                        passengerTab === 'seguranca'
-                          ? 'bg-rose-500 text-white font-black shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      <ShieldCheck size={13} />
-                      Segurança
-                    </button>
-
-                    <button
-                      onClick={() => setPassengerTab('perfil')}
-                      className={`py-2 px-1 text-[9.5px] font-black uppercase tracking-tight rounded-lg flex items-center justify-center gap-1 transition-all ${
-                        passengerTab === 'perfil'
-                          ? 'bg-[#3b82f6] text-white font-black shadow-md'
-                          : 'text-slate-400 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      <User size={13} />
-                      Minha Conta
-                    </button>
-                  </div>
+                  )}
 
                   {/* ABA 1: VIAGEM / PEDIDOS */}
                   {passengerTab === 'viagem' && (
@@ -1610,69 +2132,221 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                         </div>
                       )}
 
-                      {/* Faux GPS Map Background */}
-                      <div className="h-44 rounded-2xl bg-slate-900 border border-white/5 relative overflow-hidden flex flex-col justify-end p-3">
-                        {/* SVG Map grid line design */}
-                        <div className="absolute inset-0 opacity-20 pointer-events-none">
-                          <svg width="100%" height="100%">
-                            <defs>
-                              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
-                              </pattern>
-                            </defs>
-                            <rect width="100%" height="100%" fill="url(#grid)" />
-                          </svg>
-                        </div>
+                      {callState === 'idle' ? (
+                        <>
+                          {/* Custom Welcome Message exactly as loved by JIS */}
+                          <div className="space-y-1">
+                            <p className="text-[13px] font-black tracking-tight leading-tight pt-1">
+                              {appConfig?.customWelcomeMsg || 'Olá! Como o podemos ajudar por Luena hoje?'}
+                            </p>
+                            <p className="text-[9.5px] text-slate-400 font-medium">
+                              Bandeirada Base para serviços públicos: <strong className="text-slate-900 dark:text-white font-extrabold">{appConfig?.baseFareKz || 500} Kz</strong>
+                            </p>
+                          </div>
 
-                        {/* Simulated Path Line */}
-                        <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
-                          <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#f59e0b" strokeWidth="4" strokeLinecap="round" strokeDasharray="6" />
-                          <circle cx="50" cy="150" r="6" className="text-amber-500 fill-current animate-ping" />
-                          <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current" />
-                          <circle cx="250" cy="120" r="6" className="text-emerald-500 fill-current animate-ping" />
-                          <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
-                          
-                          {/* Sincro Live Map Vehicle tracking animation across Bézier coordinates */}
-                          <motion.g
-                            initial={{ x: 50, y: 150 }}
-                            animate={{
-                              x: [50, 110, 150, 200, 250],
-                              y: [150, 90, 75, 95, 120]
-                            }}
-                            transition={{
-                              duration: 12,
-                              repeat: Infinity,
-                              ease: "easeInOut"
-                            }}
-                          >
-                            <circle r="7" className="text-blue-400 fill-current shadow-lg animate-pulse" />
-                            <polygon points="-2,-2 3,0 -2,2" fill="white" />
-                          </motion.g>
-                        </svg>
+                          {/* Beautiful live map container blending real Leaflet with map pin overlays */}
+                          <div className="h-72 rounded-2xl border border-white/10 relative overflow-hidden flex flex-col justify-end shadow-inner bg-slate-950">
+                            {/* Real Leaflet Map */}
+                            <div className="absolute inset-0 w-full h-full z-0">
+                              {/* @ts-ignore */}
+                              <MapContainer center={passengerCoords as any} zoom={13} style={{ height: '100%', width: '100%' }} zoomControl={false} className="w-full h-full grayscale-[0.2] contrast-[1.1] dark:invert dark:hue-rotate-180 dark:brightness-[0.75] dark:contrast-[1.25]">
+                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                
+                                {/* Passenger Marker */}
+                                {/* @ts-ignore */}
+                                <Marker position={passengerCoords} icon={passengerIcon}>
+                                  <Popup>
+                                    <div className="text-slate-950 text-[10px] font-black uppercase tracking-tight">Sua Localização {isGpsExact ? '(GPS Ativo)' : '(Luena Centro)'}</div>
+                                  </Popup>
+                                </Marker>
 
-                        <div className="absolute top-3 left-3 bg-black/75 backdrop-blur px-2 py-1 rounded border border-white/10 text-[8px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse">
-                          <div className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
-                          Monitorização Satélite Ativa
-                        </div>
+                                {/* Active Vehicles Markers */}
+                                {availableVehicles.map((vehicle, idx) => {
+                                  const vLat = vehicle.lat || (passengerCoords[0] + (idx * 0.003) - 0.0015);
+                                  const vLng = vehicle.lng || (passengerCoords[1] + (idx * 0.003) - 0.0015);
+                                  // @ts-ignore
+                                  return <Marker key={vehicle.id || idx} position={[vLat, vLng]} icon={driverIconAvailable}>
+                                      <Popup>
+                                        <div className="text-slate-900 text-xs font-bold p-1 space-y-1">
+                                          <p className="font-extrabold uppercase text-[10px] text-amber-500">{vehicle.driverName || 'Motorista'}</p>
+                                          <p className="text-[9px] text-slate-500 font-mono">{vehicle.model} • {vehicle.plate}</p>
+                                          <p className="text-[8px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded font-black uppercase">Disponível</p>
+                                        </div>
+                                      </Popup>
+                                    </Marker>;
+                                })}
+                              </MapContainer>
+                            </div>
 
-                        <div className="bg-slate-950/80 backdrop-blur p-2.5 rounded-xl border border-white/10 text-center">
-                          <p className="text-[9px] font-black text-slate-300 uppercase tracking-wider">Destino Preferido</p>
-                          <p className="text-[11px] font-black text-white uppercase italic tracking-tight">{pickup ? `${pickup} → ${destination}` : 'Luena Central'}</p>
-                        </div>
-                      </div>
+                            {/* Live satellite indicator overlay on top of Leaflet */}
+                            <div className="absolute top-3 left-3 bg-slate-950/90 backdrop-blur px-2 py-1 rounded border border-white/10 text-[8px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
+                              <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                              Monitorização Satélite Ativa
+                            </div>
 
-                      {/* Main Call Taxi Trigger Element */}
-                      {callState === 'idle' && (
-                        <button 
-                          onClick={() => {
-                            setIsBookModalOpen(true);
-                            loadFleetData();
-                          }}
-                          className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all duration-300 transform active:scale-95 flex items-center justify-center gap-2 ${currentTheme.btnClass}`}
-                        >
-                          <Car size={16} />
-                          Pedir Super Táxi
-                        </button>
+                            <span className="absolute bottom-2 right-2 flex items-center gap-1 bg-slate-950/90 text-white text-[7.5px] font-bold px-1.5 py-0.5 rounded backdrop-blur border border-white/10 z-10">
+                              <Compass size={8} className="animate-spin text-amber-500" /> Raio Máx: {appConfig?.searchRadiusKm || 15}km
+                            </span>
+                          </div>
+
+                          {/* Action Buttons in client app based on active controls */}
+                          <div className="space-y-3">
+                            {/* Dynamic booking button */}
+                            {appConfig?.bookingEnabled !== false ? (
+                              <button 
+                                onClick={() => {
+                                  setIsBookModalOpen(true);
+                                  loadFleetData();
+                                }}
+                                className="w-full text-[11px] font-black py-3 px-4 rounded-xl flex items-center justify-between shadow-lg uppercase transition-all duration-300 transform active:scale-95 cursor-pointer text-slate-950 hover:opacity-90"
+                                style={{ backgroundColor: currentTheme.accentColor }}
+                              >
+                                <span>Pedir Táxi Público Moxico</span>
+                                <ArrowRight size={14} className="animate-pulse" />
+                              </button>
+                            ) : (
+                              <div className="w-full bg-slate-900 border border-dashed border-white/10 text-slate-400 text-[9.5px] font-black py-3 px-4 rounded-xl text-center uppercase">
+                                ⚠️ Chamadas Rápidas Desativadas temporariamente
+                              </div>
+                            )}
+
+                            {/* Fare dynamic preview */}
+                            {appConfig?.bookingEnabled !== false && appConfig?.fareEstimateEnabled && (
+                              <div className="bg-slate-900 border border-white/5 p-3 rounded-xl text-[9.5px] flex justify-between items-center text-slate-300">
+                                <div>
+                                  <span className="block text-[8px] text-slate-450 font-extrabold uppercase tracking-widest">Tarifa Sugerida</span>
+                                  <span className="font-black text-rose-400">Estimativa baseada no percurso</span>
+                                </div>
+                                <div className="text-right font-black">
+                                  <span className="block text-xs text-white tracking-tighter">{(appConfig?.baseFareKz || 500) + ((appConfig?.perKmFareKz || 250) * 2.5)} <span className="text-[8px] opacity-75">Kz</span></span>
+                                  <span className="text-[7.5px] text-slate-500 font-bold">2.5 KM Simulado</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* S.O.S Trigger button inside client app */}
+                            {appConfig?.panicSosEnabled && (
+                              <button 
+                                onClick={() => {
+                                  window.open(`tel:${appConfig?.supportPhone || '+244999123456'}`);
+                                }}
+                                className="w-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-extrabold py-2.5 px-3 rounded-xl flex items-center gap-1.5 border border-rose-500/20 active:scale-95 transition-all text-left"
+                              >
+                                <ShieldAlert size={14} className="text-rose-500 animate-pulse shrink-0" />
+                                <span className="uppercase tracking-wide flex-1">BOTÃO S.O.S (ALERTA DE SEGURANÇA)</span>
+                                <span className="text-[8.5px] font-mono text-slate-400">{appConfig?.supportPhone}</span>
+                              </button>
+                            )}
+
+                            {/* Quick-links secondary actions based on configurations */}
+                            <div className="grid grid-cols-2 gap-2 text-[9px] font-black uppercase">
+                              {/* Support Chat option */}
+                              {appConfig?.supportChatEnabled ? (
+                                <a 
+                                  href={activeWhatsappLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-2.5 bg-slate-900 border border-white/5 hover:bg-slate-800 rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-300 font-mono shadow-md transition-colors"
+                                >
+                                  <MessageSquare size={12} className="text-indigo-400 shrink-0" />
+                                  <span>Chat WhatsApp</span>
+                                </a>
+                              ) : (
+                                <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
+                                  <span>Apoio</span>
+                                </div>
+                              )}
+
+                              {/* Trip history option */}
+                              {appConfig?.historyEnabled ? (
+                                <button 
+                                  onClick={() => setPassengerTab('perfil')}
+                                  className="p-2.5 bg-slate-900 border border-white/5 hover:bg-slate-800 rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-300 font-mono shadow-md transition-colors"
+                                >
+                                  <Compass size={12} className="text-emerald-400 shrink-0" />
+                                  <span>Minhas Viagens</span>
+                                </button>
+                              ) : (
+                                <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
+                                  <span>Histórico</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {activeWhatsappGroupLink && (
+                              <a 
+                                href={activeWhatsappGroupLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full mt-2 p-3 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 rounded-xl flex items-center justify-center gap-2 text-[10px] text-emerald-450 font-extrabold uppercase tracking-wider transition-all"
+                              >
+                                <MessageSquare size={13} className="text-emerald-450 shrink-0" />
+                                <span>Aderir ao Grupo WhatsApp da Filial</span>
+                              </a>
+                            )}
+                          </div>
+
+                          {/* Star rating preview card */}
+                          {appConfig?.driverRatingEnabled && (
+                            <div className="bg-gradient-to-br from-amber-500/5 to-yellow-500/5 p-3 rounded-xl border border-amber-500/10 text-[9.5px] text-center space-y-1">
+                              <span className="font-extrabold uppercase text-amber-500 block tracking-wider">Como correu a sua viagem com Carlos?</span>
+                              <div className="flex justify-center gap-1.5 text-amber-400 text-sm py-0.5">
+                                <span>★</span><span>★</span><span>★</span><span>★</span><span className="opacity-40">★</span>
+                              </div>
+                              <span className="text-[8px] text-slate-450 block font-semibold leading-tight">Avaliações enviadas contam positivamente para o bónus do motorista</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {/* Beautiful live map container blending real Leaflet with map pin overlays */}
+                          <div className="h-72 rounded-2xl border border-white/10 relative overflow-hidden flex flex-col justify-end shadow-inner bg-slate-950">
+                            {/* Real Leaflet Map */}
+                            <div className="absolute inset-0 w-full h-full z-0">
+                              {/* @ts-ignore */}
+                              <MapContainer center={passengerCoords as any} zoom={14} style={{ height: '100%', width: '100%' }} zoomControl={false} className="w-full h-full grayscale-[0.2] contrast-[1.1] dark:invert dark:hue-rotate-180 dark:brightness-[0.75] dark:contrast-[1.25]">
+                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                
+                                {/* Passenger Pickup Marker */}
+                                {/* @ts-ignore */}
+                                <Marker position={passengerCoords} icon={passengerIcon}>
+                                  <Popup>
+                                    <div className="text-slate-950 text-[10px] font-black uppercase tracking-tight">Seu Local de Recolha {isGpsExact ? '(GPS Ativo)' : '(Luena Centro)'}</div>
+                                  </Popup>
+                                </Marker>
+
+                                {/* Active Assigned Driver Marker */}
+                                {(() => {
+                                  // Try to find the driver document with live coordinates
+                                  const assigned = availableVehicles.find(v => v.driverName === activeRideRecord?.driverName);
+                                  const dLat = assigned?.lat || -11.7825;
+                                  const dLng = assigned?.lng || 20.0695;
+                                  // @ts-ignore
+                                  return <Marker position={[dLat, dLng]} icon={driverIconAssigned}>
+                                      <Popup>
+                                        <div className="text-slate-900 text-xs font-bold p-1">
+                                          <p className="font-extrabold uppercase text-[10px] text-amber-500">{activeRideRecord?.driverName || 'Motorista'}</p>
+                                          <p className="text-[9px] text-slate-500 font-mono">Placa: {activeRideRecord?.plate || 'LD-92-33-PX'}</p>
+                                          <p className="text-[8px] bg-rose-100 text-rose-850 px-1 py-0.5 rounded font-black uppercase">A Caminho</p>
+                                        </div>
+                                      </Popup>
+                                    </Marker>;
+                                })()}
+                              </MapContainer>
+                            </div>
+
+                            {/* Live satellite indicator overlay on top of Leaflet */}
+                            <div className="absolute top-3 left-3 bg-slate-950/90 backdrop-blur px-2 py-1 rounded border border-white/10 text-[8px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
+                              <div className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
+                              Monitorização Satélite Ativa
+                            </div>
+
+                            <div className="bg-slate-950/80 backdrop-blur p-2.5 rounded-xl border border-white/10 text-center z-10 m-3 relative">
+                              <p className="text-[9px] font-black text-slate-300 uppercase tracking-wider">Destino Preferido</p>
+                              <p className="text-[11px] font-black text-white uppercase italic tracking-tight">{pickup ? `${pickup} → ${destination}` : 'Luena Central'}</p>
+                            </div>
+                          </div>
+                        </>
                       )}
 
                       {/* TOKEN DE EMBARQUE dinâmico (Segurança TAXICONTROL) */}
@@ -1710,7 +2384,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                             <div className="space-y-0.5">
                               <p className="text-[10px] font-black text-white uppercase tracking-tight">Contacto de Reenvio</p>
                               <p className="text-[9px] text-slate-400 leading-relaxed font-bold">
-                                Se ficar sem internet (offline), a nossa central ligará para: <span className="text-white">{passengerProfile.backupPhone || 'Número não definido'}</span>.
+                                Se ficar sem internet (offline), a nossa central ligará para: <span className="text-white">{passengerProfile?.backupPhone || 'Número não definido'}</span>.
                               </p>
                             </div>
                           </div>
@@ -1743,14 +2417,18 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
 
                       <button
                         onClick={() => setShowComplaintsModal(true)}
-                        className={`w-full p-4 bg-slate-900 border border-white/5 hover:border-rose-500/35 hover:bg-slate-800/80 rounded-2xl flex items-center justify-between text-left transition-all group`}
+                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
+                          isDark 
+                            ? 'bg-slate-900 border-white/5 hover:border-rose-500/35 hover:bg-slate-800/80' 
+                            : 'bg-white border-slate-200 hover:border-rose-500/35 hover:bg-slate-50 shadow-sm'
+                        }`}
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-500 shrink-0 group-hover:scale-110 transition-transform">
                             <AlertCircle size={16} />
                           </div>
                           <div>
-                            <p className="text-xs font-black uppercase tracking-tight text-white m-0">Reclamações & Outros...</p>
+                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Reclamações & Outros...</p>
                             <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Denunciar conduta ou obter ajuda</p>
                           </div>
                         </div>
@@ -1766,19 +2444,200 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                       {/* TROCAR FOTO DE PERFIL BUTTON */}
                       <button
                         onClick={() => setShowProfilePicModal(true)}
-                        className={`w-full p-4 bg-slate-900 border border-white/5 hover:border-blue-500/35 hover:bg-slate-800/80 rounded-2xl flex items-center justify-between text-left transition-all group`}
+                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
+                          isDark 
+                            ? 'bg-slate-900 border-white/5 hover:border-blue-500/35 hover:bg-slate-800/80' 
+                            : 'bg-white border-slate-200 hover:border-blue-500/35 hover:bg-slate-50 shadow-sm'
+                        }`}
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0 group-hover:scale-110 transition-transform">
                             <Camera size={16} />
                           </div>
                           <div>
-                            <p className="text-xs font-black uppercase tracking-tight text-white m-0">Trocar Foto de Perfil</p>
+                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Trocar Foto de Perfil</p>
                             <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Alterar ou enviar nova foto</p>
                           </div>
                         </div>
                         <span className="text-[10px] font-black text-blue-400 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
                       </button>
+
+                      {/* CLUB BONUS & OFFERS PANEL (JIS) - Moved inside "MINHA CONTA" */}
+                      {appConfig?.bonusClubEnabled !== false && (
+                        <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl text-left space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 bg-amber-500/10 rounded-lg text-amber-500">
+                                <Gift size={14} />
+                              </div>
+                              <div>
+                                <h4 className="text-[10px] font-black uppercase text-white tracking-wider leading-none">SUPER Táxi Clube de Bónus 🌟</h4>
+                                <p className="text-[8px] text-slate-450 font-bold uppercase mt-0.5">O seu plano de fidelidade & ofertas</p>
+                              </div>
+                            </div>
+                            <span className="text-[8px] bg-emerald-500/10 text-emerald-400 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider animate-pulse">{(appConfig?.bonusClubCashbackPercent || 5)}% Cashback</span>
+                          </div>
+
+                          {passengerProfile ? (
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-baseline p-2.5 bg-white/5 rounded-xl border border-white/5">
+                                <span className="text-[9px] text-slate-400 font-bold uppercase">O Seu Saldo Atual:</span>
+                                <span className="text-base font-black text-amber-400 font-mono">
+                                  {Number(passengerProfile.bonusBalance || 0).toLocaleString()} Kz
+                                </span>
+                              </div>
+                              <p className="text-[8.5px] text-slate-400 font-bold uppercase tracking-tight text-center pt-1">
+                                {Number(passengerProfile.bonusBalance || 0) > 0 
+                                  ? "🎉 Pode usar este saldo para pagar as suas viagens!" 
+                                  : "Faça corridas para acumular bónus!"}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="text-left py-1 text-slate-400 text-[9px] leading-tight font-medium space-y-1">
+                              <p>Crie ou aceda à sua conta oficial de passageiro para acumular bónus!</p>
+                              <p>Cada viagem dá-lhe <strong className="text-white font-extrabold">{(appConfig?.bonusClubCashbackPercent || 5)}% de cashback</strong> para usar em futuras corridas!</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* FORMULÁRIO DE EDIÇÃO DE DADOS DE PERFIL (Collapsible requested by JIS) */}
+                      <div className={`p-4 border rounded-2xl space-y-3 text-left ${
+                        isDark ? 'bg-slate-900 border-white/5 text-white' : 'bg-white border-slate-200 text-slate-900 shadow-sm'
+                      }`}>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditProfileOpen(!isEditProfileOpen)}
+                          className="w-full flex items-center justify-between text-left focus:outline-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <User size={14} className="text-amber-500" />
+                            <h4 className={`text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-white' : 'text-slate-900'}`}>Editar Dados de Perfil</h4>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            {isEditProfileOpen ? 'Recolher ▲' : 'Expandir dados ▼'}
+                          </span>
+                        </button>
+
+                        {isEditProfileOpen && (
+                          <form onSubmit={handleSaveProfile} className="space-y-3 pt-2 animate-in fade-in duration-200">
+                            {saveSuccessMsg && (
+                              <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-[9.5px] font-bold text-center uppercase tracking-wider animate-bounce">
+                                {saveSuccessMsg}
+                              </div>
+                            )}
+
+                            <div className="space-y-2.5">
+                              {/* Campo: Nome */}
+                              <div className="space-y-1">
+                                <label className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Nome Completo</label>
+                                <input
+                                  type="text"
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  required
+                                  className={`w-full text-[10.5px] font-bold rounded-xl px-3 py-2 outline-none border transition-all ${
+                                    isDark 
+                                      ? 'bg-slate-950 border-white/5 text-white focus:border-amber-500/50 placeholder-slate-600' 
+                                      : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500/50 placeholder-slate-400'
+                                  }`}
+                                  placeholder="Digite o seu nome completo"
+                                />
+                              </div>
+
+                              {/* Campo: Província */}
+                              <div className="space-y-1">
+                                <label className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Província</label>
+                                <select
+                                  value={editProvince}
+                                  onChange={(e) => setEditProvince(e.target.value)}
+                                  className={`w-full text-[10.5px] font-bold rounded-xl px-3 py-2 outline-none border cursor-pointer transition-all ${
+                                    isDark 
+                                      ? 'bg-slate-950 border-white/5 text-white focus:border-amber-500/50' 
+                                      : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500/50'
+                                  }`}
+                                >
+                                  {[
+                                    "Bengo", "Benguela", "Bié", "Cabinda", "Cuando Cubango", 
+                                    "Cuanza Norte", "Cuanza Sul", "Cunene", "Huambo", "Huíla", 
+                                    "Luanda", "Lunda Norte", "Lunda Sul", "Malanje", "Moxico", 
+                                    "Namibe", "Uíge", "Zaire"
+                                  ].map((prov) => (
+                                    <option key={prov} value={prov} className={isDark ? "bg-slate-900 text-white font-bold" : "bg-white text-slate-900 font-bold"}>
+                                      {prov}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                {/* Campo: Idade */}
+                                <div className="space-y-1">
+                                  <label className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Idade</label>
+                                  <input
+                                    type="number"
+                                    value={editAge}
+                                    onChange={(e) => setEditAge(e.target.value)}
+                                    className={`w-full text-[10.5px] font-bold rounded-xl px-3 py-2 outline-none border transition-all ${
+                                      isDark 
+                                        ? 'bg-slate-950 border-white/5 text-white focus:border-amber-500/50' 
+                                        : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500/50'
+                                    }`}
+                                    placeholder="Ex: 28"
+                                  />
+                                </div>
+
+                                {/* Campo: Gênero */}
+                                <div className="space-y-1">
+                                  <label className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Gênero</label>
+                                  <select
+                                    value={editGender}
+                                    onChange={(e) => setEditGender(e.target.value)}
+                                    className={`w-full text-[10.5px] font-bold rounded-xl px-3 py-2 outline-none border cursor-pointer transition-all ${
+                                      isDark 
+                                        ? 'bg-slate-950 border-white/5 text-white focus:border-amber-500/50' 
+                                        : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500/50'
+                                    }`}
+                                  >
+                                    <option value="" className={isDark ? "bg-slate-900 text-slate-400" : "bg-white text-slate-400"}>Selecionar...</option>
+                                    <option value="Masculino" className={isDark ? "bg-slate-900 text-white font-bold" : "bg-white text-slate-900 font-bold"}>Masculino</option>
+                                    <option value="Feminino" className={isDark ? "bg-slate-900 text-white font-bold" : "bg-white text-slate-900 font-bold"}>Feminino</option>
+                                    <option value="Outro" className={isDark ? "bg-slate-900 text-white font-bold" : "bg-white text-slate-900 font-bold"}>Outro</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              {/* Campo: Contacto de Emergência */}
+                              <div className="space-y-1">
+                                <label className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Contacto de Emergência</label>
+                                <input
+                                  type="tel"
+                                  value={editBackupPhone}
+                                  onChange={(e) => setEditBackupPhone(e.target.value)}
+                                  className={`w-full text-[10.5px] font-bold rounded-xl px-3 py-2 outline-none border transition-all ${
+                                    isDark 
+                                      ? 'bg-slate-950 border-white/5 text-white focus:border-amber-500/50' 
+                                      : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500/50'
+                                  }`}
+                                  placeholder="Ex: 923456789"
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="submit"
+                              disabled={isSavingProfile}
+                              className={`w-full py-2 px-4 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all duration-200 active:scale-95 shadow-md ${
+                                isSavingProfile 
+                                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                                  : currentTheme.btnClass
+                              }`}
+                            >
+                              {isSavingProfile ? 'A guardar alterações...' : 'Salvar Dados do Perfil'}
+                            </button>
+                          </form>
+                        )}
+                      </div>
 
                       {/* MINI LISTA DE CORRIDAS RECENTES INTEGRADA DIRETAMENTE NA ABA DO PERFIL */}
                       <div className="p-4 bg-slate-900 border border-white/5 rounded-2xl space-y-3">
@@ -1802,11 +2661,9 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                                 </div>
                                 <div className="text-right shrink-0">
                                   <span className="text-[10px] font-black text-amber-500 block">
-                                    {rd.price ? `${Number(rd.price).toLocaleString()} Kz` : 'A negociar'}
+                                    {getRidePriceText(rd)}
                                   </span>
-                                  <span className={`text-[7.5px] font-black px-1.5 py-0.5 rounded border uppercase ${
-                                    rd.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                  }`}>{rd.status === 'completed' ? 'Sucesso' : 'Aguardando'}</span>
+                                  {getRideStatusBadge(rd)}
                                 </div>
                               </div>
                             ))}
@@ -1879,6 +2736,37 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                         </div>
                       </div>
 
+                      {/* BÓNUS CLUB ALERT BANNER (JIS) */}
+                      {appConfig?.bonusClubEnabled !== false && (
+                        <div className="bg-amber-500/10 border-2 border-dashed border-amber-500/30 rounded-2xl p-4 mx-2 text-center space-y-2 relative overflow-hidden">
+                          <div className="flex items-center justify-center gap-1.5 text-amber-400">
+                            <span className="text-xs">✨</span>
+                            <span className="text-[9px] font-black uppercase tracking-widest font-sans">CLUBE DE BÓNUS SUPER TÁXI</span>
+                            <span className="text-xs">✨</span>
+                          </div>
+                          
+                          {activeRideRecord?.usedBonus === true || activeRideRecord?.paidWithBonus === true ? (
+                            <div className="space-y-1">
+                              <p className="text-xs font-bold text-slate-200">
+                                Usou bónus para pagar esta corrida! Consumiu: <span className="text-amber-400 font-extrabold">{Number(negotiatedPrice || activeRideRecord?.price || 0).toLocaleString()} Kz</span> de bónus.
+                              </p>
+                              <p className="text-[8px] text-slate-400 uppercase font-black tracking-wider">
+                                Saldo Atual de Bónus: {Number(passengerProfile?.bonusBalance || 0).toLocaleString()} Kz
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <p className="text-xs font-bold text-emerald-400">
+                                Ganhou <span className="text-emerald-300 font-extrabold">+{Math.round(Number(negotiatedPrice || activeRideRecord?.price || 0) * (Number(appConfig?.bonusClubCashbackPercent || 5) / 100)).toLocaleString()} Kz</span> de bónus nesta corrida!
+                              </p>
+                              <p className="text-[8px] text-slate-400 uppercase font-black tracking-wider">
+                                Saldo Atual de Bónus: {Number(passengerProfile?.bonusBalance || 0).toLocaleString()} Kz
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Interactive Rating Component */}
                       <div className="space-y-2 py-2">
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Como avalia o serviço de {activeRideRecord?.driverName || "parceiro"}?</p>
@@ -1928,11 +2816,14 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                       
                       <div className="space-y-1">
                         <h3 className="text-lg font-black text-rose-500 uppercase tracking-wide">
-                          {activeStatusRef.current === 'cancelled' ? 'Chamada Cancelada' : 'Chamada Não Atendida'}
+                          {activeStatusRef.current === 'cancelled' ? 'Chamada Cancelada' : 
+                           activeStatusRef.current === 'missed' ? 'Chamada Perdida (Tempo Expirado)' : 'Chamada Não Atendida'}
                         </h3>
                         <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest leading-normal">
                           {activeStatusRef.current === 'cancelled'
                             ? `A ligação com a viatura ${activeRideRecord?.plate || "--"} foi cancelada e encerrada.`
+                            : activeStatusRef.current === 'missed'
+                            ? `O tempo limite de chamada de 60 segundos expirou sem que a viatura ${activeRideRecord?.plate || "--"} pudesse atender.`
                             : `A ligação com a viatura ${activeRideRecord?.plate || "--"} foi cancelada, rejeitada ou não pôde ser estabelecida.`}
                         </p>
                       </div>
@@ -2054,6 +2945,11 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                             <h4 className="text-sm font-black text-emerald-400 leading-none mt-1 animate-pulse">
                               {(negotiatedPrice || Number(activeRideRecord?.price || 0)).toLocaleString()} Kz
                             </h4>
+                            {activeRideRecord?.usedBonus && (
+                              <p className="text-[7.5px] font-black text-amber-400 uppercase tracking-widest mt-1.5 animate-pulse">
+                                🌟 Pago com o seu saldo de bónus
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2063,6 +2959,14 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                     <div className="pb-4 flex flex-col items-center gap-1.5 shrink-0">
                       {(callState === 'offer_received' || activeRideRecord?.status === 'price_sent') ? (
                         <div className="w-full space-y-2 px-2">
+                          {activeRideRecord?.usedBonus && Number(passengerProfile?.bonusBalance || 0) < (negotiatedPrice || Number(activeRideRecord?.price || 0)) && (
+                            <div className="p-2.5 bg-rose-500/10 border border-rose-500/35 rounded-xl text-center space-y-1 my-1.5">
+                              <p className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">⚠️ BÓNUS INSUFICIENTE!</p>
+                              <p className="text-[8px] text-slate-300 leading-normal">
+                                Esta corrida exige <strong>{(negotiatedPrice || Number(activeRideRecord?.price || 0)).toLocaleString()} Kz</strong> de bónus, mas você possui apenas <strong>{Number(passengerProfile?.bonusBalance || 0).toLocaleString()} Kz</strong>.
+                              </p>
+                            </div>
+                          )}
                           <p className="text-[8px] text-slate-400 uppercase leading-none">Deseja confirmar o preço ou recusar esta corrida?</p>
                           <div className="flex gap-2">
                             <button 
@@ -2131,7 +3035,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
 
             {/* Smart Booking modal inside Phone frame */}
             {isBookModalOpen && (
-              <div className="absolute inset-0 bg-black/75 z-40 flex flex-col justify-end">
+              <div className="absolute inset-0 bg-black/75 z-[2000] flex flex-col justify-end">
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
@@ -2204,6 +3108,33 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                         ))}
                       </select>
                     </div>
+
+                    {/* Club Bonus Redemption options (JIS) */}
+                    {appConfig?.bonusClubEnabled !== false && passengerProfile && (
+                      <div className="pt-3 border-t border-white/5 space-y-2">
+                        {Number(passengerProfile.bonusBalance || 0) > 0 ? (
+                          <label className="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 cursor-pointer hover:bg-amber-500/20 transition-all">
+                            <input 
+                              type="checkbox" 
+                              checked={useBonusForRide} 
+                              onChange={e => setUseBonusForRide(e.target.checked)}
+                              className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-white/10 focus:ring-amber-500 focus:ring-opacity-25 cursor-pointer"
+                            />
+                            <div className="text-left leading-tight">
+                              <p className="text-[10px] font-black uppercase text-amber-500 tracking-wider">Trocar Bónus por Viagem</p>
+                              <p className="text-[9px] text-slate-300 font-medium">Tem {Number(passengerProfile.bonusBalance || 0).toLocaleString()} Kz de bónus. O preço final proposto pelo motorista será integralmente debitado do seu saldo de bónus.</p>
+                            </div>
+                          </label>
+                        ) : (
+                          <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-left leading-tight">
+                            <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">SUPER Táxi Clube de Bónus 🌟</p>
+                            <p className="text-[9px] text-slate-400 font-medium mt-0.5">
+                              Tem <strong className="text-white font-extrabold">{Number(passengerProfile.bonusBalance || 0).toLocaleString()} Kz</strong> acumulados. Faça viagens para acumular bónus e viajar de graça!
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <button 
@@ -2218,7 +3149,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
             )}
 
             {isForwardModalOpen && (
-              <div className="absolute inset-0 bg-black/75 z-40 flex flex-col justify-end">
+              <div className="absolute inset-0 bg-black/75 z-[2000] flex flex-col justify-end">
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
@@ -2274,7 +3205,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
 
             {/* MODAL 1: HISTÓRICO DE CORRIDAS RECENTES (JIS) */}
             {showRidesHistoryModal && (
-              <div className="absolute inset-0 bg-black/85 z-40 flex flex-col justify-end">
+              <div className="absolute inset-0 bg-black/85 z-[2000] flex flex-col justify-end">
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
@@ -2309,12 +3240,9 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
                           </div>
                           <div className="text-right shrink-0 space-y-1">
                             <span className="text-[11px] font-black text-amber-500 block">
-                              {rd.price ? `${Number(rd.price).toLocaleString()} Kz` : 'A negociar'}
+                              {getRidePriceText(rd)}
                             </span>
-                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase tracking-widest block text-center ${
-                              rd.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
-                              rd.status === 'confirmed' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                            }`}>{rd.status === 'completed' ? 'Sucesso' : rd.status === 'confirmed' ? 'Aceite' : 'Aguardando'}</span>
+                            {getRideStatusBadge(rd, true)}
                           </div>
                         </div>
                       ))
@@ -2326,7 +3254,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
 
             {/* MODAL 2: ALTERAR/TROCAR FOTO DE PERFIL (JIS) */}
             {showProfilePicModal && (
-              <div className="absolute inset-0 bg-black/85 z-40 flex flex-col justify-end">
+              <div className="absolute inset-0 bg-black/85 z-[2000] flex flex-col justify-end">
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
@@ -2439,7 +3367,7 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
 
             {/* MODAL 3: RECLAMAÇÕES & PROTEÇÃO (JIS) */}
             {showComplaintsModal && (
-              <div className="absolute inset-0 bg-black/85 z-40 flex flex-col justify-end">
+              <div className="absolute inset-0 bg-black/85 z-[2000] flex flex-col justify-end">
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[90%] overflow-y-auto no-scrollbar">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
@@ -2554,14 +3482,26 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
 
                       <div className="pt-2 border-t border-white/15 space-y-2 text-center">
                         <p className="text-[8.5px] text-slate-500 uppercase font-black">Precisa de ajuda imediata?</p>
-                        <a 
-                          href="https://wa.me/244923456789" 
-                          target="_blank" 
-                          referrerPolicy="no-referrer"
-                          className="w-full py-2.5 bg-[#25D366]/10 border border-[#25D366]/30 rounded-xl text-[10px] font-extrabold uppercase text-[#25D366] tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-[#25D366]/20 transition-all"
-                        >
-                          <Phone size={11} /> Contactar Central Directo (WhatsApp)
-                        </a>
+                        <div className="flex flex-col gap-2">
+                          <a 
+                            href={activeWhatsappLink} 
+                            target="_blank" 
+                            referrerPolicy="no-referrer"
+                            className="w-full py-2.5 bg-[#25D366]/10 border border-[#25D366]/30 rounded-xl text-[10px] font-extrabold uppercase text-[#25D366] tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-[#25D366]/20 transition-all"
+                          >
+                            <Phone size={11} /> Contactar Central Directo (WhatsApp)
+                          </a>
+                          {activeWhatsappGroupLink && (
+                            <a 
+                              href={activeWhatsappGroupLink} 
+                              target="_blank" 
+                              referrerPolicy="no-referrer"
+                              className="w-full py-2.5 bg-teal-500/10 border border-teal-500/30 rounded-xl text-[10px] font-extrabold uppercase text-teal-400 tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-teal-500/20 transition-all"
+                            >
+                              <MessageSquare size={11} /> Entrar no Grupo da Filial (WhatsApp)
+                            </a>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2638,7 +3578,17 @@ export default function PassengerFlow({ isPublicApp = false }: { isPublicApp?: b
             )}
 
           </div>
+          
+          {/* Status bar base phone home bar decoration */}
+          {!isPublicApp && (
+            <div className="h-6 shrink-0 bg-slate-950 flex items-center justify-center border-t border-white/5 select-none z-[110]">
+              <div className="w-24 h-1 bg-slate-600 rounded-full" />
+            </div>
+          )}
+
         </div>
+
+      </div>
 
     </div>
   );

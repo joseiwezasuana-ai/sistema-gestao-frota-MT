@@ -1,10 +1,10 @@
 {
-  "projectId": "ai-studio-applet-webapp-1f7ca",
-  "appId": "1:1015177486923:web:683bfc5436795a4de2e3ce",
-  "apiKey": "AIzaSyD36ZWNxP-MMkXVklSKvdU2U_SkYx6N0ZI",
-  "authDomain": "ai-studio-applet-webapp-1f7ca.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-89d33fa7-f5c6-4342-b9d1-b1031f919b26",
-  "storageBucket": "ai-studio-applet-webapp-1f7ca.firebasestorage.app",
-  "messagingSenderId": "1015177486923",
+  "projectId": "joseiwezasuana-org",
+  "appId": "1:617761169333:web:73fcab79b75bc59bdd83fc",
+  "apiKey": "AIzaSyACKzcsBb9U2HOMV9YRGvCjkXxNHx0iC-s",
+  "authDomain": "joseiwezasuana-org.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "joseiwezasuana-org.firebasestorage.app",
+  "messagingSenderId": "617761169333",
   "measurementId": ""
 }

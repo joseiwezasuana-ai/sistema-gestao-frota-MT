@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, CircleMarker 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { renderToString } from 'react-dom/server';
-import { collection, onSnapshot, query, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, limit } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Truck, Crosshair, Map as MapIcon, Globe, AlertCircle, Zap, User, Phone, Route, MapPin } from 'lucide-react';
 import { animate } from 'motion/react';
@@ -553,7 +553,9 @@ export default function RealTimeMap() {
                   const destinationAddress = call.destination || call.destinationAddress;
                   if (!pickupAddress || !destinationAddress) return null;
                   
-                  const startCoords = getCoordinatesForAddress(pickupAddress, idx * 2);
+                  const startCoords = (call.pickupLat && call.pickupLng)
+                    ? [call.pickupLat, call.pickupLng] as [number, number]
+                    : getCoordinatesForAddress(pickupAddress, idx * 2);
                   const endCoords = getCoordinatesForAddress(destinationAddress, idx * 2 + 1);
                   const isCompleted = call.status === 'completed';
                   const isActive = call.status === 'active' || call.status === 'confirmed';
