@@ -17,13 +17,25 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['logo.svg'],
+        includeAssets: ['logo.svg', 'icon-192.png', 'icon-512.png'],
         manifest: {
           name: 'SUPER Taxi Control',
           short_name: 'TaxiControl',
           description: 'Sistema de Controlo de Frota - LUENA MOXICO',
           theme_color: '#1e293b',
           icons: [
+            {
+              src: 'icon-192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: 'icon-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any'
+            },
             {
               src: 'logo.svg',
               sizes: 'any',

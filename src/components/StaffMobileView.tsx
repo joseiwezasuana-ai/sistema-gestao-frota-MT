@@ -594,64 +594,70 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       style={STAFF_PALETTES[activePalette as keyof typeof STAFF_PALETTES]?.vars as any}
     >
       {/* Mobile Top Header */}
-      <header className="bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-4 flex items-center justify-between shadow-lg relative z-20 transition-colors duration-300">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white shadow-lg rotate-3 shadow-brand-primary/25 shrink-0 transition-colors duration-300">
-             <span className="text-lg sm:text-xl font-black italic">PS</span>
+      <header className="bg-slate-900 border-b border-slate-800 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between shadow-lg relative z-20 transition-colors duration-300">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white shadow-lg rotate-3 shadow-brand-primary/25 shrink-0 transition-colors duration-300">
+             <span className="text-base sm:text-xl font-black italic">PS</span>
           </div>
-          <div className="min-w-0 pr-2">
-            <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none truncate">Módulo Mobile</h1>
-              <div className="flex gap-1">
+          <div className="min-w-0 pr-1 sm:pr-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1">
+              <h1 className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none truncate hidden min-[380px]:block">Módulo Mobile</h1>
+              <div className="flex gap-1 shrink-0">
                 {(Object.keys(STAFF_PALETTES)).map(key => (
                   <button 
                     key={key}
                     onClick={() => handlePaletteChange(key)}
-                    className={`w-3 h-3 rounded-full border border-white/20 hover:scale-110 active:scale-95 transition-transform ${activePalette === key ? 'ring-2 ring-white/50 scale-110' : ''}`}
+                    className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full border border-white/20 hover:scale-110 active:scale-95 transition-transform ${activePalette === key ? 'ring-2 ring-white/50 scale-110' : ''}`}
                     style={{ backgroundColor: STAFF_PALETTES[key as keyof typeof STAFF_PALETTES].color }}
                     title={STAFF_PALETTES[key as keyof typeof STAFF_PALETTES].name}
                   />
                 ))}
               </div>
             </div>
-            <p className="text-[10px] sm:text-xs font-black text-white uppercase tracking-tight italic truncate">
+            <p className="text-[9px] sm:text-xs font-black text-white uppercase tracking-tight italic truncate hidden min-[450px]:block">
               {(user.role === 'admin' || user.role === 'gerente') ? 'Administrador Geral' : user.role === 'contabilista' ? 'Hub Contabilidade' : 'Operador de Campo'}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {onExitMobile && (
             <button 
               onClick={onExitMobile}
-              className="w-10 h-10 bg-brand-primary/10 rounded-lg flex items-center justify-center text-brand-primary border border-brand-primary/20"
+              className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-brand-primary/10 rounded-lg flex items-center justify-center text-brand-primary border border-brand-primary/20 cursor-pointer"
               title="Restaurar Painel Completo"
             >
-              <Monitor size={20} />
+              <Monitor size={16} className="sm:hidden" />
+              <Monitor size={20} className="hidden sm:block" />
             </button>
           )}
           <button 
             onClick={() => setIsAlertsDrawerOpen(true)}
-            className="w-10 h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-slate-400 hover:text-white border border-slate-700/50 relative"
+            className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-slate-400 hover:text-white border border-slate-700/50 relative cursor-pointer"
             title="Sino de Alertas"
           >
-            <Bell size={20} />
+            <Bell size={16} className="sm:hidden" />
+            <Bell size={20} className="hidden sm:block" />
             {(stats.missedCalls > 0 || stats.panicAlerts > 0) && (
-              <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 sm:top-2 sm:right-2 sm:w-2.5 sm:h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
             )}
           </button>
           {user.role !== 'contabilista' && (
               <button 
                 onClick={() => setIsWhatsAppOpen(true)}
-                className="w-10 h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-emerald-400 border border-slate-700/50"
+                className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-emerald-400 border border-slate-700/50 cursor-pointer"
+                title="Central WhatsApp"
               >
-                <MessageSquare size={20} />
+                <MessageSquare size={16} className="sm:hidden" />
+                <MessageSquare size={20} className="hidden sm:block" />
               </button>
           )}
           <button 
             onClick={() => setIsMenuOpen(true)}
-            className="w-10 h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-white border border-slate-700/50"
+            className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-white border border-slate-700/50 cursor-pointer"
+            title="Menu de Definições"
           >
-            <Menu size={24} />
+            <Menu size={18} className="sm:hidden" />
+            <Menu size={24} className="hidden sm:block" />
           </button>
         </div>
       </header>
@@ -690,16 +696,18 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[110] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4"
+            className="fixed inset-0 z-[110] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center sm:p-4"
           >
-            <div className="bg-white text-slate-900 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
+            <div className="bg-white text-slate-900 w-full h-full sm:h-auto sm:max-w-4xl sm:max-h-[90vh] rounded-none sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col">
+              <div className="flex items-center justify-between mb-4 shrink-0">
                 <h2 className="text-xl font-black uppercase tracking-tighter">Definições</h2>
-                <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-slate-100 rounded-full cursor-pointer">
                   <X size={20} />
                 </button>
               </div>
-              <Settings />
+              <div className="flex-1 overflow-y-auto pb-12 custom-scrollbar">
+                <Settings />
+              </div>
             </div>
           </motion.div>
         )}
@@ -709,16 +717,18 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[110] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4"
+            className="fixed inset-0 z-[110] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center sm:p-4"
           >
-            <div className="bg-white text-slate-900 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
+            <div className="bg-white text-slate-900 w-full h-full sm:h-auto sm:max-w-4xl sm:max-h-[90vh] rounded-none sm:rounded-3xl shadow-2xl p-4 sm:p-6 flex flex-col">
+              <div className="flex items-center justify-between mb-4 shrink-0">
                 <h2 className="text-xl font-black uppercase tracking-tighter">Documentação</h2>
-                <button onClick={() => setIsManualOpen(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                <button onClick={() => setIsManualOpen(false)} className="p-2 hover:bg-slate-100 rounded-full cursor-pointer">
                   <X size={20} />
                 </button>
               </div>
-              <UserManual />
+              <div className="flex-1 overflow-y-auto pb-12 custom-scrollbar">
+                <UserManual />
+              </div>
             </div>
           </motion.div>
         )}

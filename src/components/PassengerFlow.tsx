@@ -1564,36 +1564,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
 
   return (
     <div className={isEmbed ? "w-full flex flex-col font-sans select-none h-full justify-center items-center" : `min-h-screen w-full flex flex-col font-sans select-none ${isPublicApp ? (isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900') : ''}`}>
-      {isPublicApp && !isEmbed && (
-        <header className={`w-full shadow-xl px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 ${isDark ? 'bg-slate-900 border-b border-white/5 text-white' : 'bg-white border-b border-slate-200 text-slate-900'}`}>
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-500 rounded-xl text-slate-950 shadow-lg shrink-0">
-              <Car size={18} />
-            </div>
-            <div className="min-w-0">
-              <h1 className={`text-xs sm:text-sm font-black uppercase tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>SUPER Taxi Passageiro Oficial</h1>
-              <p className="text-[8px] sm:text-[9.5px] font-mono text-amber-500 uppercase font-black tracking-widest leading-none mt-1">Ambiente de Simulação em Tempo Real - Luena, Moxico (JIS)</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
-            <span className="text-[8.5px] sm:text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full font-black uppercase tracking-wider animate-pulse flex items-center gap-1.5 border border-emerald-500/20">
-              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-              Sincronizado c/ Controlo
-            </span>
-            <button
-              onClick={() => window.location.href = '/'}
-              className={`px-3 py-1.5 font-black text-[9px] uppercase tracking-widest rounded-xl transition-all border shrink-0 cursor-pointer ${
-                isDark 
-                  ? 'hover:bg-white/10 text-white border-white/10' 
-                  : 'hover:bg-slate-100 text-slate-700 border-slate-200'
-              }`}
-            >
-              Voltar ao Início
-            </button>
-          </div>
-        </header>
-      )}
+      {/* Header removed by request of Jose Iweza Suana (JIS) */}
 
       {/* Centered Smartphone Layout - Simulator Controller panel removed for a clean, direct passenger experience by request of José Iweza Suana (JIS) */}
       <div className={isEmbed ? "w-full flex justify-center items-center h-full" : (isPublicApp ? "w-full flex-1 flex flex-col justify-stretch items-stretch" : "p-4 py-8 max-w-sm mx-auto w-full flex justify-center items-center min-h-[calc(100vh-80px)]")}>
