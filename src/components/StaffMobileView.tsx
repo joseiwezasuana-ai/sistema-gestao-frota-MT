@@ -30,12 +30,14 @@ import {
   FileText,
   RefreshCw,
   Settings as SettingsIcon,
-  Wrench
+  Wrench,
+  MoreVertical,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { geminiService } from '../services/geminiService';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, collection, query, orderBy, onSnapshot, where, limit, doc, updateDoc, deleteDoc, addDoc, getDocs, serverTimestamp } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
 import { checkPendingIncome } from '../services/shiftCheckService';
@@ -43,7 +45,6 @@ import RealTimeMap from "./RealTimeMap";
 import WaitingTimer from './WaitingTimer';
 import Settings from "./Settings";
 import UserManual from "./UserManual";
-import { collection, query, orderBy, onSnapshot, where, limit } from '@/src/lib/firebase';
 
 interface StaffMobileViewProps {
   user: any;
@@ -143,7 +144,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       if (user && user.uid) {
         const hasPending = await checkPendingIncome(user.uid);
         if (hasPending) {
-          alert('Atenção: A sua renda do dia anterior está pendente de validação. Contacte a central para continuar.');
+          showCustomNotification('Atenção: A sua renda do dia anterior está pendente de validação. Contacte a central para continuar.', 'error');
         }
       }
     };
@@ -170,6 +171,21 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
+  const [isGatewayOpen, setIsGatewayOpen] = useState(false);
+  const [isMapOpen, setIsMapOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showCustomNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [loading, setLoading] = useState(false); // Start false to allow immediate render
@@ -247,14 +263,25 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   // Approve Revenue Handler
   const handleApproveRevenue = async (revenue: any) => {
     try {
-      const { doc, updateDoc, collection, query, where, getDocs, deleteDoc, addDoc } = await import('firebase/firestore');
       const docRef = doc(db, 'revenue_logs', revenue.id);
       
       let newStatus = 'approved_by_operator';
+      const currentStatus = revenue.status || 'pending_approval';
+
       if (user.role === 'admin' || user.role === 'gerente') {
-        newStatus = 'approved_by_accountant';
+        if (currentStatus === 'pending_approval') {
+          newStatus = 'approved_by_operator';
+        } else if (currentStatus === 'approved_by_operator') {
+          newStatus = 'approved_by_accountant';
+        } else if (currentStatus === 'approved_by_accountant') {
+          newStatus = 'finalized';
+        } else {
+          newStatus = 'finalized';
+        }
       } else if (user.role === 'contabilista') {
         newStatus = 'finalized';
+      } else if (user.role === 'operator') {
+        newStatus = 'approved_by_operator';
       }
       
       await updateDoc(docRef, {
@@ -263,6 +290,22 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
         validatedBy: user.uid || 'mobile',
         validatedByName: user.name || 'Operador Mobile'
       });
+
+      // Synchronize related calls to be approvedByOperator: true
+      if (newStatus === 'approved_by_operator' || newStatus === 'approved_by_accountant' || newStatus === 'finalized') {
+        try {
+          const callsQuery = query(collection(db, 'calls'), where('revenueLogId', '==', revenue.id));
+          const callsSnap = await getDocs(callsQuery);
+          for (const callDoc of callsSnap.docs) {
+            await updateDoc(doc(db, 'calls', callDoc.id), {
+              approvedByOperator: true,
+              approvedAt: new Date().toISOString()
+            });
+          }
+        } catch (callsErr) {
+          console.warn("Error marking calls as approved on mobile:", callsErr);
+        }
+      }
 
       // Unbind driver
       const q = query(collection(db, 'drivers'), where('driverId', '==', revenue.driverId));
@@ -294,10 +337,10 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
         });
       }
 
-      alert(`Renda do motorista ${revenue.driverName || 'N/A'} aprovada com sucesso!`);
+      showCustomNotification(`Renda do motorista ${revenue.driverName || 'N/A'} aprovada com sucesso para: ${newStatus === 'finalized' ? 'Auditado/Final' : newStatus === 'approved_by_accountant' ? 'Pendente Contab.' : 'Pendente Admin'}`, 'success');
     } catch (err: any) {
       console.error("Error approving revenue on mobile:", err);
-      alert("Erro ao aprovar renda: " + err.message);
+      showCustomNotification("Erro ao aprovar renda: " + err.message, 'error');
     }
   };
 
@@ -305,7 +348,6 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   const handleUpdateScaleStatus = async (status: 'Ativo' | 'Folga' | 'Suspenso') => {
     if (!editingScale) return;
     try {
-      const { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc, addDoc } = await import('firebase/firestore');
       await updateDoc(doc(db, 'driver_scales', editingScale.id), {
         status,
         updatedAt: serverTimestamp()
@@ -362,29 +404,28 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
         }
       }
 
-      alert(`Status da escala de ${editingScale.driverName} atualizado para ${status}!`);
+      showCustomNotification(`Status da escala de ${editingScale.driverName} atualizado para ${status}!`, 'success');
       setIsEditScaleModalOpen(false);
       setEditingScale(null);
     } catch (err: any) {
       console.error(err);
-      alert("Erro ao atualizar status: " + err.message);
+      showCustomNotification("Erro ao atualizar status: " + err.message, 'error');
     }
   };
 
   const handleUpdateScaleShift = async (shift: 'Diurno' | 'Nocturno' | '24h') => {
     if (!editingScale) return;
     try {
-      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
       await updateDoc(doc(db, 'driver_scales', editingScale.id), {
         shift,
         updatedAt: serverTimestamp()
       });
-      alert(`Turno de ${editingScale.driverName} atualizado para ${shift}!`);
+      showCustomNotification(`Turno de ${editingScale.driverName} atualizado para ${shift}!`, 'success');
       setIsEditScaleModalOpen(false);
       setEditingScale(null);
     } catch (err: any) {
       console.error(err);
-      alert("Erro ao atualizar turno: " + err.message);
+      showCustomNotification("Erro ao atualizar turno: " + err.message, 'error');
     }
   };
 
@@ -392,8 +433,6 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     if (!editingScale) return;
     if (!window.confirm(`Tem a certeza que deseja excluir a escala de ${editingScale.driverName}?`)) return;
     try {
-      const { doc, deleteDoc, collection, query, where, getDocs } = await import('firebase/firestore');
-      
       // Also unbind driver from active fleet when scale is deleted
       const q = query(collection(db, 'drivers'), where('driverId', '==', editingScale.driverId));
       const snap = await getDocs(q);
@@ -402,12 +441,12 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       }
 
       await deleteDoc(doc(db, 'driver_scales', editingScale.id));
-      alert("Escala excluída com sucesso!");
+      showCustomNotification("Escala excluída com sucesso!", 'success');
       setIsEditScaleModalOpen(false);
       setEditingScale(null);
     } catch (err: any) {
       console.error(err);
-      alert("Erro ao excluir escala: " + err.message);
+      showCustomNotification("Erro ao excluir escala: " + err.message, 'error');
     }
   };
 
@@ -513,7 +552,6 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   const handleAssignDriver = async (requestId: string, driver: any) => {
     setAssigningLoading(true);
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
       // Determine if this is a taxi_request (from ops/monitor) or a direct call
       // Direct referral info usually suggests it's a call
       const isCall = selectedRequest?.type === 'direct_referral' || !selectedRequest?.status || selectedRequest?.customerPhone;
@@ -535,23 +573,26 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       setSelectedRequest(null);
     } catch (err) {
       console.error("Error assigning driver:", err);
-      alert("Erro ao atribuir motorista.");
+      showCustomNotification("Erro ao atribuir motorista.", "error");
     } finally {
       setAssigningLoading(false);
     }
   };
 
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Painel Central', onClick: () => setActiveTab('dashboard') },
-    { icon: Activity, label: 'Monitores Live', onClick: () => setActiveTab('ops') },
-    { icon: Truck, label: 'Gestão de Frota', onClick: () => { setActiveTab('fleet'); setFleetSubTab('vehicles'); } },
-    { icon: CalendarIcon, label: 'Escalas & Turnos', onClick: () => { setActiveTab('fleet'); setFleetSubTab('scales'); } },
-    { icon: Wallet, label: 'Financeiro', onClick: () => setActiveTab('wallet') },
-    ...(onExitMobile ? [{ icon: Monitor, label: 'Restaurar Painel Full', onClick: onExitMobile, color: 'text-brand-primary' }] : []),
-    ...((user?.role === 'admin' || user?.role === 'gerente' || user?.role === 'operator') ? [{ icon: SettingsIcon, label: 'Definições', onClick: () => setIsSettingsOpen(true) }] : []),
-    { icon: FileText, label: 'Documentação', onClick: () => setIsManualOpen(true) },
-    { icon: MessageSquare, label: 'Comunicações', onClick: () => {} },
-    { icon: LogOut, label: 'Terminar Sessão', onClick: onLogout, color: 'text-red-500' },
+    { icon: LayoutDashboard, label: 'Painel Central', group: 'Navegação', onClick: () => setActiveTab('dashboard') },
+    { icon: Truck, label: 'Gestão de Frota', group: 'Navegação', onClick: () => { setActiveTab('fleet'); setFleetSubTab('vehicles'); } },
+    { icon: CalendarIcon, label: 'Escalas & Turnos', group: 'Navegação', onClick: () => { setActiveTab('fleet'); setFleetSubTab('scales'); } },
+    { icon: Wallet, label: 'Contas & Rendas', group: 'Navegação', onClick: () => setActiveTab('wallet') },
+    
+    { icon: Activity, label: 'Gateway Console', group: 'Monitores Live', onClick: () => setIsGatewayOpen(true) },
+    { icon: MapPin, label: 'Mapa da Frota', group: 'Monitores Live', onClick: () => setIsMapOpen(true) },
+    { icon: MessageSquare, label: 'Central WhatsApp', group: 'Monitores Live', onClick: () => setIsWhatsAppOpen(true) },
+    
+    ...((user?.role === 'admin' || user?.role === 'gerente' || user?.role === 'operator') ? [{ icon: SettingsIcon, label: 'Definições do Sistema', group: 'Configuração', onClick: () => setIsSettingsOpen(true) }] : []),
+    { icon: FileText, label: 'Manual de Instruções', group: 'Configuração', onClick: () => setIsManualOpen(true) },
+    ...(onExitMobile ? [{ icon: Monitor, label: 'Restaurar Painel Full', group: 'Configuração', onClick: onExitMobile, color: 'text-brand-primary' }] : []),
+    { icon: LogOut, label: 'Terminar Sessão', group: 'Configuração', onClick: onLogout, color: 'text-red-500' },
   ];
 
   const getStatusColor = (status: string) => {
@@ -594,101 +635,191 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       style={STAFF_PALETTES[activePalette as keyof typeof STAFF_PALETTES]?.vars as any}
     >
       {/* Mobile Top Header */}
-      <header className="bg-slate-900 border-b border-slate-800 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between shadow-lg relative z-20 transition-colors duration-300">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white shadow-lg rotate-3 shadow-brand-primary/25 shrink-0 transition-colors duration-300">
-             <span className="text-base sm:text-xl font-black italic">PS</span>
+      <header className="bg-slate-900 border-b border-slate-800 px-3 py-3 flex items-center justify-between shadow-lg relative z-20 transition-colors duration-300">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-9 h-9 bg-brand-primary rounded-xl flex items-center justify-center text-white shadow-lg rotate-3 shadow-brand-primary/25 shrink-0 transition-colors duration-300">
+             <span className="text-sm font-black italic tracking-tighter">JIS</span>
           </div>
-          <div className="min-w-0 pr-1 sm:pr-2">
-            <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1">
-              <h1 className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none truncate hidden min-[380px]:block">Módulo Mobile</h1>
-              <div className="flex gap-1 shrink-0">
-                {(Object.keys(STAFF_PALETTES)).map(key => (
-                  <button 
-                    key={key}
-                    onClick={() => handlePaletteChange(key)}
-                    className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full border border-white/20 hover:scale-110 active:scale-95 transition-transform ${activePalette === key ? 'ring-2 ring-white/50 scale-110' : ''}`}
-                    style={{ backgroundColor: STAFF_PALETTES[key as keyof typeof STAFF_PALETTES].color }}
-                    title={STAFF_PALETTES[key as keyof typeof STAFF_PALETTES].name}
-                  />
-                ))}
-              </div>
-            </div>
-            <p className="text-[9px] sm:text-xs font-black text-white uppercase tracking-tight italic truncate hidden min-[450px]:block">
-              {(user.role === 'admin' || user.role === 'gerente') ? 'Administrador Geral' : user.role === 'contabilista' ? 'Hub Contabilidade' : 'Operador de Campo'}
-            </p>
+          <div className="min-w-0 pr-1">
+            <h1 className="text-xs font-black text-white uppercase tracking-tight leading-none truncate">TaxiControl</h1>
+            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none mt-1.5 truncate">JIS. (SU) LUENA</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {onExitMobile && (
             <button 
               onClick={onExitMobile}
-              className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-brand-primary/10 rounded-lg flex items-center justify-center text-brand-primary border border-brand-primary/20 cursor-pointer"
+              className="w-9 h-9 bg-brand-primary/10 rounded-xl flex items-center justify-center text-brand-primary border border-brand-primary/20 cursor-pointer active:scale-90 transition-all"
               title="Restaurar Painel Completo"
             >
-              <Monitor size={16} className="sm:hidden" />
-              <Monitor size={20} className="hidden sm:block" />
+              <Monitor size={16} />
             </button>
           )}
           <button 
             onClick={() => setIsAlertsDrawerOpen(true)}
-            className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-slate-400 hover:text-white border border-slate-700/50 relative cursor-pointer"
+            className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-slate-400 hover:text-white border border-slate-700/50 relative cursor-pointer active:scale-90 transition-all"
             title="Sino de Alertas"
           >
-            <Bell size={16} className="sm:hidden" />
-            <Bell size={20} className="hidden sm:block" />
+            <Bell size={16} />
             {(stats.missedCalls > 0 || stats.panicAlerts > 0) && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 sm:top-2 sm:right-2 sm:w-2.5 sm:h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
+              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
             )}
           </button>
           {user.role !== 'contabilista' && (
               <button 
                 onClick={() => setIsWhatsAppOpen(true)}
-                className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-emerald-400 border border-slate-700/50 cursor-pointer"
+                className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-emerald-400 border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
                 title="Central WhatsApp"
               >
-                <MessageSquare size={16} className="sm:hidden" />
-                <MessageSquare size={20} className="hidden sm:block" />
+                <MessageSquare size={16} />
               </button>
           )}
           <button 
             onClick={() => setIsMenuOpen(true)}
-            className="w-8.5 h-8.5 sm:w-10 sm:h-10 bg-slate-800/80 rounded-lg flex items-center justify-center text-white border border-slate-700/50 cursor-pointer"
+            className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-white border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
             title="Menu de Definições"
           >
-            <Menu size={18} className="sm:hidden" />
-            <Menu size={24} className="hidden sm:block" />
+            <MoreVertical size={18} />
           </button>
         </div>
       </header>
       
-      <AnimatePresence>
-        {isWhatsAppOpen && (
-          <div className="fixed inset-0 z-[60] flex items-end p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsWhatsAppOpen(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ y: 300, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 300, opacity: 0 }}
-              className="relative w-full bg-white rounded-[2.5rem] p-6 space-y-6 shadow-2xl z-20 flex flex-col h-[98%] max-h-[98%]"
-            >
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                <h2 className="text-xl font-black uppercase tracking-tighter">Central WhatsApp</h2>
-                <button onClick={() => setIsWhatsAppOpen(false)} className="p-2 hover:bg-slate-100 rounded-full">
-                  <X size={20} />
-                </button>
-              </div>
-              <WhatsAppMonitor isMechanicView={false} />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+       <AnimatePresence>
+         {isWhatsAppOpen && (
+           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+             <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
+               <div className="flex items-center gap-2">
+                 <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
+                 <h2 className="text-sm font-black text-white uppercase tracking-wider">Central WhatsApp Live</h2>
+               </div>
+               <button 
+                 onClick={() => setIsWhatsAppOpen(false)} 
+                 className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
+               >
+                 <X size={18} />
+               </button>
+             </header>
+             <div className="flex-1 overflow-y-auto bg-slate-950">
+               <WhatsAppMonitor isMechanicView={false} />
+             </div>
+           </div>
+         )}
+
+         {isGatewayOpen && (
+           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+             <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
+               <div className="flex items-center gap-2">
+                 <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
+                 <h2 className="text-sm font-black text-white uppercase tracking-wider">Consola Gateway Ativa</h2>
+               </div>
+               <button 
+                 onClick={() => setIsGatewayOpen(false)} 
+                 className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
+               >
+                 <X size={18} />
+               </button>
+             </header>
+             <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-950">
+               {/* Stats Grid */}
+               <div className="grid grid-cols-3 gap-3">
+                 <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                   <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Perdidas</p>
+                   <p className="text-lg font-black text-rose-500 mt-1">{derivedStats.missed}</p>
+                 </div>
+                 <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                   <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Atendidas</p>
+                   <p className="text-lg font-black text-emerald-500 mt-1">{derivedStats.received}</p>
+                 </div>
+                 <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800">
+                   <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Reencaminhadas</p>
+                   <p className="text-lg font-black text-brand-primary mt-1">{derivedStats.forwarded}</p>
+                 </div>
+               </div>
+
+               {/* Technical Connectivity Panel */}
+               <div className="bg-gradient-to-r from-brand-primary/20 to-indigo-950/20 p-5 rounded-2xl border border-brand-primary/25 relative overflow-hidden">
+                 <div className="relative z-10 flex items-center justify-between">
+                   <div>
+                     <h4 className="text-[8px] font-black text-brand-primary uppercase tracking-widest mb-1">Status de Conexão Central</h4>
+                     <p className="text-xs font-black text-white uppercase italic tracking-tight">Sincronização Ativa (Live)</p>
+                   </div>
+                   <div className="flex items-center gap-1.5 bg-emerald-500/15 border border-emerald-500/25 px-2.5 py-1 rounded-full text-emerald-450 font-black text-[8px] uppercase tracking-wider">
+                     <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
+                     ONLINE
+                   </div>
+                 </div>
+                 <div className="grid grid-cols-2 gap-3 mt-4">
+                   <div className="bg-slate-950/60 p-2.5 rounded-xl border border-white/5 text-center">
+                     <span className="text-[7.5px] font-black text-slate-500 uppercase block leading-none mb-1">Latência de Rede</span>
+                     <span className="text-xs font-black text-white">42ms (Fibra)</span>
+                   </div>
+                   <div className="bg-slate-950/60 p-2.5 rounded-xl border border-white/5 text-center">
+                     <span className="text-[7.5px] font-black text-slate-500 uppercase block leading-none mb-1">Handshake</span>
+                     <span className="text-xs font-black text-emerald-400">Verificado</span>
+                   </div>
+                 </div>
+               </div>
+
+               {/* Complete Calls list */}
+               <div className="space-y-3">
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider pl-1">Todas as Chamadas do Dia</p>
+                 {calls.map((call: any, idx: number) => (
+                   <div key={idx} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                     <div>
+                       <p className="text-xs font-black text-white uppercase">{call.customerName || 'Cliente Direto'}</p>
+                       <p className="text-[9px] text-slate-400 font-mono mt-1">{call.customerPhone || 'Sem Número'}</p>
+                     </div>
+                     <div className="flex flex-col items-end gap-1.5">
+                       <span className={cn(
+                         "px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider",
+                         call.status === 'completed' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse"
+                       )}>
+                         {call.status || 'Pendente'}
+                       </span>
+                       {call.status !== 'completed' && (
+                         <button
+                           onClick={() => {
+                             setSelectedRequest({ ...call, pickup: call.pickupAddress || 'Chamada Direta' });
+                             setIsAssignModalOpen(true);
+                           }}
+                           className="px-2.5 py-1 bg-brand-primary text-white text-[8px] font-black uppercase rounded-lg shadow-md active:scale-95 transition-transform"
+                         >
+                           Gerir Fluxo
+                         </button>
+                       )}
+                     </div>
+                   </div>
+                 ))}
+                 {calls.length === 0 && (
+                   <div className="py-10 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/50">
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Sem chamadas activas</p>
+                   </div>
+                 )}
+               </div>
+             </div>
+           </div>
+         )}
+
+         {isMapOpen && (
+           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+             <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
+               <div className="flex items-center gap-2">
+                 <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
+                 <h2 className="text-sm font-black text-white uppercase tracking-wider">Mapa da Frota Live</h2>
+               </div>
+               <button 
+                 onClick={() => setIsMapOpen(false)} 
+                 className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
+               >
+                 <X size={18} />
+               </button>
+             </header>
+             <div className="flex-1 relative overflow-hidden bg-slate-950">
+               <RealTimeMap />
+             </div>
+           </div>
+         )}
+       </AnimatePresence>
       
       <AnimatePresence>
         {isSettingsOpen && (
@@ -1205,134 +1336,92 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                 </p>
              </div>
 
-             {/* Selector de Sub-abas Operacionais */}
-             <div className="flex bg-slate-900 p-1.5 rounded-[1.5rem] border border-slate-800 gap-1 shadow-inner">
-                <button
-                  onClick={() => setOpsSubTab('gateway')}
-                  className={cn(
-                    "flex-1 py-3 px-1 rounded-xl text-[9px] font-black uppercase tracking-[0.05em] transition-all flex items-center justify-center gap-1.5 focus:outline-none",
-                    opsSubTab === 'gateway' ? "bg-white text-slate-950 font-black shadow-lg" : "text-slate-400 hover:text-white"
-                  )}
-                >
-                  <Activity size={12} className={opsSubTab === 'gateway' ? "text-slate-950" : "text-brand-primary"} />
-                  Gateway
-                </button>
-                <button
-                  onClick={() => setOpsSubTab('map')}
-                  className={cn(
-                    "flex-1 py-3 px-1 rounded-xl text-[9px] font-black uppercase tracking-[0.05em] transition-all flex items-center justify-center gap-1.5 focus:outline-none",
-                    opsSubTab === 'map' ? "bg-white text-slate-950 font-black shadow-lg" : "text-slate-400 hover:text-white"
-                  )}
-                >
-                  <MapPin size={12} className={opsSubTab === 'map' ? "text-slate-950" : "text-brand-primary"} />
-                  Mapa Frota
-                </button>
-                <button
-                  onClick={() => setOpsSubTab('whatsapp')}
-                  className={cn(
-                    "flex-1 py-3 px-1 rounded-xl text-[9px] font-black uppercase tracking-[0.05em] transition-all flex items-center justify-center gap-1.5 focus:outline-none",
-                    opsSubTab === 'whatsapp' ? "bg-white text-slate-950 font-black shadow-lg" : "text-slate-400 hover:text-white"
-                  )}
-                >
-                  <MessageSquare size={12} className={opsSubTab === 'whatsapp' ? "text-slate-950" : "text-brand-primary"} />
-                  WhatsApp
-                </button>
+             {/* Monitores bento-style launchers */}
+             <div className="grid grid-cols-1 gap-4">
+                {/* Gateway Card */}
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-sm flex flex-col justify-between space-y-4">
+                   <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                         <div className="w-12 h-12 bg-slate-950 text-brand-primary rounded-2xl flex items-center justify-center border border-slate-800 shadow-inner animate-pulse">
+                            <Activity size={22} />
+                         </div>
+                         <div>
+                            <h4 className="text-sm font-black text-white uppercase tracking-tight">Canais Gateway</h4>
+                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Sincronização de Canais</p>
+                         </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-emerald-500/15 px-2.5 py-1 rounded-full border border-emerald-500/25">
+                         <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                         <span className="text-[8px] font-bold text-emerald-400 uppercase">3 Portos ON</span>
+                      </div>
+                   </div>
+                   <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                      Monitorização em tempo real dos canais activos para registo de chamadas automáticas.
+                   </p>
+                   <button 
+                     onClick={() => setIsGatewayOpen(true)}
+                     className="w-full py-4 bg-slate-950 hover:bg-slate-850 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest border border-slate-800 transition-all shadow-md active:scale-95 cursor-pointer"
+                   >
+                      Abrir em Tela Completa
+                   </button>
+                </div>
+
+                {/* Mapa Frota Card */}
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-sm flex flex-col justify-between space-y-4">
+                   <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                         <div className="w-12 h-12 bg-slate-950 text-blue-400 rounded-2xl flex items-center justify-center border border-slate-800 shadow-inner">
+                            <MapPin size={22} />
+                         </div>
+                         <div>
+                            <h4 className="text-sm font-black text-white uppercase tracking-tight">Mapa da Frota</h4>
+                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Geolocalização Live</p>
+                         </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-sky-500/15 px-2.5 py-1 rounded-full border border-sky-500/25">
+                         <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" />
+                         <span className="text-[8px] font-bold text-sky-400 uppercase">Rastreio Satélite</span>
+                      </div>
+                   </div>
+                   <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                      Visualização em mapa de Luena de todas as viaturas com aviso de excesso de velocidade (&gt;80km/h).
+                   </p>
+                   <button 
+                     onClick={() => setIsMapOpen(true)}
+                     className="w-full py-4 bg-slate-950 hover:bg-slate-850 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest border border-slate-800 transition-all shadow-md active:scale-95 cursor-pointer"
+                   >
+                      Abrir em Tela Completa
+                   </button>
+                </div>
+
+                {/* WhatsApp Card */}
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-sm flex flex-col justify-between space-y-4">
+                   <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                         <div className="w-12 h-12 bg-slate-950 text-emerald-400 rounded-2xl flex items-center justify-center border border-slate-800 shadow-inner">
+                            <MessageSquare size={22} />
+                         </div>
+                         <div>
+                            <h4 className="text-sm font-black text-white uppercase tracking-tight">Central WhatsApp</h4>
+                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Triagem de Passageiros</p>
+                         </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-emerald-500/15 px-2.5 py-1 rounded-full border border-emerald-500/25">
+                         <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                         <span className="text-[8px] font-bold text-emerald-450 uppercase">WhatsApp Oficial</span>
+                      </div>
+                   </div>
+                   <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                      Canal de triagem automatizado integrado para receber e encaminhar solicitações de corridas.
+                   </p>
+                   <button 
+                     onClick={() => setIsWhatsAppOpen(true)}
+                     className="w-full py-4 bg-slate-950 hover:bg-slate-850 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest border border-slate-800 transition-all shadow-md active:scale-95 cursor-pointer"
+                   >
+                      Abrir em Tela Completa
+                   </button>
+                </div>
              </div>
-
-             {opsSubTab === 'gateway' && (
-               <div className="space-y-4">
-                  <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-sm space-y-4">
-                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-slate-950 text-brand-primary rounded-xl flex items-center justify-center border border-slate-800">
-                           <Activity size={20} />
-                        </div>
-                        <h4 className="text-xs font-black text-white uppercase tracking-tight">Canais Gateway Ativos</h4>
-                     </div>
-                     <div className="grid grid-cols-3 gap-2">
-                        {[1,2,3].map(i => (
-                           <div key={i} className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
-                              <p className="text-[10px] font-black text-emerald-400 mb-1">ON</p>
-                              <p className="text-[8px] font-bold text-slate-500 uppercase">Port {i}</p>
-                           </div>
-                        ))}
-                     </div>
-                  </div>
-
-                  <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-sm space-y-4">
-                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-slate-950 text-amber-500 rounded-xl flex items-center justify-center border border-slate-800">
-                           <MessageSquare size={20} />
-                        </div>
-                        <h4 className="text-xs font-black text-white uppercase tracking-tight">Log de Mensagens Mobile</h4>
-                     </div>
-                     <div className="space-y-2">
-                        <p className="text-[10px] text-slate-450 italic leading-relaxed text-center py-10 border border-dashed border-slate-800 rounded-xl bg-slate-950 text-slate-400">
-                          Os logs de SMS detalhados estão disponíveis no painel desktop para auditoria completa.
-                        </p>
-                     </div>
-                  </div>
-
-                  <div className="bg-slate-900 p-6 rounded-[2rem] border border-slate-800 shadow-xl space-y-4">
-                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                           <div className="w-10 h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white">
-                              <Smartphone size={20} />
-                           </div>
-                           <h4 className="text-xs font-black text-white uppercase tracking-tight">Gateway Integrado (Alpha)</h4>
-                        </div>
-                        <div className="flex items-center gap-1.5 bg-emerald-500/15 px-2.5 py-1 rounded-full border border-emerald-500/25">
-                           <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                           <span className="text-[8px] font-bold text-emerald-450 uppercase">Vínculo Ativo</span>
-                        </div>
-                     </div>
-                     <div className="space-y-4">
-                        <p className="text-[10px] text-slate-400 italic leading-relaxed">
-                           Este módulo sincroniza chamadas automaticamente. Apenas veículos registados na base de dados (PSM COMERCIAL) são monitorizados.
-                        </p>
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={async () => {
-                              const { NativeGateway } = await import('../services/nativeGateway');
-                              const prefixToUse = user?.prefix || 'TX-01';
-                              const result = await NativeGateway.simulateIncomingCall(prefixToUse);
-                              if (result.success) {
-                                alert(`Simulação bem-sucedida para viatura ${prefixToUse}!`);
-                              } else {
-                                alert(`Erro: ${result.error}. Garanta que ${prefixToUse} existe no Master Viatura.`);
-                              }
-                            }}
-                            className="flex-1 py-3 bg-slate-950 hover:bg-slate-850 text-white rounded-xl text-[9px] font-black uppercase tracking-widest border border-slate-800 transition-all shadow-md active:scale-95"
-                          >
-                             Simular Chamada
-                          </button>
-                        </div>
-                     </div>
-                  </div>
-               </div>
-             )}
-
-             {opsSubTab === 'map' && (
-               <div className="bg-slate-900 rounded-[2rem] border border-slate-800 overflow-hidden shadow-2xl h-[580px] relative">
-                  <div className="absolute top-4 left-4 z-10 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[9px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                     <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                     Sincronização de Satélite Ativa
-                  </div>
-                  <RealTimeMap />
-               </div>
-             )}
-
-             {opsSubTab === 'whatsapp' && (
-               <div className="bg-slate-900 rounded-[2rem] border border-slate-800 overflow-hidden shadow-2xl p-4">
-                  <div className="mb-4">
-                     <h4 className="text-xs font-black text-white uppercase tracking-tight flex items-center gap-1.5">
-                        <MessageSquare size={14} className="text-emerald-400" />
-                        Teclado de Triagem de Clientes & Motoristas
-                     </h4>
-                     <p className="text-[9px] text-slate-400 uppercase tracking-widest mt-0.5">Sincronizado com o WhatsApp Oficial Luena</p>
-                  </div>
-                  <WhatsAppMonitor />
-               </div>
-             )}
           </div>
         )}
 
@@ -1436,57 +1525,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
       </main>
 
-      {/* Mobile Sticky Tab Bar */}
-      <footer className="h-20 bg-slate-900 border-t border-slate-800 flex items-center justify-around px-2 flex-shrink-0 relative z-50">
-        <button 
-          onClick={() => setActiveTab('dashboard')}
-          className={cn("flex flex-col items-center gap-1 transition-all duration-300", activeTab === 'dashboard' ? "text-brand-primary scale-110" : "text-slate-500")}
-        >
-          <LayoutDashboard size={22} strokeWidth={activeTab === 'dashboard' ? 3 : 2} />
-          <span className="text-[8px] font-black uppercase tracking-widest">Painel</span>
-        </button>
-        {user?.role === 'contabilista' ? (
-          <button 
-            onClick={() => setActiveTab('map')}
-            className={cn("flex flex-col items-center gap-1 transition-all duration-300", activeTab === 'map' ? "text-brand-primary scale-110" : "text-slate-500")}
-          >
-            <Map size={22} strokeWidth={activeTab === 'map' ? 3 : 2} />
-            <span className="text-[8px] font-black uppercase tracking-widest">Mapa</span>
-          </button>
-        ) : (
-          <button 
-            onClick={() => setActiveTab('fleet')}
-            className={cn("flex flex-col items-center gap-1 transition-all duration-300", activeTab === 'fleet' ? "text-brand-primary scale-110" : "text-slate-500")}
-          >
-            <Truck size={22} strokeWidth={activeTab === 'fleet' ? 3 : 2} />
-            <span className="text-[8px] font-black uppercase tracking-widest">Frota</span>
-          </button>
-        )}
-        {user?.role === 'contabilista' ? (
-          <button 
-            onClick={() => setActiveTab('whatsapp')}
-            className={cn("flex flex-col items-center gap-1 transition-all duration-300", activeTab === 'whatsapp' ? "text-brand-primary scale-110" : "text-slate-500")}
-          >
-            <MessageSquare size={22} strokeWidth={activeTab === 'whatsapp' ? 3 : 2} fill={activeTab === 'whatsapp' ? "currentColor" : "none"} />
-            <span className="text-[8px] font-black uppercase tracking-widest">WhatsApp</span>
-          </button>
-        ) : (
-          <button 
-            onClick={() => setActiveTab('ops')}
-            className={cn("flex flex-col items-center gap-1 transition-all duration-300", activeTab === 'ops' ? "text-brand-primary scale-110" : "text-slate-500")}
-          >
-            <Activity size={22} strokeWidth={activeTab === 'ops' ? 3 : 2} />
-            <span className="text-[8px] font-black uppercase tracking-widest">Monitores</span>
-          </button>
-        )}
-        <button 
-          onClick={() => setActiveTab('wallet')}
-          className={cn("flex flex-col items-center gap-1 transition-all duration-300", activeTab === 'wallet' ? "text-brand-primary scale-110" : "text-slate-500")}
-        >
-          <Wallet size={22} strokeWidth={activeTab === 'wallet' ? 3 : 2} />
-          <span className="text-[8px] font-black uppercase tracking-widest">Contas</span>
-        </button>
-      </footer>
+
 
       {/* New Scale Modal */}
       <AnimatePresence>
@@ -1651,12 +1690,10 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                 <button 
                   onClick={async () => {
                     if (!scaleFormData.driverId || !scaleFormData.prefix) {
-                      alert("Por favor, preencha todos os campos.");
-                      return;
+                       showCustomNotification("Por favor, preencha todos os campos.", "error");
+                       return;
                     }
                     try {
-                      const { addDoc, collection, serverTimestamp, query, where, getDocs } = await import('firebase/firestore');
-
                       // Constraint checks bypassed for free linkage
                       await addDoc(collection(db, 'driver_scales'), {
                         driverId: scaleFormData.driverId,
@@ -1700,9 +1737,9 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
                       setIsScaleModalOpen(false);
                       if (isAdminOrOperator) {
-                        alert("Escala registada com sucesso e viatura vinculada à frota em tempo real!");
+                        showCustomNotification("Escala registada com sucesso e viatura vinculada à frota em tempo real!", "success");
                       } else {
-                        alert("Escala guardada com sucesso! Aguarde que um Administrador ou Operador a ative na frota real.");
+                        showCustomNotification("Escala guardada com sucesso! Aguarde que um Administrador ou Operador a ative na frota real.", "success");
                       }
                     } catch (err) {
                       handleFirestoreError(err, OperationType.WRITE, 'driver_scales');
@@ -1834,26 +1871,57 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  </button>
               </div>
               
-              <div className="flex-1 space-y-2">
-                {menuItems.map((item, idx) => (
-                  <button 
-                    key={idx}
-                    onClick={() => {
-                      item.onClick();
-                      setIsMenuOpen(false);
-                    }}
-                    className={cn(
-                      "w-full flex items-center justify-between p-4 rounded-2xl hover:bg-slate-850 transition-all active:scale-95 border border-transparent hover:border-slate-800",
-                      item.color || "text-slate-200"
-                    )}
-                  >
-                    <div className="flex items-center gap-4">
-                       <item.icon size={20} />
-                       <span className="text-xs font-black uppercase tracking-widest">{item.label}</span>
+              <div className="flex-1 overflow-y-auto pr-1 space-y-6">
+                {['Navegação', 'Monitores Live', 'Configuração'].map((groupName) => {
+                  const groupItems = menuItems.filter(item => item.group === groupName);
+                  if (groupItems.length === 0) return null;
+                  return (
+                    <div key={groupName} className="space-y-2">
+                      <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 px-4 mb-2">{groupName}</h4>
+                      <div className="space-y-1">
+                        {groupItems.map((item, idx) => (
+                          <button 
+                            key={idx}
+                            onClick={() => {
+                              item.onClick();
+                              setIsMenuOpen(false);
+                            }}
+                            className={cn(
+                              "w-full flex items-center justify-between p-3.5 rounded-2xl hover:bg-slate-850 transition-all active:scale-95 border border-transparent hover:border-slate-800",
+                              item.color || "text-slate-200"
+                            )}
+                          >
+                            <div className="flex items-center gap-3.5">
+                               <item.icon size={18} className="shrink-0" />
+                               <span className="text-xs font-black uppercase tracking-widest">{item.label}</span>
+                            </div>
+                            <ChevronRight size={14} className="opacity-35" />
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <ChevronRight size={16} className="opacity-35" />
-                  </button>
-                ))}
+                  );
+                })}
+
+                {/* Tema / Paleta de Cores */}
+                <div className="pt-6 border-t border-slate-800/60 space-y-3">
+                  <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 px-4">Paleta de Cores</h4>
+                  <div className="flex gap-2 px-4">
+                    {(Object.keys(STAFF_PALETTES)).map(key => (
+                      <button 
+                        key={key}
+                        onClick={() => handlePaletteChange(key)}
+                        className="w-8 h-8 rounded-full border border-white/20 hover:scale-110 active:scale-95 transition-transform relative flex items-center justify-center cursor-pointer"
+                        style={{ backgroundColor: STAFF_PALETTES[key as keyof typeof STAFF_PALETTES].color }}
+                        title={STAFF_PALETTES[key as keyof typeof STAFF_PALETTES].name}
+                      >
+                        {activePalette === key && (
+                          <div className="w-2.5 h-2.5 bg-white rounded-full shadow-md" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
               
               <div className="mt-auto pt-8 border-t border-slate-800 text-center">

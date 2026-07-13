@@ -26,7 +26,9 @@ import {
   UserCheck,
   Copy,
   ExternalLink,
-  Gift
+  Gift,
+  QrCode,
+  X
 } from 'lucide-react';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from '@/src/lib/firebase';
@@ -41,6 +43,7 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
   // Config state
   const [enabled, setEnabled] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [showAdminQrModal, setShowAdminQrModal] = useState(false);
 
   const handleCopyLink = () => {
     const url = typeof window !== 'undefined' ? `${window.location.origin}/?view=passenger` : '';
@@ -765,16 +768,27 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
               </div>
 
               {/* Direct share with WhatsApp button */}
-              <a
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Aceda já à aplicação pública de passageiros da nossa operadora LUENA-MOXICO! Peça o seu Táxi ou envie propostas diretamente do seu telemóvel: ${typeof window !== 'undefined' ? `${window.location.origin}/?view=passenger` : ""}`)}`}
-                target="_blank"
-                className="inline-flex items-center gap-2 bg-[#25d366] hover:bg-[#20ba5a] text-xs font-black uppercase text-slate-950 px-4 py-2.5 rounded-xl transition-all shadow-lg active:scale-[0.98]"
-              >
-                <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.5-5.739-1.453L0 24zm6.59-4.846c1.6.95 3.1 1.45 4.8 1.45 5.518 0 10.007-4.49 10.012-10.01.002-2.673-1.037-5.187-2.923-7.076C16.65 1.63 14.137.59 11.467.59 5.949.59 1.46 5.08 1.455 10.6c-.001 1.76.46 3.48 1.33 5.02c.16.28.09.43-.16 1.32-.4 1.48-1 3.58-1 3.58l3.66-.96c.74-.2 1.05-.1 1.34.05zm12.35-8.4l-.8-.4a.55.55 0 00-.7.2l-.7 1a.5.5 0 01-.6.1l-2.4-1.2-1.6-1.6c-.1-.1-.1-.3 0-.5l.8-.9a.4.4 0 000-.5l-1.2-2.9c-.3-.7-.6-.6-.8-.6h-.6a1.1 1.1 0 00-.8.4C6 5.3 5.6 6 5.6 7.2c0 1.5.6 2.9 1.5 4l4.5 5.2a5.5 5.5 0 003.8 2.2c1.2.1 2.3 0 3-.1.7-.1 1.5-.6 1.7-1.1s.2-1 .1-1.1c-.1-.2-.3-.3-.6-.5z" />
-                </svg>
-                Partilhar no WhatsApp
-              </a>
+              <div className="flex flex-wrap gap-2.5">
+                <a
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Aceda já à aplicação pública de passageiros da nossa operadora LUENA-MOXICO! Peça o seu Táxi ou envie propostas diretamente do seu telemóvel: ${typeof window !== 'undefined' ? `${window.location.origin}/?view=passenger` : ""}`)}`}
+                  target="_blank"
+                  className="inline-flex items-center gap-2 bg-[#25d366] hover:bg-[#20ba5a] text-xs font-black uppercase text-slate-950 px-4 py-2.5 rounded-xl transition-all shadow-lg active:scale-[0.98]"
+                >
+                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.5-5.739-1.453L0 24zm6.59-4.846c1.6.95 3.1 1.45 4.8 1.45 5.518 0 10.007-4.49 10.012-10.01.002-2.673-1.037-5.187-2.923-7.076C16.65 1.63 14.137.59 11.467.59 5.949.59 1.46 5.08 1.455 10.6c-.001 1.76.46 3.48 1.33 5.02c.16.28.09.43-.16 1.32-.4 1.48-1 3.58-1 3.58l3.66-.96c.74-.2 1.05-.1 1.34.05zm12.35-8.4l-.8-.4a.55.55 0 00-.7.2l-.7 1a.5.5 0 01-.6.1l-2.4-1.2-1.6-1.6c-.1-.1-.1-.3 0-.5l.8-.9a.4.4 0 000-.5l-1.2-2.9c-.3-.7-.6-.6-.8-.6h-.6a1.1 1.1 0 00-.8.4C6 5.3 5.6 6 5.6 7.2c0 1.5.6 2.9 1.5 4l4.5 5.2a5.5 5.5 0 003.8 2.2c1.2.1 2.3 0 3-.1.7-.1 1.5-.6 1.7-1.1s.2-1 .1-1.1c-.1-.2-.3-.3-.6-.5z" />
+                  </svg>
+                  Partilhar no WhatsApp
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAdminQrModal(true)}
+                  className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-xs font-black uppercase text-slate-950 px-4 py-2.5 rounded-xl transition-all shadow-lg active:scale-[0.98] cursor-pointer"
+                >
+                  <QrCode size={14} className="shrink-0" />
+                  Sugerir App (Código QR)
+                </button>
+              </div>
             </div>
 
             {/* Right part: Scan QR code */}
@@ -995,6 +1009,66 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
 
         </div>
       </div>
+
+      {/* MODAL: SUGERIR APP / CÓDIGO QR PARA O ADMINISTRADOR (JIS) */}
+      {showAdminQrModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 space-y-4 text-white max-w-sm w-full shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2 text-amber-400">
+                <QrCode size={16} />
+                Partilhar App do Passageiro
+              </h3>
+              <button 
+                type="button"
+                onClick={() => setShowAdminQrModal(false)}
+                className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-center py-2">
+              <p className="text-[10px] text-slate-300 uppercase font-bold tracking-wider leading-relaxed">
+                Apresente ou envie o Código QR abaixo para que novos passageiros acedam instantaneamente:
+              </p>
+
+              {/* QR Code Graphic Frame */}
+              <div className="bg-white p-4 rounded-2xl w-48 h-48 mx-auto shadow-2xl flex flex-col items-center justify-center border-4 border-amber-500">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(typeof window !== 'undefined' ? `${window.location.origin}/?view=passenger` : "https://taxi-dev")}`} 
+                  alt="Passenger App QR Code" 
+                  className="w-full h-full bg-white p-1 rounded-lg"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-[11px] font-mono text-amber-400 font-extrabold select-all break-all bg-slate-950/80 p-2 rounded-lg border border-white/5">
+                  {typeof window !== 'undefined' ? `${window.location.origin}/?view=passenger` : 'https://jis-st.web.app/?view=passenger'}
+                </p>
+                <p className="text-[8px] text-slate-400 uppercase font-black tracking-widest">
+                  URL Oficial • José Iweza Suana (JIS)
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const url = typeof window !== 'undefined' ? `${window.location.origin}/?view=passenger` : '';
+                if (url) {
+                  navigator.clipboard.writeText(url);
+                  alert("Link copiado com sucesso para a área de transferência!");
+                }
+              }}
+              className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all font-black cursor-pointer"
+            >
+              Copiar Link Oficial
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

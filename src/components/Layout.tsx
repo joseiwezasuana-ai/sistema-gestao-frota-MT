@@ -349,29 +349,29 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
             </div>
           )}
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 sm:gap-4 lg:gap-6 shrink-0">
             <button 
               onClick={toggleTheme}
-              className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl border border-slate-200 dark:border-white/5 hover:bg-white dark:hover:bg-slate-700 transition-all shadow-sm active:scale-95"
+              className="p-2 sm:p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl border border-slate-200 dark:border-white/5 hover:bg-white dark:hover:bg-slate-700 transition-all shadow-sm active:scale-95"
               title={theme === 'light' ? 'Ativar Modo Escuro' : 'Ativar Modo Claro'}
             >
-               {theme === 'light' ? <Moon size={18} /> : <Sun size={18} className="text-amber-400" />}
+               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} className="text-amber-400" />}
             </button>
 
             <button 
               onClick={onToggleMobile}
-              className="group flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:bg-black transition-all shadow-lg active:scale-95"
+              className="group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:bg-black transition-all shadow-lg active:scale-95"
             >
               <Smartphone size={16} className="text-brand-primary group-hover:scale-110 transition-transform" />
-              <span className="text-[10px] font-black text-white uppercase tracking-widest italic group-hover:text-brand-primary transition-colors">Smartphone View</span>
+              <span className="text-[10px] font-black text-white uppercase tracking-widest italic group-hover:text-brand-primary transition-colors hidden sm:inline">Smartphone View</span>
             </button>
 
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-200">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-200 dark:bg-slate-800 dark:border-white/5">
                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sync Live</span>
+               <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Sync Live</span>
             </div>
             
-            <div className="h-4 w-px bg-slate-200" />
+            <div className="h-4 w-px bg-slate-200 dark:bg-white/10 hidden sm:block" />
 
             <div className="relative">
               <button 

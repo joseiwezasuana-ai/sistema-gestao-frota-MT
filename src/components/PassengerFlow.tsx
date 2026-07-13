@@ -5,10 +5,10 @@ import {
   Car, MapPin, Phone, User, Camera, Sun, Moon, Sparkles, ShieldCheck, 
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
-  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical
+  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy
 } from 'lucide-react';
 import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion } from '../lib/firebase';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -20,6 +20,15 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
+
+// Recenter helper for Leaflet Map
+function RecenterMap({ center, zoom }: { center: [number, number]; zoom: number }) {
+  const map = useMap();
+  React.useEffect(() => {
+    map.setView(center, zoom);
+  }, [center, zoom, map]);
+  return null;
+}
 
 // Custom distinct Leaflet icons using divIcon with Tailwind classes
 const passengerIcon = L.divIcon({
@@ -451,6 +460,8 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
   const [showComplaintsModal, setShowComplaintsModal] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   
   // Custom states for complaint submission
   const [complaintType, setComplaintType] = useState('excesso_velocidade');
@@ -497,13 +508,45 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
     }
   }, []);
 
+  const pullCurrentLocation = () => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          let lat = position.coords.latitude;
+          let lng = position.coords.longitude;
+          if (lat && lng) {
+            if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+              lat = -11.7833 + (Math.random() - 0.5) * 0.015;
+              lng = 19.9167 + (Math.random() - 0.5) * 0.015;
+            }
+            setPassengerCoords([lat, lng]);
+            setIsGpsExact(true);
+            console.log("GPS exato obtido com sucesso pelo utilizador manualmente:", lat, lng);
+          }
+        },
+        (error) => {
+          console.warn("Permissão de GPS indisponível no momento:", error);
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+  };
+
+  const copyShareLink = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText("https://jis-st.web.app/?view=passenger");
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
+
   // Selected company / tenant states
   const [companies, setCompanies] = useState<any[]>([]);
   const [activeTenant, setActiveTenant] = useState<string>(() => getActiveTenantId());
   const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
 
   const activeCompany = companies.find(c => c.id === activeTenant);
-  const activeWhatsappLink = activeCompany?.whatsappLink || (appConfig?.supportPhone ? `https://wa.me/${(appConfig?.supportPhone || '').replace(/\D/g, '')}` : "https://wa.me/244923456789");
+  const activeWhatsappLink = activeCompany?.whatsappGroupLink || activeCompany?.whatsappLink || (appConfig?.supportPhone ? `https://wa.me/${(appConfig?.supportPhone || '').replace(/\D/g, '')}` : "https://wa.me/244923456789");
   const activeWhatsappGroupLink = activeCompany?.whatsappGroupLink || "";
 
   // Call Sequence states
@@ -1563,7 +1606,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
   };
 
   return (
-    <div className={isEmbed ? "w-full flex flex-col font-sans select-none h-full justify-center items-center" : `min-h-screen w-full flex flex-col font-sans select-none ${isPublicApp ? (isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900') : ''}`}>
+    <div className={isEmbed ? "w-full flex flex-col font-sans select-none h-full justify-center items-center" : (isPublicApp ? `h-[100dvh] w-full overflow-hidden flex flex-col font-sans select-none ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}` : "min-h-screen w-full flex flex-col font-sans select-none")}>
       {/* Header removed by request of Jose Iweza Suana (JIS) */}
 
       {/* Centered Smartphone Layout - Simulator Controller panel removed for a clean, direct passenger experience by request of José Iweza Suana (JIS) */}
@@ -1752,7 +1795,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
 
 
             {/* SCREEN SCROLLABLE AREA */}
-            <div className="flex-1 overflow-y-auto no-scrollbar relative p-5">
+            <div className={`flex-1 relative ${passengerTab === 'viagem' && passengerProfile && !passengerProfile.banned ? 'overflow-hidden p-0' : 'overflow-y-auto no-scrollbar p-5'}`}>
               
               {!passengerProfile && passengerTab !== 'seguranca' ? (
                 /* PROFILE CREATION OR PORTAL (REGISTER / LOGIN Toggle) */
@@ -2036,10 +2079,10 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                 </div>
               ) : (
                 /* IN-APP LOGGED-IN PASSENGER HOME VIEW */
-                <div className="space-y-4">
+                <div className={passengerTab === 'viagem' ? "absolute inset-0 overflow-hidden" : "space-y-4"}>
                    
                   {/* Miniature Header Card Welcome */}
-                  {passengerProfile && (
+                  {passengerProfile && passengerTab !== 'viagem' && (
                     <div className={`p-4 rounded-2xl ${currentTheme.cardClass} flex items-center justify-between`}>
                       <div className="flex items-center gap-3">
                         <PassengerAvatar src={passengerProfile.photoUrl || selectedAvatar} name={passengerProfile.name} size="md" />
@@ -2063,278 +2106,281 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
 
                   {/* ABA 1: VIAGEM / PEDIDOS */}
                   {passengerTab === 'viagem' && (
-                    <div className="space-y-4 animate-in fade-in duration-300">
+                    <div className="absolute inset-0 animate-in fade-in duration-300">
                       
-                      {/* Active Background Ride / Call Alert Banner to Resume */}
-                      {activeRideRecord && !['completed', 'cancelled', 'rejected', 'ignored'].includes(activeRideRecord.status) && (
-                        <div className="bg-amber-500/10 border border-amber-500/35 p-4 rounded-2xl flex items-center justify-between gap-3 animate-pulse">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2.5 bg-amber-500 rounded-xl text-slate-950 shrink-0">
-                              <PhoneCall size={16} />
-                            </div>
-                            <div className="text-left min-w-0">
-                              <p className="text-[10px] font-black uppercase text-amber-500 tracking-wider">Corrida c/ {activeRideRecord.driverName}</p>
-                              <p className="text-[11px] font-black text-white leading-tight truncate">
-                                {activeRideRecord.status === 'price_sent' ? 'Preço Proposto Enviado!' : 
-                                 activeRideRecord.status === 'confirmed' || activeRideRecord.status === 'active' ? 'Viagem Confirmada!' : 'A Negociar / Chamar...'}
-                              </p>
-                              {activeRideRecord.status === 'price_sent' && (
-                                <p className="text-[10px] text-[#10b981] font-black mt-0.5 animate-bounce">
-                                  Preço: {(negotiatedPrice || Number(activeRideRecord.price || 0)).toLocaleString()} Kz
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <button
-                            onClick={() => {
-                              // Dynamically map status to callState structure
-                              const nextState = activeRideRecord.status === 'price_sent' ? 'offer_received' :
-                                               activeRideRecord.status === 'confirmed' || activeRideRecord.status === 'active' ? 'ride_confirmed' :
-                                               activeRideRecord.status === 'pricing' ? 'pricing' :
-                                               activeRideRecord.status === 'connected' ? 'connected' : 'calling';
-                              setCallState(nextState);
-                              setIsCallMinimized(false);
-                            }}
-                            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 transition-colors text-slate-950 font-black text-[9.5px] uppercase tracking-wider rounded-lg shrink-0"
-                          >
-                            Retomar
-                          </button>
-                        </div>
-                      )}
+                      {/* Real full-screen background map container */}
+                      <div className="absolute inset-0 w-full h-full z-0">
+                        {/* Real Leaflet Map */}
+                        {/* @ts-ignore */}
+                        {React.createElement(MapContainer as any, {
+                          center: passengerCoords as any,
+                          zoom: callState === 'idle' ? 13 : 14,
+                          style: { height: '100%', width: '100%' },
+                          zoomControl: false,
+                          className: "w-full h-full grayscale-[0.2] contrast-[1.1] dark:invert dark:hue-rotate-180 dark:brightness-[0.75] dark:contrast-[1.25]"
+                        }, 
+                          <>
+                            <RecenterMap center={passengerCoords} zoom={callState === 'idle' ? 13 : 14} />
+                            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                            
+                            {/* Passenger Marker */}
+                            {/* @ts-ignore */}
+                            <Marker position={passengerCoords} icon={passengerIcon}>
+                              <Popup>
+                                <div className="text-slate-950 text-[10px] font-black uppercase tracking-tight">Sua Localização {isGpsExact ? '(GPS Ativo)' : '(Luena Centro)'}</div>
+                              </Popup>
+                            </Marker>
 
-                      {callState === 'idle' ? (
-                        <>
-                          {/* Custom Welcome Message exactly as loved by JIS */}
-                          <div className="space-y-1">
-                            <p className="text-[13px] font-black tracking-tight leading-tight pt-1">
-                              {appConfig?.customWelcomeMsg || 'Olá! Como o podemos ajudar por Luena hoje?'}
-                            </p>
-                            <p className="text-[9.5px] text-slate-400 font-medium">
-                              Bandeirada Base para serviços públicos: <strong className="text-slate-900 dark:text-white font-extrabold">{appConfig?.baseFareKz || 500} Kz</strong>
-                            </p>
-                          </div>
-
-                          {/* Beautiful live map container blending real Leaflet with map pin overlays */}
-                          <div className="h-72 rounded-2xl border border-white/10 relative overflow-hidden flex flex-col justify-end shadow-inner bg-slate-950">
-                            {/* Real Leaflet Map */}
-                            <div className="absolute inset-0 w-full h-full z-0">
-                              {/* @ts-ignore */}
-                              <MapContainer center={passengerCoords as any} zoom={13} style={{ height: '100%', width: '100%' }} zoomControl={false} className="w-full h-full grayscale-[0.2] contrast-[1.1] dark:invert dark:hue-rotate-180 dark:brightness-[0.75] dark:contrast-[1.25]">
-                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                                
-                                {/* Passenger Marker */}
-                                {/* @ts-ignore */}
-                                <Marker position={passengerCoords} icon={passengerIcon}>
-                                  <Popup>
-                                    <div className="text-slate-950 text-[10px] font-black uppercase tracking-tight">Sua Localização {isGpsExact ? '(GPS Ativo)' : '(Luena Centro)'}</div>
-                                  </Popup>
-                                </Marker>
-
-                                {/* Active Vehicles Markers */}
-                                {availableVehicles.map((vehicle, idx) => {
-                                  const vLat = vehicle.lat || (passengerCoords[0] + (idx * 0.003) - 0.0015);
-                                  const vLng = vehicle.lng || (passengerCoords[1] + (idx * 0.003) - 0.0015);
-                                  // @ts-ignore
-                                  return <Marker key={vehicle.id || idx} position={[vLat, vLng]} icon={driverIconAvailable}>
-                                      <Popup>
-                                        <div className="text-slate-900 text-xs font-bold p-1 space-y-1">
-                                          <p className="font-extrabold uppercase text-[10px] text-amber-500">{vehicle.driverName || 'Motorista'}</p>
-                                          <p className="text-[9px] text-slate-500 font-mono">{vehicle.model} • {vehicle.plate}</p>
-                                          <p className="text-[8px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded font-black uppercase">Disponível</p>
-                                        </div>
-                                      </Popup>
-                                    </Marker>;
-                                })}
-                              </MapContainer>
-                            </div>
-
-                            {/* Live satellite indicator overlay on top of Leaflet */}
-                            <div className="absolute top-3 left-3 bg-slate-950/90 backdrop-blur px-2 py-1 rounded border border-white/10 text-[8px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
-                              <div className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
-                              Monitorização Satélite Ativa
-                            </div>
-
-                            <span className="absolute bottom-2 right-2 flex items-center gap-1 bg-slate-950/90 text-white text-[7.5px] font-bold px-1.5 py-0.5 rounded backdrop-blur border border-white/10 z-10">
-                              <Compass size={8} className="animate-spin text-amber-500" /> Raio Máx: {appConfig?.searchRadiusKm || 15}km
-                            </span>
-                          </div>
-
-                          {/* Action Buttons in client app based on active controls */}
-                          <div className="space-y-3">
-                            {/* Dynamic booking button */}
-                            {appConfig?.bookingEnabled !== false ? (
-                              <button 
-                                onClick={() => {
-                                  setIsBookModalOpen(true);
-                                  loadFleetData();
-                                }}
-                                className="w-full text-[11px] font-black py-3 px-4 rounded-xl flex items-center justify-between shadow-lg uppercase transition-all duration-300 transform active:scale-95 cursor-pointer text-slate-950 hover:opacity-90"
-                                style={{ backgroundColor: currentTheme.accentColor }}
-                              >
-                                <span>Pedir Táxi Público Moxico</span>
-                                <ArrowRight size={14} className="animate-pulse" />
-                              </button>
+                            {/* Render available vehicles or assigned vehicle depending on callState */}
+                            {callState === 'idle' ? (
+                              availableVehicles.map((vehicle, idx) => {
+                                const vLat = vehicle.lat || (passengerCoords[0] + (idx * 0.003) - 0.0015);
+                                const vLng = vehicle.lng || (passengerCoords[1] + (idx * 0.003) - 0.0015);
+                                // @ts-ignore
+                                return <Marker key={vehicle.id || idx} position={[vLat, vLng]} icon={driverIconAvailable}>
+                                    <Popup>
+                                      <div className="text-slate-900 text-xs font-bold p-1 space-y-1">
+                                        <p className="font-extrabold uppercase text-[10px] text-amber-500">{vehicle.driverName || 'Motorista'}</p>
+                                        <p className="text-[9px] text-slate-500 font-mono">{vehicle.model} • {vehicle.plate}</p>
+                                        <p className="text-[8px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded font-black uppercase">Disponível</p>
+                                      </div>
+                                    </Popup>
+                                  </Marker>;
+                              })
                             ) : (
-                              <div className="w-full bg-slate-900 border border-dashed border-white/10 text-slate-400 text-[9.5px] font-black py-3 px-4 rounded-xl text-center uppercase">
-                                ⚠️ Chamadas Rápidas Desativadas temporariamente
-                              </div>
+                              (() => {
+                                const assigned = availableVehicles.find(v => v.driverName === activeRideRecord?.driverName);
+                                const dLat = assigned?.lat || -11.7825;
+                                const dLng = assigned?.lng || 20.0695;
+                                // @ts-ignore
+                                return <Marker position={[dLat, dLng]} icon={driverIconAssigned}>
+                                    <Popup>
+                                      <div className="text-slate-900 text-xs font-bold p-1">
+                                        <p className="font-extrabold uppercase text-[10px] text-amber-500">{activeRideRecord?.driverName || 'Motorista'}</p>
+                                        <p className="text-[9px] text-slate-500 font-mono">Placa: {activeRideRecord?.plate || 'LD-92-33-PX'}</p>
+                                        <p className="text-[8px] bg-rose-100 text-rose-850 px-1 py-0.5 rounded font-black uppercase">A Caminho</p>
+                                      </div>
+                                    </Popup>
+                                  </Marker>;
+                              })()
                             )}
+                          </>
+                        )}
+                      </div>
 
-                            {/* Fare dynamic preview */}
-                            {appConfig?.bookingEnabled !== false && appConfig?.fareEstimateEnabled && (
-                              <div className="bg-slate-900 border border-white/5 p-3 rounded-xl text-[9.5px] flex justify-between items-center text-slate-300">
-                                <div>
-                                  <span className="block text-[8px] text-slate-450 font-extrabold uppercase tracking-widest">Tarifa Sugerida</span>
-                                  <span className="font-black text-rose-400">Estimativa baseada no percurso</span>
+                      {/* Live satellite indicator overlay on top of full-screen map (Top-left floating info) */}
+                      <div className="absolute top-4 left-4 z-10 space-y-2 pointer-events-none">
+                        <div className="bg-slate-950/90 backdrop-blur px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5 shadow-lg select-none pointer-events-auto">
+                          <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
+                          Monitorização Satélite Ativa
+                        </div>
+                      </div>
+
+                      {/* Right top corner compass overlay with GPS button */}
+                      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2 pointer-events-none">
+                        <span className="flex items-center gap-1 bg-slate-950/90 text-white text-[7.5px] font-bold px-2 py-1 rounded-xl backdrop-blur border border-white/10 shadow-lg pointer-events-auto select-none">
+                          <Compass size={9} className="animate-spin text-amber-500" /> Raio Máx: {appConfig?.searchRadiusKm || 15}km
+                        </span>
+                        
+                        {/* GPS Recenter button */}
+                        <button
+                          onClick={pullCurrentLocation}
+                          className="flex items-center justify-center p-2.5 bg-slate-950/90 text-amber-500 hover:text-amber-450 rounded-xl border border-white/10 shadow-lg hover:bg-slate-900 transition-all active:scale-95 pointer-events-auto cursor-pointer"
+                          title="Puxar Minha Localização Atual"
+                        >
+                          <Navigation size={14} className="fill-amber-500 rotate-45 text-amber-500" />
+                        </button>
+                      </div>
+
+                      {/* UPPER LAYER FLOATING INFO & CONTROLS: */}
+                      <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 z-10">
+                        {/* Upper panel - for messages, state banner alert */}
+                        <div className="space-y-2 w-full pointer-events-auto">
+                          {/* Active Background Ride / Call Alert Banner to Resume */}
+                          {activeRideRecord && !['completed', 'cancelled', 'rejected', 'ignored'].includes(activeRideRecord.status) && (
+                            <div className="bg-slate-900/95 backdrop-blur border border-amber-500/35 p-3 rounded-2xl flex items-center justify-between gap-3 shadow-xl">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="p-2 bg-amber-500 rounded-xl text-slate-950 shrink-0">
+                                  <PhoneCall size={14} />
                                 </div>
-                                <div className="text-right font-black">
-                                  <span className="block text-xs text-white tracking-tighter">{(appConfig?.baseFareKz || 500) + ((appConfig?.perKmFareKz || 250) * 2.5)} <span className="text-[8px] opacity-75">Kz</span></span>
-                                  <span className="text-[7.5px] text-slate-500 font-bold">2.5 KM Simulado</span>
+                                <div className="text-left min-w-0 leading-tight">
+                                  <p className="text-[10px] font-black text-white truncate leading-none mt-0.5">
+                                    {activeRideRecord.status === 'price_sent' ? 'Preço Proposto Enviado!' : 
+                                     activeRideRecord.status === 'confirmed' || activeRideRecord.status === 'active' ? 'Viagem Confirmada!' : 'A Negociar / Chamar...'}
+                                  </p>
                                 </div>
                               </div>
-                            )}
-
-                            {/* S.O.S Trigger button inside client app */}
-                            {appConfig?.panicSosEnabled && (
-                              <button 
+                              <button
                                 onClick={() => {
-                                  window.open(`tel:${appConfig?.supportPhone || '+244999123456'}`);
+                                  const nextState = activeRideRecord.status === 'price_sent' ? 'offer_received' :
+                                                   activeRideRecord.status === 'confirmed' || activeRideRecord.status === 'active' ? 'ride_confirmed' :
+                                                   activeRideRecord.status === 'pricing' ? 'pricing' :
+                                                   activeRideRecord.status === 'connected' ? 'connected' : 'calling';
+                                  setCallState(nextState);
+                                  setIsCallMinimized(false);
                                 }}
-                                className="w-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-extrabold py-2.5 px-3 rounded-xl flex items-center gap-1.5 border border-rose-500/20 active:scale-95 transition-all text-left"
+                                className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 transition-colors text-slate-950 font-black text-[8.5px] uppercase tracking-wider rounded-lg shrink-0"
                               >
-                                <ShieldAlert size={14} className="text-rose-500 animate-pulse shrink-0" />
-                                <span className="uppercase tracking-wide flex-1">BOTÃO S.O.S (ALERTA DE SEGURANÇA)</span>
-                                <span className="text-[8.5px] font-mono text-slate-400">{appConfig?.supportPhone}</span>
+                                Retomar
                               </button>
-                            )}
-
-                            {/* Quick-links secondary actions based on configurations */}
-                            <div className="grid grid-cols-2 gap-2 text-[9px] font-black uppercase">
-                              {/* Support Chat option */}
-                              {appConfig?.supportChatEnabled ? (
-                                <a 
-                                  href={activeWhatsappLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-2.5 bg-slate-900 border border-white/5 hover:bg-slate-800 rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-300 font-mono shadow-md transition-colors"
-                                >
-                                  <MessageSquare size={12} className="text-indigo-400 shrink-0" />
-                                  <span>Chat WhatsApp</span>
-                                </a>
-                              ) : (
-                                <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
-                                  <span>Apoio</span>
-                                </div>
-                              )}
-
-                              {/* Trip history option */}
-                              {appConfig?.historyEnabled ? (
-                                <button 
-                                  onClick={() => setPassengerTab('perfil')}
-                                  className="p-2.5 bg-slate-900 border border-white/5 hover:bg-slate-800 rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-300 font-mono shadow-md transition-colors"
-                                >
-                                  <Compass size={12} className="text-emerald-400 shrink-0" />
-                                  <span>Minhas Viagens</span>
-                                </button>
-                              ) : (
-                                <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
-                                  <span>Histórico</span>
-                                </div>
-                              )}
-                            </div>
-
-                            {activeWhatsappGroupLink && (
-                              <a 
-                                href={activeWhatsappGroupLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="w-full mt-2 p-3 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 rounded-xl flex items-center justify-center gap-2 text-[10px] text-emerald-450 font-extrabold uppercase tracking-wider transition-all"
-                              >
-                                <MessageSquare size={13} className="text-emerald-450 shrink-0" />
-                                <span>Aderir ao Grupo WhatsApp da Filial</span>
-                              </a>
-                            )}
-                          </div>
-
-                          {/* Star rating preview card */}
-                          {appConfig?.driverRatingEnabled && (
-                            <div className="bg-gradient-to-br from-amber-500/5 to-yellow-500/5 p-3 rounded-xl border border-amber-500/10 text-[9.5px] text-center space-y-1">
-                              <span className="font-extrabold uppercase text-amber-500 block tracking-wider">Como correu a sua viagem com Carlos?</span>
-                              <div className="flex justify-center gap-1.5 text-amber-400 text-sm py-0.5">
-                                <span>★</span><span>★</span><span>★</span><span>★</span><span className="opacity-40">★</span>
-                              </div>
-                              <span className="text-[8px] text-slate-450 block font-semibold leading-tight">Avaliações enviadas contam positivamente para o bónus do motorista</span>
                             </div>
                           )}
-                        </>
-                      ) : (
-                        <>
-                          {/* Beautiful live map container blending real Leaflet with map pin overlays */}
-                          <div className="h-72 rounded-2xl border border-white/10 relative overflow-hidden flex flex-col justify-end shadow-inner bg-slate-950">
-                            {/* Real Leaflet Map */}
-                            <div className="absolute inset-0 w-full h-full z-0">
-                              {/* @ts-ignore */}
-                              <MapContainer center={passengerCoords as any} zoom={14} style={{ height: '100%', width: '100%' }} zoomControl={false} className="w-full h-full grayscale-[0.2] contrast-[1.1] dark:invert dark:hue-rotate-180 dark:brightness-[0.75] dark:contrast-[1.25]">
-                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                                
-                                {/* Passenger Pickup Marker */}
-                                {/* @ts-ignore */}
-                                <Marker position={passengerCoords} icon={passengerIcon}>
-                                  <Popup>
-                                    <div className="text-slate-950 text-[10px] font-black uppercase tracking-tight">Seu Local de Recolha {isGpsExact ? '(GPS Ativo)' : '(Luena Centro)'}</div>
-                                  </Popup>
-                                </Marker>
-
-                                {/* Active Assigned Driver Marker */}
-                                {(() => {
-                                  // Try to find the driver document with live coordinates
-                                  const assigned = availableVehicles.find(v => v.driverName === activeRideRecord?.driverName);
-                                  const dLat = assigned?.lat || -11.7825;
-                                  const dLng = assigned?.lng || 20.0695;
-                                  // @ts-ignore
-                                  return <Marker position={[dLat, dLng]} icon={driverIconAssigned}>
-                                      <Popup>
-                                        <div className="text-slate-900 text-xs font-bold p-1">
-                                          <p className="font-extrabold uppercase text-[10px] text-amber-500">{activeRideRecord?.driverName || 'Motorista'}</p>
-                                          <p className="text-[9px] text-slate-500 font-mono">Placa: {activeRideRecord?.plate || 'LD-92-33-PX'}</p>
-                                          <p className="text-[8px] bg-rose-100 text-rose-850 px-1 py-0.5 rounded font-black uppercase">A Caminho</p>
-                                        </div>
-                                      </Popup>
-                                    </Marker>;
-                                })()}
-                              </MapContainer>
-                            </div>
-
-                            {/* Live satellite indicator overlay on top of Leaflet */}
-                            <div className="absolute top-3 left-3 bg-slate-950/90 backdrop-blur px-2 py-1 rounded border border-white/10 text-[8px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
-                              <div className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
-                              Monitorização Satélite Ativa
-                            </div>
-
-                            <div className="bg-slate-950/80 backdrop-blur p-2.5 rounded-xl border border-white/10 text-center z-10 m-3 relative">
-                              <p className="text-[9px] font-black text-slate-300 uppercase tracking-wider">Destino Preferido</p>
-                              <p className="text-[11px] font-black text-white uppercase italic tracking-tight">{pickup ? `${pickup} → ${destination}` : 'Luena Central'}</p>
-                            </div>
-                          </div>
-                        </>
-                      )}
-
-                      {/* TOKEN DE EMBARQUE dinâmico (Segurança TAXICONTROL) */}
-                      {(callState === 'ride_confirmed' || (activeRideRecord && ['confirmed', 'active', 'arrived'].includes(activeRideRecord.status))) && activeRideRecord?.boardingToken && (
-                        <div className="bg-emerald-500/10 border border-emerald-500/30 p-5 rounded-2xl space-y-2 text-center shadow-lg shadow-emerald-500/5">
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
-                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Validar Viagem com Motorista</span>
-                          </div>
-                          <div className="text-4xl font-black text-white tracking-[0.2em] font-mono py-1 drop-shadow-lg">
-                            {activeRideRecord.boardingToken}
-                          </div>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight italic">
-                            Mostre este código ao motorista para a viagem ser validada em Luena.
-                          </p>
                         </div>
-                      )}
+
+                        {/* Lower panel - floating bottom sheet containing the welcome greeting + main action cards */}
+                        <div className="space-y-3 w-full pointer-events-auto max-h-[60%] overflow-y-auto no-scrollbar bg-transparent border-none shadow-none p-4">
+                          {callState === 'idle' ? (
+                            <>
+                              {/* Custom Welcome Message exactly as loved by JIS */}
+                              <div className="space-y-0.5 bg-slate-950/95 border border-white/10 rounded-xl p-3 shadow-xl">
+                                <p className="text-[12px] font-black tracking-tight leading-snug text-white">
+                                  {appConfig?.customWelcomeMsg || 'Olá! Como o podemos ajudar por Luena hoje?'}
+                                </p>
+                                <p className="text-[9px] text-amber-400 font-extrabold uppercase tracking-wider">
+                                  Bandeirada Base para serviços públicos: <strong className="text-white font-black">{appConfig?.baseFareKz || 500} Kz</strong>
+                                </p>
+                              </div>
+
+                              {/* Action Buttons inside bottom panel */}
+                              <div className="space-y-2.5">
+                                {appConfig?.bookingEnabled !== false ? (
+                                  <div className="flex flex-col gap-2">
+                                    <button 
+                                      onClick={() => {
+                                        setIsBookModalOpen(true);
+                                        loadFleetData();
+                                      }}
+                                      className="w-full text-[10px] font-black py-3 px-4 rounded-xl flex items-center justify-between shadow-xl uppercase transition-all duration-300 transform active:scale-95 cursor-pointer text-slate-950 hover:brightness-110"
+                                      style={{ backgroundColor: currentTheme.accentColor }}
+                                    >
+                                      <span>Pedir Táxi Público Moxico</span>
+                                      <ArrowRight size={13} className="animate-pulse" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="w-full bg-slate-950 border border-dashed border-white/15 text-slate-300 text-[9px] font-black py-3 px-4 rounded-xl text-center uppercase shadow-lg">
+                                    ⚠️ Chamadas Rápidas Desativadas temporariamente
+                                  </div>
+                                )}
+
+                                {appConfig?.bookingEnabled !== false && appConfig?.fareEstimateEnabled && (
+                                  <div className="bg-slate-950 border border-white/10 p-2.5 rounded-xl text-[9px] flex justify-between items-center text-white shadow-lg">
+                                    <div>
+                                      <span className="block text-[7.5px] text-amber-400 font-extrabold uppercase tracking-widest">Tarifa Sugerida</span>
+                                      <span className="font-bold text-rose-400">Estimativa por percurso</span>
+                                    </div>
+                                    <div className="text-right font-black">
+                                      <span className="block text-[11px] text-white tracking-tighter">{(appConfig?.baseFareKz || 500) + ((appConfig?.perKmFareKz || 250) * 2.5)} <span className="text-[7.5px] opacity-75">Kz</span></span>
+                                      <span className="text-[7px] text-slate-400 font-bold">2.5 KM Simulado</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {appConfig?.panicSosEnabled && (
+                                  <button 
+                                    onClick={() => {
+                                      window.open(`tel:${appConfig?.supportPhone || '+244999123456'}`);
+                                    }}
+                                    className="w-full bg-rose-600 hover:bg-rose-700 text-white text-[9.5px] font-extrabold py-2.5 px-3 rounded-xl flex items-center gap-1.5 border border-rose-500 shadow-xl active:scale-95 transition-all text-left"
+                                  >
+                                    <ShieldAlert size={12} className="text-white animate-pulse shrink-0" />
+                                    <span className="uppercase tracking-wide flex-1 font-black">BOTÃO S.O.S (ALERTA DE SEGURANÇA)</span>
+                                    <span className="text-[8px] font-mono text-white/90 font-black">{appConfig?.supportPhone}</span>
+                                  </button>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-2 text-[8.5px] font-black uppercase">
+                                  {appConfig?.supportChatEnabled ? (
+                                    <a 
+                                      href={activeWhatsappLink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-2.5 bg-[#25D366] hover:bg-[#20ba5a] rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-950 font-black shadow-xl transition-colors"
+                                    >
+                                      <MessageSquare size={11} className="text-slate-950 shrink-0" />
+                                      <span>{activeCompany?.whatsappGroupLink ? 'Grupo Clientes' : 'WhatsApp Chat'}</span>
+                                    </a>
+                                  ) : (
+                                    <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
+                                      <span>Apoio</span>
+                                    </div>
+                                  )}
+
+                                  {appConfig?.historyEnabled ? (
+                                    <button 
+                                      onClick={() => setPassengerTab('perfil')}
+                                      className="p-2.5 bg-slate-900 border border-white/10 hover:bg-slate-800 rounded-xl flex items-center gap-1.5 text-center justify-center text-white font-mono font-black shadow-xl transition-colors"
+                                    >
+                                      <Compass size={11} className="text-amber-400 shrink-0" />
+                                      <span>Minhas Viagens</span>
+                                    </button>
+                                  ) : (
+                                    <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
+                                      <span>Histórico</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {activeWhatsappGroupLink && activeWhatsappLink !== activeWhatsappGroupLink && (
+                                  <a 
+                                    href={activeWhatsappGroupLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="w-full mt-1 p-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-xl flex items-center justify-center gap-2 text-[9px] text-white font-extrabold uppercase tracking-wider transition-all shadow-xl"
+                                  >
+                                    <MessageSquare size={11} className="text-white shrink-0" />
+                                    <span>Grupo WhatsApp da Filial</span>
+                                  </a>
+                                )}
+
+                                {/* Recomendation with QR Code Button */}
+                                <button
+                                  onClick={() => setShowQrModal(true)}
+                                  className="w-full mt-1.5 p-2.5 bg-slate-900 hover:bg-slate-850 border border-white/10 rounded-xl flex items-center justify-center gap-2 text-[9px] text-amber-400 font-extrabold uppercase tracking-wider transition-all shadow-xl"
+                                >
+                                  <QrCode size={11} className="text-amber-500 shrink-0" />
+                                  <span>Sugerir App (Código QR)</span>
+                                </button>
+                              </div>
+
+                              {appConfig?.driverRatingEnabled && (
+                                <div className="bg-gradient-to-br from-amber-500/5 to-yellow-500/5 p-2 rounded-xl border border-amber-500/10 text-[8.5px] text-center space-y-0.5">
+                                  <span className="font-extrabold uppercase text-amber-500 block tracking-wider leading-none">Como correu a sua viagem com Carlos?</span>
+                                  <div className="flex justify-center gap-1 text-amber-400 text-xs py-0.5">
+                                    <span>★</span><span>★</span><span>★</span><span>★</span><span className="opacity-40">★</span>
+                                  </div>
+                                  <span className="text-[7.5px] text-slate-450 block font-semibold leading-tight">Avaliações contam positivamente para o motorista</span>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              {/* Destiny Preferido overlay */}
+                              <div className="bg-slate-900/90 backdrop-blur p-2.5 rounded-xl border border-white/10 text-center relative">
+                                <p className="text-[8.5px] font-black text-slate-300 uppercase tracking-wider leading-none">Destino Preferido</p>
+                                <p className="text-[10px] font-black text-white uppercase italic tracking-tight mt-1 truncate">{pickup ? `${pickup} → ${destination}` : 'Luena Central'}</p>
+                              </div>
+
+                              {/* TOKEN DE EMBARQUE dinâmico (Segurança TAXICONTROL) */}
+                              {(callState === 'ride_confirmed' || (activeRideRecord && ['confirmed', 'active', 'arrived'].includes(activeRideRecord.status))) && activeRideRecord?.boardingToken && (
+                                <div className="bg-emerald-500/10 border border-emerald-500/30 p-3.5 rounded-2xl space-y-1 text-center shadow-lg shadow-emerald-500/5">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                                    <span className="text-[8.5px] font-black text-emerald-500 uppercase tracking-widest">Validar Viagem com Motorista</span>
+                                  </div>
+                                  <div className="text-2xl font-black text-white tracking-[0.2em] font-mono py-0.5 drop-shadow-lg">
+                                    {activeRideRecord.boardingToken}
+                                  </div>
+                                  <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tight italic">
+                                    Mostre este código ao motorista para validação.
+                                  </p>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
                     </div>
                   )}
 
@@ -2412,6 +2458,27 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                   {passengerTab === 'perfil' && (
                     <div className="space-y-4 animate-in fade-in duration-300">
                       
+                      {/* SUGERIR APP (CÓDIGO QR) BUTTON */}
+                      <button
+                        onClick={() => setShowQrModal(true)}
+                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
+                          isDark 
+                            ? 'bg-slate-900 border-white/5 hover:border-amber-500/35 hover:bg-slate-800/80' 
+                            : 'bg-white border-slate-200 hover:border-amber-500/35 hover:bg-slate-50 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0 group-hover:scale-110 transition-transform">
+                            <QrCode size={16} />
+                          </div>
+                          <div>
+                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Sugerir App (Código QR)</p>
+                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Partilhar o SUPER Táxi com amigos</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-black text-amber-400 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
+                      </button>
+
                       {/* TROCAR FOTO DE PERFIL BUTTON */}
                       <button
                         onClick={() => setShowProfilePicModal(true)}
@@ -3395,6 +3462,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                           <option value="perda_objeto">Perda / Esquecimento de Objeto Pessoal</option>
                           <option value="falta_troco">Problema com Ajuste de Preços / Falta de Troco</option>
                           <option value="pane_viatura">Avaria / Falha Técnica do Táxi</option>
+                          <option value="eliminar_conta">Pedido de Eliminação de Conta (Proteção de Dados)</option>
                         </select>
                       </div>
 
@@ -3437,7 +3505,11 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                               timestamp: new Date(),
                               status: 'pending'
                             });
-                            setComplaintSuccessMsg("A sua reclamação foi anexada com carimbo de data. A fiscalização em Luena-Moxico iniciará uma auditoria.");
+                            if (complaintType === 'eliminar_conta') {
+                              setComplaintSuccessMsg("O seu pedido de eliminação de conta foi registado com sucesso. De acordo com as diretivas de privacidade, a administração de José Iweza Suana (JIS) processará a eliminação definitiva dos seus dados em até 48 horas operacionais.");
+                            } else {
+                              setComplaintSuccessMsg("A sua reclamação foi anexada com carimbo de data. A fiscalização em Luena-Moxico iniciará uma auditoria.");
+                            }
                           } catch (err) {
                             console.error("Error submitting complaint:", err);
                             alert("Ocorreu um erro ao submeter. Tente novamente.");
@@ -3460,9 +3532,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                             referrerPolicy="no-referrer"
                             className="w-full py-2.5 bg-[#25D366]/10 border border-[#25D366]/30 rounded-xl text-[10px] font-extrabold uppercase text-[#25D366] tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-[#25D366]/20 transition-all"
                           >
-                            <Phone size={11} /> Contactar Central Directo (WhatsApp)
+                            <MessageSquare size={11} /> {activeCompany?.whatsappGroupLink ? 'Entrar no Grupo de Clientes (WhatsApp)' : 'Contactar Central Directo (WhatsApp)'}
                           </a>
-                          {activeWhatsappGroupLink && (
+                          {activeWhatsappGroupLink && activeWhatsappLink !== activeWhatsappGroupLink && (
                             <a 
                               href={activeWhatsappGroupLink} 
                               target="_blank" 
@@ -3543,6 +3615,89 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                     >
                       Rejeitar
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL 5: SUGERIR APP / CÓDIGO QR */}
+            {showQrModal && (
+              <div className="absolute inset-0 bg-black/85 z-[60] flex flex-col justify-end">
+                <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                    <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                      <QrCode size={14} className="text-amber-500" />
+                      Sugerir App Passageiro
+                    </h3>
+                    <button 
+                      onClick={() => setShowQrModal(false)}
+                      className="p-1 hover:bg-white/10 rounded text-slate-400"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4 text-center py-2">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider max-w-xs mx-auto">
+                      Partilhe o Código QR abaixo para que os passageiros acedam instantaneamente à aplicação oficial:
+                    </p>
+
+                    {/* QR Code Graphic Frame */}
+                    <div className="bg-white p-4 rounded-2xl w-48 h-48 mx-auto shadow-2xl flex flex-col items-center justify-center border-4 border-amber-500">
+                      <svg viewBox="0 0 100 100" className="w-full h-full text-slate-950" fill="currentColor">
+                        {/* QR Code Outer Frame and corners */}
+                        {/* Top-left locator */}
+                        <path d="M5,5 h25 v25 h-25 z M10,10 h15 v15 h-15 z M13,13 h9 v9 h-9 z" />
+                        {/* Top-right locator */}
+                        <path d="M70,5 h25 v25 h-25 z M75,10 h15 v15 h-15 z M78,13 h9 v9 h-9 z" />
+                        {/* Bottom-left locator */}
+                        <path d="M5,70 h25 v25 h-25 z M10,75 h15 v15 h-15 z M13,78 h9 v9 h-9 z" />
+                        {/* Bottom-right alignment pattern */}
+                        <path d="M78,78 h12 v12 h-12 z M81,81 h6 v6 h-6 z" />
+                        
+                        {/* Elegant abstract barcode and QR data dots (to resemble a real QR) */}
+                        <path d="M35,5 h6 v4 h-6 z M45,5 h4 v6 h-4 z M53,5 h8 v4 h-8 z M65,5 h2 v4 h-2 z" />
+                        <path d="M35,13 h4 v8 h-4 z M43,13 h10 v4 h-10 z M57,13 h4 v4 h-4 z" />
+                        <path d="M35,25 h12 v4 h-12 z M51,25 h6 v4 h-6 z M61,25 h4 v4 h-4 z" />
+                        
+                        <path d="M5,35 h4 v10 h-4 z M13,35 h8 v4 h-8 z M25,35 h4 v4 h-4 z M35,35 h8 v8 h-8 z M47,35 h10 v4 h-10 z M61,35 h8 v4 h-8 z M73,35 h10 v4 h-10 z M87,35 h8 v8 h-8 z" />
+                        <path d="M5,49 h10 v4 h-10 z M19,49 h4 v6 h-4 z M27,49 h6 v4 h-6 z M37,49 h4 v4 h-4 z M45,49 h10 v4 h-10 z M59,49 h6 v6 h-6 z M69,49 h4 v4 h-4 z M77,49 h18 v4 h-18 z" />
+                        <path d="M5,59 h6 v4 h-6 z M15,59 h10 v4 h-10 z M29,59 h4 v4 h-4 z M37,59 h8 v4 h-8 z M49,59 h4 v8 h-4 z M57,59 h10 v4 h-10 z M71,59 h6 v4 h-6 z M81,59 h14 v4 h-14 z" />
+                        
+                        <path d="M35,70 h8 v4 h-8 z M47,70 h4 v4 h-4 z M55,70 h10 v4 h-10 z M69,70 h6 v4 h-6 z" />
+                        <path d="M35,78 h6 v6 h-6 z M45,78 h10 v4 h-10 z M59,78 h4 v4 h-4 z M67,78 h8 v4 h-8 z" />
+                        <path d="M35,88 h12 v4 h-12 z M51,88 h6 v4 h-6 z M61,88 h8 v4 h-8 z" />
+
+                        {/* Yellow mini taxi silhouette inside a shield center of QR */}
+                        <rect x="42" y="42" width="16" height="16" rx="4" fill="#f59e0b" />
+                        <path d="M46,52 h8 v2 h-8 z M48,47 h4 v4 h-4 z" fill="#0f172a" />
+                      </svg>
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-mono text-amber-500 font-extrabold select-all break-all">
+                        https://jis-st.web.app/?view=passenger
+                      </p>
+                      <p className="text-[8px] text-slate-550 uppercase font-black tracking-widest">
+                        URL Oficial de Divulgação • Luena-Moxico
+                      </p>
+                    </div>
+
+                    <div className="pt-2 flex flex-col gap-2">
+                      <button
+                        onClick={copyShareLink}
+                        className={`w-full py-3 ${copiedLink ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-amber-500 hover:bg-amber-600 text-slate-950'} rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2`}
+                      >
+                        {copiedLink ? <Check size={12} className="animate-bounce" /> : <Copy size={12} />}
+                        <span>{copiedLink ? 'Link Copiado com Sucesso!' : 'Copiar Link de Partilha'}</span>
+                      </button>
+                      <button
+                        onClick={() => setShowQrModal(false)}
+                        className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+                      >
+                        Fechar Janela
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -93,6 +93,12 @@ export default function App() {
     const viewParam = params.get('view')?.toLowerCase();
     if (viewParam === 'passenger' || viewParam === 'passageiro' || window.location.hash === '#passenger') {
       setShowPublicPassengerFlow(true);
+    } else if (!viewParam && typeof window !== 'undefined') {
+      // Auto-detect mobile devices when hitting the root URL to default straight to the passenger app
+      const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobileUA) {
+        setShowPublicPassengerFlow(true);
+      }
     }
   }, []);
 
