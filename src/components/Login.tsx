@@ -1088,8 +1088,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                 {loginMethod === 'recover' && (
                   <form onSubmit={handleRecover} className="space-y-4">
                     <p className="text-[11px] text-slate-500 font-medium mb-4 leading-relaxed bg-brand-primary/5 p-3.5 rounded-2xl border border-brand-primary/10">
-                      A administração gerou um <strong>Código de Ativação</strong> quando criou a sua conta. Introduza esse código junto ao seu ID para redefinir a sua palavra-passe. <br/>
-                      <span className="text-brand-primary font-black mt-1 block">Dica de Admin (JIS): Pode utilizar a Palavra-passe Principal (Ex: JIS_PASS_2026) como código para recuperar ou criar qualquer ID de administrador diretamente.</span>
+                      A administração gerou um <strong>Código de Ativação</strong> quando criou a sua conta. Introduza esse código junto ao seu ID para redefinir a sua palavra-passe.
                     </p>
 
                     {renderErrorAlert(error)}

@@ -168,11 +168,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   const [editingScale, setEditingScale] = useState<any | null>(null);
   const [isEditScaleModalOpen, setIsEditScaleModalOpen] = useState(false);
   const [vehicleSearch, setVehicleSearch] = useState('');
+  const [opsConsoleView, setOpsConsoleView] = useState<'ai' | 'gateway' | 'shift'>('ai');
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
   const [isGatewayOpen, setIsGatewayOpen] = useState(false);
+  const [isAiInsightsOpen, setIsAiInsightsOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [showAllLogs, setShowAllLogs] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const showCustomNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -705,6 +708,61 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
            </div>
          )}
 
+         {isAiInsightsOpen && (
+           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+             <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
+               <div className="flex items-center gap-2">
+                 <Sparkles size={14} className="text-brand-primary animate-pulse" />
+                 <h2 className="text-sm font-black text-white uppercase tracking-wider">Auditoria de Inteligência Artificial</h2>
+               </div>
+               <button 
+                 onClick={() => setIsAiInsightsOpen(false)} 
+                 className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
+               >
+                 <X size={18} />
+               </button>
+             </header>
+             <div className="flex-1 overflow-y-auto p-6 bg-slate-950 flex flex-col justify-between">
+               <div className="space-y-6">
+                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] relative overflow-hidden shadow-2xl">
+                   <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                     <Sparkles size={160} className="text-brand-primary" />
+                   </div>
+                   <p className="text-[9px] font-black uppercase text-brand-primary tracking-[0.2em] mb-4 flex items-center gap-1.5">
+                     <Sparkles size={11} className="animate-pulse" /> Gemini 1.5 Flash Ativo
+                   </p>
+                   <div className={cn(
+                     "min-h-[120px] transition-all duration-500",
+                     isAiLoading ? "opacity-50 blur-[1px]" : "opacity-100 blur-0"
+                   )}>
+                     <p className="text-sm font-medium leading-relaxed italic text-slate-200">
+                       "{aiInsights}"
+                     </p>
+                   </div>
+                 </div>
+
+                 <div className="bg-slate-900/40 border border-slate-800/60 p-5 rounded-2xl">
+                   <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-2">Sobre esta Auditoria</h4>
+                   <p className="text-[11px] text-slate-500 leading-relaxed font-medium">
+                     Esta auditoria de IA analisa em tempo real os dados operacionais mais recentes da sua frota em Luena, incluindo chamadas de clientes, escalas de turno e status financeiro, sugerindo recomendações estratégicas para o seu dia.
+                   </p>
+                 </div>
+               </div>
+
+               <div className="pt-6 border-t border-slate-800/60">
+                 <button 
+                   onClick={fetchAiInsights}
+                   disabled={isAiLoading}
+                   className="w-full bg-white text-slate-900 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                 >
+                   <RefreshCw size={14} className={cn(isAiLoading && "animate-spin")} />
+                   Atualizar Auditoria IA
+                 </button>
+               </div>
+             </div>
+           </div>
+         )}
+
          {isGatewayOpen && (
            <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
              <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
@@ -942,120 +1000,52 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   <p className="text-[11px] text-slate-400 font-medium leading-relaxed mb-4">
                     Monitorização em tempo real de chamadas, frotas e fluxos financeiros diretamente no seu terminal.
                   </p>
-                  <button 
-                    onClick={() => setActiveTab('ops')}
-                    className="w-full bg-white text-slate-900 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all"
-                  >
-                    Monitorizar Canais Live
-                    <ChevronRight size={14} />
-                  </button>
+                  
+                  <div className="space-y-4">
+                    <button 
+                      onClick={() => setActiveTab('ops')}
+                      className="w-full bg-white text-slate-900 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all cursor-pointer"
+                    >
+                      Monitorizar Canais Live
+                      <ChevronRight size={14} />
+                    </button>
+
+                    {/* Divider */}
+                    <div className="h-px bg-slate-800/60 my-4" />
+
+                    {/* Fast Access Operations Row */}
+                    <div className="grid grid-cols-3 gap-2.5 mt-2">
+                       <button
+                          type="button"
+                          onClick={() => setIsAiInsightsOpen(true)}
+                          className="flex flex-col items-center justify-center p-3.5 rounded-2xl bg-slate-950 border border-slate-800 hover:border-brand-primary active:scale-95 transition-all text-slate-300 hover:text-white cursor-pointer"
+                       >
+                          <Sparkles size={16} className="text-brand-primary mb-1.5 animate-pulse" />
+                          <span className="text-[9px] font-black uppercase tracking-wider">IA Audit</span>
+                       </button>
+                       <button
+                          type="button"
+                          onClick={() => setIsGatewayOpen(true)}
+                          className="flex flex-col items-center justify-center p-3.5 rounded-2xl bg-slate-950 border border-slate-800 hover:border-brand-primary active:scale-95 transition-all text-slate-300 hover:text-white cursor-pointer"
+                       >
+                          <Smartphone size={16} className="text-brand-primary mb-1.5" />
+                          <span className="text-[9px] font-black uppercase tracking-wider">Gateway</span>
+                       </button>
+                       <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('fleet');
+                            setFleetSubTab('scales');
+                          }}
+                          className="flex flex-col items-center justify-center p-3.5 rounded-2xl bg-slate-950 border border-slate-800 hover:border-brand-primary active:scale-95 transition-all text-slate-300 hover:text-white cursor-pointer"
+                       >
+                          <Clock size={16} className="text-brand-primary mb-1.5" />
+                          <span className="text-[9px] font-black uppercase tracking-wider">Turnos</span>
+                       </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-
-            {/* AI Technical Dashboard Insight */}
-            <div className="bg-slate-900 border border-slate-800 rounded-[2rem] p-6 relative overflow-hidden group">
-               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <Zap size={60} className="text-brand-primary" />
-               </div>
-               <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-3">
-                     <Sparkles size={14} className="text-brand-primary animate-pulse" />
-                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-primary italic">AI Insights Técnico</span>
-                  </div>
-                  <div className={cn(
-                    "min-h-[60px] flex items-center transition-all duration-500",
-                    isAiLoading ? "opacity-50 blur-[1px]" : "opacity-100 blur-0"
-                  )}>
-                    <p className="text-[13px] font-medium leading-relaxed italic text-slate-200">
-                      "{aiInsights}"
-                    </p>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between">
-                     <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                        <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Motor Gemini 1.5 Flash Ativo</span>
-                     </div>
-                     <button 
-                       onClick={fetchAiInsights}
-                       disabled={isAiLoading}
-                       className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 transition-colors"
-                     >
-                       <RefreshCw size={12} className={cn(isAiLoading && "animate-spin")} />
-                     </button>
-                  </div>
-               </div>
-            </div>
-
-            {/* Smartphone Fleet Gateway Sync Card */}
-            <div className="bg-brand-primary p-6 rounded-[2rem] text-white shadow-xl shadow-brand-primary/20 relative overflow-hidden">
-               <div className="absolute -right-8 -bottom-8 opacity-10 rotate-12">
-                  <Smartphone size={150} />
-               </div>
-               <div className="relative z-10">
-                  <div className="flex items-center gap-4 mb-4">
-                     <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md border border-white/20">
-                        <Smartphone size={24} />
-                     </div>
-                     <div>
-                        <h4 className="text-[11px] font-black text-white/60 uppercase tracking-widest leading-none mb-1">Fleet Gateway</h4>
-                        <div className="text-xl font-black italic tracking-tighter flex items-center gap-2">
-                           Sincronização Ativa
-                           <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-                        </div>
-                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                     <div className="bg-white/10 p-3 rounded-xl backdrop-blur-sm border border-white/10">
-                        <p className="text-[9px] font-black text-white/50 uppercase tracking-widest">Latência</p>
-                        <p className="text-lg font-black text-white">84ms</p>
-                     </div>
-                     <div className="bg-white/10 p-3 rounded-xl backdrop-blur-sm border border-white/10">
-                        <p className="text-[9px] font-black text-white/50 uppercase tracking-widest">Handshake</p>
-                        <p className="text-lg font-black text-white">Verified</p>
-                     </div>
-                  </div>
-               </div>
-            </div>
-
-            {/* Shift Context Card */}
-            <div className="bg-slate-900 p-5 rounded-[2rem] border border-slate-800 shadow-sm relative overflow-hidden">
-               <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                     <div className="w-10 h-10 bg-brand-primary/10 text-brand-primary rounded-xl flex items-center justify-center border border-brand-primary/20">
-                        <Clock size={20} />
-                     </div>
-                     <div>
-                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Escala de Turno</p>
-                        <p className="text-xs font-black text-white uppercase italic">Status Operacional</p>
-                     </div>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      setActiveTab('fleet');
-                      setFleetSubTab('scales');
-                    }}
-                    className="text-[9px] font-black text-brand-primary uppercase underline"
-                  >
-                    Ver Tudo
-                  </button>
-               </div>
-               <div className="space-y-2">
-                  {shifts.slice(0, 2).map((s, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800">
-                       <span className="text-[10px] font-black text-slate-300 uppercase truncate max-w-[120px]">{s.driverName}</span>
-                       <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-bold text-slate-500">{s.prefix}</span>
-                          <span className={cn(
-                            "px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest",
-                            s.shift === 'Diurno' ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" : "bg-indigo-500/10 text-indigo-500 border border-indigo-500/20"
-                          )}>
-                            {s.shift}
-                          </span>
-                       </div>
-                    </div>
-                  ))}
-               </div>
             </div>
 
             {/* Quick Summary Grid */}
@@ -1094,7 +1084,13 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             <div>
               <div className="flex items-center justify-between mb-4 px-1">
                 <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic tracking-wide">Últimas Chamadas</h3>
-                <button className="text-[9px] font-black text-brand-primary uppercase underline">Ver Histórico</button>
+                <button 
+                  type="button"
+                  onClick={() => setIsGatewayOpen(true)}
+                  className="text-[10px] font-black text-brand-primary bg-slate-800 hover:bg-slate-700 text-white uppercase px-3.5 py-2 rounded-xl cursor-pointer hover:text-white transition-all shadow-sm active:scale-95"
+                >
+                  Ver Histórico
+                </button>
               </div>
               <div className="space-y-3 min-h-[100px]">
                 {(!dataReady.calls && calls.length === 0) ? (
@@ -1103,7 +1099,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                     <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando Chamadas...</p>
                   </div>
                 ) : (
-                  (calls || []).slice(0, 5).map((call: any, idx: number) => {
+                  (calls || []).slice(0, 3).map((call: any, idx: number) => {
                     if (!call) return null;
                     return (
                       <div key={idx} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between shadow-sm shadow-black/10">
@@ -1442,11 +1438,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
              <div className="space-y-4">
                 <div className="flex items-center justify-between px-1">
                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Fluxo de Rendas PSM</h3>
-                   <button className="text-[9px] font-black text-brand-primary uppercase underline">Ver Todos os Logs</button>
+                   <button 
+                     type="button"
+                     onClick={() => setShowAllLogs(!showAllLogs)}
+                     className="text-[10px] font-black text-brand-primary bg-slate-800 hover:bg-slate-700 text-white uppercase px-3.5 py-2 rounded-xl cursor-pointer hover:opacity-90 active:scale-95 transition-all"
+                   >
+                     {showAllLogs ? "Ver Menos Logs" : "Ver Todos os Logs"}
+                   </button>
                 </div>
                 
                 <div className="space-y-3">
-                   {revenueLogs.slice(0, 10).map((log, idx) => (
+                   {(showAllLogs ? revenueLogs : revenueLogs.slice(0, 3)).map((log, idx) => (
                      <div key={idx} className="bg-slate-900 p-5 rounded-[1.5rem] border border-slate-800 shadow-sm relative overflow-hidden flex items-center justify-between">
                         <div className="flex items-center gap-4">
                            <div className="w-10 h-10 bg-slate-950 rounded-xl flex items-center justify-center text-emerald-500 border border-slate-800">

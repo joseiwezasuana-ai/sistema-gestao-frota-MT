@@ -139,17 +139,25 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
       const q = query(
         collection(db, 'access_codes'), 
         where('code', '==', accessCode.trim().toUpperCase()),
-        where('assignedId', '==', id.trim().toUpperCase()),
         where('used', '==', false)
       );
       const querySnapshot = await withTimeout(getDocs(q));
 
       if (querySnapshot.empty) {
-        throw new Error("Código de acesso ou ID inválidos nesta empresa.");
+        throw new Error("Código de acesso inválido ou já utilizado nesta empresa.");
       }
 
       const codeDoc = querySnapshot.docs[0];
       const codeData = codeDoc.data();
+
+      // Check case-insensitive assignedId matching (if set in database)
+      if (codeData.assignedId && codeData.assignedId.trim()) {
+        const expectedId = codeData.assignedId.trim().toUpperCase();
+        const inputId = id.trim().toUpperCase();
+        if (expectedId !== inputId) {
+          throw new Error(`O ID do Colaborador (${inputId}) não corresponde ao ID autorizado para este Código (${expectedId}).`);
+        }
+      }
       
       setVerifiedTenantId(cleanTenantId);
       setValidationRole(codeData.role);
@@ -253,7 +261,6 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
         const q = query(
           collection(db, 'access_codes'), 
           where('code', '==', accessCode.trim().toUpperCase()), 
-          where('assignedId', '==', id.trim().toUpperCase()),
           where('used', '==', false)
         );
         
@@ -266,7 +273,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
         }
 
         if (codeSnap.empty) {
-          setError('Código de acesso ou ID inválidos ou já utilizados.');
+          setError('Código de acesso inválido ou já utilizado.');
           setIsSubmitting(false);
           return;
         }
@@ -274,6 +281,17 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
         const codeDoc = codeSnap.docs[0];
         const codeData = codeDoc.data();
         const codeRef = codeDoc.ref;
+
+        // Check case-insensitive assignedId matching (if set in database)
+        if (codeData.assignedId && codeData.assignedId.trim()) {
+          const expectedId = codeData.assignedId.trim().toUpperCase();
+          const inputId = id.trim().toUpperCase();
+          if (expectedId !== inputId) {
+            setError(`O ID do Colaborador (${inputId}) não corresponde ao ID autorizado para este Código (${expectedId}).`);
+            setIsSubmitting(false);
+            return;
+          }
+        }
         
         // Mark code as used
         try {

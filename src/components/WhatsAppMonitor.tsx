@@ -32,7 +32,14 @@ import {
   Send,
   Camera,
   Loader2,
-  Forward
+  Forward,
+  Video,
+  ArrowLeft,
+  Volume2,
+  Play,
+  Square,
+  Download,
+  Activity
 } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from '@/src/lib/firebase';
@@ -124,6 +131,8 @@ interface WhatsAppMonitorProps {
 
 export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, isAdmin = false }: WhatsAppMonitorProps) {
   const [activeTab, setActiveTab] = useState<'drivers' | 'clients' | 'baileys' | 'meta_webhook'>('drivers');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const isChatFullscreen = isFullscreen && (activeTab === 'drivers' || activeTab === 'clients');
   const [driverMessages, setDriverMessages] = useState<WhatsAppMessage[]>(MOCK_DRIVERS_MESSAGES);
   const [clientMessages, setClientMessages] = useState<WhatsAppMessage[]>(MOCK_CLIENTS_MESSAGES);
   const [searchTerm, setSearchTerm] = useState('');
@@ -132,6 +141,182 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
   const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
   const cameraInputRef = useRef<HTMLInputElement>(null); // Ref for camera input
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Estados para as Ferramentas Interativas do Cabeçalho
+  const [isPhoneModalOpen, setIsPhoneModalOpen] = useState(false);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLocalSearchOpen, setIsLocalSearchOpen] = useState(false);
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+
+  // Estados para Chamadas de Voz GSM/Rádio
+  const [selectedDriverForCall, setSelectedDriverForCall] = useState<any>(null);
+  const [callStatus, setCallStatus] = useState<'idle' | 'dialing' | 'active' | 'ended'>('idle');
+  const [callTimer, setCallTimer] = useState(0);
+  const [isCallMuted, setIsCallMuted] = useState(false);
+  const [isRecordingCall, setIsRecordingCall] = useState(false);
+  const [callLogs, setCallLogs] = useState<any[]>([
+    { id: 'cl1', driverName: 'Augusto Silva (T-04)', phone: '+244 923 111 222', type: 'audio', duration: '5m 12s', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), status: 'completed' },
+    { id: 'cl2', driverName: 'Pedro Kiala (T-12)', phone: '+244 931 444 555', type: 'audio', duration: '0m 0s', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 4), status: 'missed' },
+    { id: 'cl3', driverName: 'José Manuel (T-09)', phone: '+244 945 777 888', type: 'radio', duration: '2m 45s', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 6), status: 'completed' },
+  ]);
+
+  // Estados para Vídeo-Vigilância Live
+  const [selectedDriverForVideo, setSelectedDriverForVideo] = useState<any>(null);
+  const [videoStatus, setVideoStatus] = useState<'idle' | 'streaming'>('idle');
+  const [videoCameraType, setVideoCameraType] = useState<'cabin' | 'road'>('road');
+  const [videoTimer, setVideoTimer] = useState(0);
+  const [simulatedSpeed, setSimulatedSpeed] = useState(45);
+  const [simulatedCoords, setSimulatedCoords] = useState({ lat: -11.7825, lon: 19.9142 });
+
+  // Estados para Forçar Sincronização GSM
+  const [isSyncingGsm, setIsSyncingGsm] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncStatusText, setSyncStatusText] = useState('');
+
+  // Telemetria de Chamadas Unitel / Movicel em tempo real
+  const [incomingTelemetryCall, setIncomingTelemetryCall] = useState<any | null>(null);
+
+  // Sintetizador de Som de Toque Operacional (Beep Duplo Unitel via Web Audio API)
+  const playRingtone = () => {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      
+      const playBeep = (delay: number) => {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        
+        osc1.frequency.setValueAtTime(440, ctx.currentTime + delay);
+        osc2.frequency.setValueAtTime(480, ctx.currentTime + delay);
+        
+        gainNode.gain.setValueAtTime(0, ctx.currentTime + delay);
+        gainNode.gain.linearRampToValueAtTime(0.12, ctx.currentTime + delay + 0.1);
+        gainNode.gain.setValueAtTime(0.12, ctx.currentTime + delay + 0.6);
+        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + delay + 0.8);
+        
+        osc1.connect(gainNode);
+        osc2.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        
+        osc1.start(ctx.currentTime + delay);
+        osc2.start(ctx.currentTime + delay);
+        
+        osc1.stop(ctx.currentTime + delay + 1.0);
+        osc2.stop(ctx.currentTime + delay + 1.0);
+      };
+      
+      playBeep(0);
+      playBeep(1.2);
+    } catch (e) {
+      console.warn("Audio Context blocked or not supported:", e);
+    }
+  };
+
+  // Efeito para simulação automática de Telemetria de Chamadas UNITEL/Movicel (Despertar do Sistema)
+  useEffect(() => {
+    const listCallers = [
+      { name: 'Delfina Manuel', phone: '+244 925 333 444', network: 'UNITEL', cellId: 'LUE-UNITEL-049', strength: '-78 dBm', area: 'Luena Central (Hospital Geral)' },
+      { name: 'António Cavula', phone: '+244 932 555 666', network: 'UNITEL', cellId: 'LUE-UNITEL-012', strength: '-82 dBm', area: 'Mercado Municipal' },
+      { name: 'Fátima Ndala', phone: '+244 921 445 778', network: 'UNITEL', cellId: 'LUE-UNITEL-105', strength: '-65 dBm', area: 'Bairro Social' },
+      { name: 'João Valério', phone: '+244 939 122 344', network: 'MOVICEL', cellId: 'LUE-MOVI-003', strength: '-91 dBm', area: 'Aeroporto do Luena' },
+      { name: 'Mariana Kassanga', phone: '+244 924 889 112', network: 'UNITEL', cellId: 'LUE-UNITEL-022', strength: '-72 dBm', area: 'Bairro Sangondo' }
+    ];
+
+    const triggerCall = () => {
+      if (incomingTelemetryCall || callStatus === 'active' || isPhoneModalOpen || isVideoModalOpen) return;
+      
+      const randomCaller = listCallers[Math.floor(Math.random() * listCallers.length)];
+      setIncomingTelemetryCall({
+        id: `tel-${Date.now()}`,
+        name: randomCaller.name,
+        phone: randomCaller.phone,
+        network: randomCaller.network,
+        cellId: randomCaller.cellId,
+        strength: randomCaller.strength,
+        area: randomCaller.area,
+        timestamp: new Date()
+      });
+      playRingtone();
+    };
+
+    // Primeiro disparo em 25 segundos, depois a cada 75 segundos
+    const initialTimeout = setTimeout(triggerCall, 25000);
+    const interval = setInterval(triggerCall, 75000);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+  }, [incomingTelemetryCall, callStatus, isPhoneModalOpen, isVideoModalOpen]);
+
+  // Função para despoletar manualmente uma chamada de telemetria UNITEL
+  const forceTriggerTelemetryCall = () => {
+    const listCallers = [
+      { name: 'Delfina Manuel', phone: '+244 925 333 444', network: 'UNITEL', cellId: 'LUE-UNITEL-049', strength: '-78 dBm', area: 'Luena Central (Hospital Geral)' },
+      { name: 'António Cavula', phone: '+244 932 555 666', network: 'UNITEL', cellId: 'LUE-UNITEL-012', strength: '-82 dBm', area: 'Mercado Municipal' },
+      { name: 'Fátima Ndala', phone: '+244 921 445 778', network: 'UNITEL', cellId: 'LUE-UNITEL-105', strength: '-65 dBm', area: 'Bairro Social' },
+      { name: 'João Valério', phone: '+244 939 122 344', network: 'MOVICEL', cellId: 'LUE-MOVI-003', strength: '-91 dBm', area: 'Aeroporto do Luena' },
+      { name: 'Mariana Kassanga', phone: '+244 924 889 112', network: 'UNITEL', cellId: 'LUE-UNITEL-022', strength: '-72 dBm', area: 'Bairro Sangondo' }
+    ];
+    const randomCaller = listCallers[Math.floor(Math.random() * listCallers.length)];
+    setIncomingTelemetryCall({
+      id: `tel-${Date.now()}`,
+      name: randomCaller.name,
+      phone: randomCaller.phone,
+      network: randomCaller.network,
+      cellId: randomCaller.cellId,
+      strength: randomCaller.strength,
+      area: randomCaller.area,
+      timestamp: new Date()
+    });
+    playRingtone();
+    showCustomToast('⚡ Telemetria de Chamada UNITEL disparada com sucesso!', 'info');
+  };
+
+  // Auxiliar para formatar cronómetros (ex: 01:23)
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Efeito para o Cronómetro da Chamada GSM/Rádio
+  useEffect(() => {
+    let interval: any;
+    if (callStatus === 'active') {
+      interval = setInterval(() => {
+        setCallTimer(prev => prev + 1);
+      }, 1000);
+    } else if (callStatus === 'idle') {
+      setCallTimer(0);
+    }
+    return () => clearInterval(interval);
+  }, [callStatus]);
+
+  // Efeito para o Cronómetro do Streaming de Vídeo
+  useEffect(() => {
+    let interval: any;
+    if (videoStatus === 'streaming') {
+      interval = setInterval(() => {
+        setVideoTimer(prev => prev + 1);
+        setSimulatedSpeed(prev => {
+          const change = Math.floor(Math.random() * 7) - 3;
+          const next = prev + change;
+          return Math.max(10, Math.min(next, 95));
+        });
+        setSimulatedCoords(prev => ({
+          lat: prev.lat + (Math.random() * 0.0002 - 0.0001),
+          lon: prev.lon + (Math.random() * 0.0002 - 0.0001)
+        }));
+      }, 1000);
+    } else if (videoStatus === 'idle') {
+      setVideoTimer(0);
+    }
+    return () => clearInterval(interval);
+  }, [videoStatus]);
 
   // ... (rest of the component)
 
@@ -295,13 +480,83 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
     }
   }, [driverMessages, clientMessages, activeTab, showSettings, baileysServerState.logs]);
 
+  // Estado para Notificações Flutuantes (Toasts)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showCustomToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleForceGsmSync = () => {
+    if (isSyncingGsm) return;
+    setIsSyncingGsm(true);
+    setSyncProgress(10);
+    setSyncStatusText('A iniciar ligação GSM via Luena Hub...');
+    
+    const steps = [
+      { progress: 30, text: 'A conectar com os telemóveis activos dos motoristas...' },
+      { progress: 60, text: 'A extrair chamadas, sms e registos de rádio...' },
+      { progress: 90, text: 'A enviar registos telemétricos e pânicos S.O.S de Luena...' },
+      { progress: 100, text: 'Sincronização concluída com sucesso!' }
+    ];
+
+    let currentStep = 0;
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setSyncProgress(steps[currentStep].progress);
+        setSyncStatusText(steps[currentStep].text);
+        currentStep++;
+      } else {
+        clearInterval(interval);
+        setTimeout(() => {
+          setIsSyncingGsm(false);
+          // Adicionar um log simulado na lista de mensagens se for drivers
+          const syncAlert: WhatsAppMessage = {
+            id: `sync-${Date.now()}`,
+            sender: 'Central Operacional',
+            phone: 'SISTEMA',
+            text: '📡 SINCRONIZAÇÃO GSM CONCLUÍDA: Todos os registos de rádio, relatórios de chamadas de voz e sms operacionais foram transmitidos das viaturas de campo para o Moxico Hub com sucesso.',
+            timestamp: new Date(),
+            type: 'alert',
+            isOperational: true
+          };
+          if (activeTab === 'drivers') {
+            setDriverMessages(prev => [...prev, syncAlert]);
+          } else {
+            setClientMessages(prev => [...prev, syncAlert]);
+          }
+          showCustomToast('Logs GSM sincronizados com o banco de dados com sucesso!', 'success');
+        }, 1000);
+      }
+    }, 1200);
+  };
+
+  const handleExportLogs = () => {
+    const logsText = currentMessages.map(m => 
+      `[${m.timestamp.toISOString()}] ${m.sender} (${m.phone}): ${m.text}`
+    ).join('\n');
+    
+    const blob = new Blob([logsText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Dossier_Comunicacoes_${activeTab === 'drivers' ? 'Motoristas' : 'Clientes'}_${new Date().toISOString().split('T')[0]}.txt`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showCustomToast('Dossier de comunicações exportado com sucesso!', 'success');
+  };
+
   const currentMessages = activeTab === 'drivers' ? driverMessages : clientMessages;
 
-  const filteredMessages = currentMessages.filter(msg => 
-    msg.text.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    msg.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    msg.phone.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredMessages = currentMessages.filter(msg => {
+    const queryToUse = isLocalSearchOpen ? localSearchQuery : searchTerm;
+    if (!queryToUse) return true;
+    return msg.text.toLowerCase().includes(queryToUse.toLowerCase()) ||
+      msg.sender.toLowerCase().includes(queryToUse.toLowerCase()) ||
+      msg.phone.toLowerCase().includes(queryToUse.toLowerCase());
+  });
 
   // Send outbound message via Baileys API
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -483,129 +738,147 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
 
 
   return (
-    <div className={cn("flex flex-col bg-slate-50 dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xl transition-all flex-1 min-h-[600px]", (isMechanicView || isDriverView) ? "h-full" : "h-[850px]")}>
+    <div className={cn(
+      "flex flex-col bg-slate-50 dark:bg-slate-900 overflow-hidden transition-all flex-1",
+      isFullscreen
+        ? "fixed inset-0 z-[9999] h-screen w-screen rounded-none border-none shadow-none"
+        : cn("rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl min-h-[600px]", (isMechanicView || isDriverView) ? "h-full" : "h-[850px]")
+    )}>
       {/* Header Premium */}
-      <div className="p-5 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-500 dark:bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20 rotate-3">
-            <MessageSquare size={24} />
-          </div>
-          <div>
-            <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-lg leading-none">Monitor WhatsApp</h3>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-md">
-                <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", isConnected ? "bg-emerald-500" : "bg-red-500")} />
-                {isConnected ? 'Online' : 'Offline'}
-              </span>
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">• LUENA HUB</span>
+      {!isChatFullscreen && (
+        <div className="p-5 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-emerald-500 dark:bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20 rotate-3">
+              <MessageSquare size={24} />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-lg leading-none">Monitor WhatsApp</h3>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-md">
+                  <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", isConnected ? "bg-emerald-500" : "bg-red-500")} />
+                  {isConnected ? 'Online' : 'Offline'}
+                </span>
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">• LUENA HUB</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex flex-col items-right text-right mr-2 leading-none">
-            <span className="text-[9px] font-black text-slate-400 uppercase">Audit Hub</span>
-            <span className="text-[10px] font-black text-slate-900 dark:text-white italic">Ativo 24h</span>
-          </div>
-          {isAdmin && (
-          <button 
-            onClick={() => setShowSettings(!showSettings)}
-            className={cn(
-              "w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-90 border shadow-lg",
-              showSettings 
-                ? "bg-slate-900 text-white border-slate-900" 
-                : "bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-705"
+          <div className="flex items-center gap-3">
+            {isFullscreen && (
+              <button 
+                onClick={() => setIsFullscreen(false)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer shadow-lg shadow-rose-500/20"
+              >
+                <X size={14} />
+                Sair da Tela Cheia
+              </button>
             )}
-          >
-            {showSettings ? <X size={20} /> : <Settings size={20} />}
-          </button>
-          )}
+            <div className="hidden sm:flex flex-col items-right text-right mr-2 leading-none">
+              <span className="text-[9px] font-black text-slate-400 uppercase">Audit Hub</span>
+              <span className="text-[10px] font-black text-slate-900 dark:text-white italic">Ativo 24h</span>
+            </div>
+            {isAdmin && (
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className={cn(
+                "w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-90 border shadow-lg",
+                showSettings 
+                  ? "bg-slate-900 text-white border-slate-900" 
+                  : "bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-705"
+              )}
+            >
+              {showSettings ? <X size={20} /> : <Settings size={20} />}
+            </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Enhanced Tabs Selector */}
-      <div className="flex bg-slate-100 dark:bg-slate-950 p-1.5 gap-1.5 shrink-0 overflow-x-auto custom-scrollbar no-scrollbar">
-        <button
-          id="btn-tab-drivers"
-          onClick={() => { setActiveTab('drivers'); setSearchTerm(''); }}
-          className={cn(
-            "flex-1 py-3 px-3 rounded-2xl transition-all flex items-center justify-center gap-2 border",
-            activeTab === 'drivers'
-              ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white shadow-xl"
-              : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700"
-          )}
-        >
-          <User size={15} />
-          <div className="flex flex-col items-start text-left">
-            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Frota Live</span>
-            <span className={cn("text-[8px] font-bold mt-0.5", activeTab === 'drivers' ? "text-slate-300 dark:text-slate-500" : "text-emerald-500")}>
-              {driverMessages.length} Activos
-            </span>
-          </div>
-        </button>
-        {!isMechanicView && (
+      {!isChatFullscreen && (
+        <div className="flex bg-slate-100 dark:bg-slate-950 p-1.5 gap-1.5 shrink-0 overflow-x-auto custom-scrollbar no-scrollbar">
           <button
-            id="btn-tab-clients"
-            onClick={() => { setActiveTab('clients'); setSearchTerm(''); }}
+            id="btn-tab-drivers"
+            onClick={() => { setActiveTab('drivers'); setSearchTerm(''); setIsFullscreen(true); }}
             className={cn(
               "flex-1 py-3 px-3 rounded-2xl transition-all flex items-center justify-center gap-2 border",
-              activeTab === 'clients'
+              activeTab === 'drivers'
                 ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white shadow-xl"
                 : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700"
             )}
           >
-            <MessageSquare size={15} />
+            <User size={15} />
             <div className="flex flex-col items-start text-left">
-              <span className="text-[10px] font-black uppercase tracking-widest leading-none">Clientes</span>
-              <span className={cn("text-[8px] font-bold mt-0.5", activeTab === 'clients' ? "text-slate-300 dark:text-slate-500" : "text-blue-500")}>
-                {clientMessages.length} Mensagens
+              <span className="text-[10px] font-black uppercase tracking-widest leading-none">Frota Live</span>
+              <span className={cn("text-[8px] font-bold mt-0.5", activeTab === 'drivers' ? "text-slate-300 dark:text-slate-500" : "text-emerald-500")}>
+                {driverMessages.length} Activos
               </span>
             </div>
           </button>
-        )}
-        {showBaileysTab && (
-          <>
+          {!isMechanicView && (
             <button
-              id="btn-tab-baileys"
-              onClick={() => { setActiveTab('baileys'); setSearchTerm(''); }}
+              id="btn-tab-clients"
+              onClick={() => { setActiveTab('clients'); setSearchTerm(''); setIsFullscreen(true); }}
               className={cn(
                 "flex-1 py-3 px-3 rounded-2xl transition-all flex items-center justify-center gap-2 border",
-                activeTab === 'baileys'
-                  ? "bg-amber-500 text-slate-950 border-amber-500 shadow-xl"
-                  : "bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 border-slate-200 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                activeTab === 'clients'
+                  ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white shadow-xl"
+                  : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700"
               )}
             >
-              <Zap size={15} className={activeTab === 'baileys' ? "animate-bounce" : "animate-pulse"} />
+              <MessageSquare size={15} />
               <div className="flex flex-col items-start text-left">
-                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Gateway</span>
-                <span className={cn("text-[8px] font-bold mt-0.5 whitespace-nowrap", activeTab === 'baileys' ? "text-amber-900" : "text-amber-600/70")}>
-                  Baileys Hub
+                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Clientes</span>
+                <span className={cn("text-[8px] font-bold mt-0.5", activeTab === 'clients' ? "text-slate-300 dark:text-slate-500" : "text-blue-500")}>
+                  {clientMessages.length} Mensagens
                 </span>
               </div>
             </button>
-            <button
-              id="btn-tab-meta"
-              onClick={() => { setActiveTab('meta_webhook'); setSearchTerm(''); }}
-              className={cn(
-                "flex-1 py-3 px-3 rounded-2xl transition-all flex items-center justify-center gap-2 border",
-                activeTab === 'meta_webhook'
-                  ? "bg-emerald-500 text-slate-950 border-emerald-500 shadow-xl"
-                  : "bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-              )}
-            >
-              <Globe size={15} className={activeTab === 'meta_webhook' && metaWebhookState.online ? "animate-pulse" : ""} />
-              <div className="flex flex-col items-start text-left">
-                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Meta API</span>
-                <span className={cn("text-[8px] font-bold mt-0.5 whitespace-nowrap", activeTab === 'meta_webhook' ? "text-emerald-900" : "text-emerald-600/70")}>
-                  Webhook
-                </span>
-              </div>
-            </button>
-          </>
-        )}
-      </div>
+          )}
+          {showBaileysTab && (
+            <>
+              <button
+                id="btn-tab-baileys"
+                onClick={() => { setActiveTab('baileys'); setSearchTerm(''); }}
+                className={cn(
+                  "flex-1 py-3 px-3 rounded-2xl transition-all flex items-center justify-center gap-2 border",
+                  activeTab === 'baileys'
+                    ? "bg-amber-500 text-slate-950 border-amber-500 shadow-xl"
+                    : "bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 border-slate-200 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                )}
+              >
+                <Zap size={15} className={activeTab === 'baileys' ? "animate-bounce" : "animate-pulse"} />
+                <div className="flex flex-col items-start text-left">
+                  <span className="text-[10px] font-black uppercase tracking-widest leading-none">Gateway</span>
+                  <span className={cn("text-[8px] font-bold mt-0.5 whitespace-nowrap", activeTab === 'baileys' ? "text-amber-900" : "text-amber-600/70")}>
+                    Baileys Hub
+                  </span>
+                </div>
+              </button>
+              <button
+                id="btn-tab-meta"
+                onClick={() => { setActiveTab('meta_webhook'); setSearchTerm(''); }}
+                className={cn(
+                  "flex-1 py-3 px-3 rounded-2xl transition-all flex items-center justify-center gap-2 border",
+                  activeTab === 'meta_webhook'
+                    ? "bg-emerald-500 text-slate-950 border-emerald-500 shadow-xl"
+                    : "bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                )}
+              >
+                <Globe size={15} className={activeTab === 'meta_webhook' && metaWebhookState.online ? "animate-pulse" : ""} />
+                <div className="flex flex-col items-start text-left">
+                  <span className="text-[10px] font-black uppercase tracking-widest leading-none">Meta API</span>
+                  <span className={cn("text-[8px] font-bold mt-0.5 whitespace-nowrap", activeTab === 'meta_webhook' ? "text-emerald-900" : "text-emerald-600/70")}>
+                    Webhook
+                  </span>
+                </div>
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Enhanced Toolbar */}
-      {!showSettings && (
+      {!showSettings && !isChatFullscreen && (
         <div className="px-5 py-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-4 shrink-0 shadow-sm relative z-10">
           <div className="relative flex-1 group">
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
@@ -1216,135 +1489,347 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
           </div>
         </div>
       ) : (
-        <div 
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
-        >
-          <AnimatePresence initial={false}>
-            {filteredMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400 py-12">
-                <MessageSquare size={28} className="opacity-40 mb-2" />
-                <p className="text-xs font-bold uppercase tracking-wider">Nenhuma mensagem encontrada</p>
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Authentic WhatsApp Chat Header */}
+          <div className="px-4 py-3 bg-[#075e54] dark:bg-[#202c33] text-white flex items-center justify-between shadow-md shrink-0 relative">
+            {isLocalSearchOpen ? (
+              <div className="flex items-center gap-3 w-full animate-in fade-in slide-in-from-top-1 duration-150">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLocalSearchOpen(false);
+                    setLocalSearchQuery('');
+                  }}
+                  className="p-1.5 hover:bg-white/10 rounded-full transition-all text-white flex items-center justify-center cursor-pointer"
+                  title="Voltar"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <input
+                  type="text"
+                  placeholder="Pesquisar mensagens neste canal..."
+                  value={localSearchQuery}
+                  onChange={(e) => setLocalSearchQuery(e.target.value)}
+                  className="flex-1 bg-transparent border-none outline-none text-white placeholder-white/60 text-sm font-bold"
+                  autoFocus
+                />
+                {localSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setLocalSearchQuery('')}
+                    className="p-1 hover:bg-white/10 rounded-full text-white cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
               </div>
             ) : (
-              filteredMessages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  className={`flex flex-col max-w-[85%] ${
-                    msg.sender === 'Central Operacional' || msg.sender === 'Operador Central' 
-                      ? 'ml-auto mr-0' 
-                      : 'mr-auto ml-0'
-                  }`}
-                >
-                  {msg.type === 'alert' ? (
-                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-xl flex items-start gap-3 w-full">
-                      <div className="p-2 bg-amber-100 dark:bg-amber-900/40 text-amber-600 rounded-lg shrink-0">
-                        <AlertTriangle size={16} />
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-3">
+                  {isFullscreen && (
+                    <button
+                      type="button"
+                      onClick={() => setIsFullscreen(false)}
+                      className="mr-1 p-2 bg-white/10 hover:bg-white/20 active:scale-95 rounded-full transition-all text-white flex items-center justify-center cursor-pointer"
+                      title="Voltar / Sair da Tela Cheia"
+                    >
+                      <ArrowLeft size={18} />
+                    </button>
+                  )}
+                  <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white text-base font-black uppercase">
+                    {activeTab === 'drivers' ? '🚖' : '👥'}
+                  </div>
+                  <div className="text-left leading-tight">
+                    <p className="text-sm font-black uppercase tracking-wide">
+                      {activeTab === 'drivers' ? 'Central Geral de Motoristas (Luena)' : 'Canal Geral de Clientes (WhatsApp)'}
+                    </p>
+                    <span className="text-[10px] text-emerald-200 dark:text-emerald-400 font-bold flex items-center gap-1.5 animate-pulse">
+                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+                      Piloto Automático Ativo (Triagem Live)
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3.5 text-white/80 relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPhoneModalOpen(true);
+                      setCallStatus('idle');
+                    }}
+                    className="p-1.5 hover:bg-white/10 hover:text-white active:scale-90 rounded-full transition-all text-white/80 flex items-center justify-center cursor-pointer"
+                    title="Chamada GSM / Rádio de Campo"
+                  >
+                    <Phone size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsVideoModalOpen(true);
+                      setVideoStatus('idle');
+                    }}
+                    className="p-1.5 hover:bg-white/10 hover:text-white active:scale-90 rounded-full transition-all text-white/80 flex items-center justify-center cursor-pointer"
+                    title="Vídeo-Vigilância Live da Cabine"
+                  >
+                    <Video size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsLocalSearchOpen(true)}
+                    className="p-1.5 hover:bg-white/10 hover:text-white active:scale-90 rounded-full transition-all text-white/80 flex items-center justify-center cursor-pointer"
+                    title="Pesquisar Mensagens"
+                  >
+                    <Search size={15} />
+                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsMenuOpen(!isMenuOpen)}
+                      className={cn(
+                        "p-1.5 hover:bg-white/10 hover:text-white active:scale-90 rounded-full transition-all flex items-center justify-center cursor-pointer",
+                        isMenuOpen ? "bg-white/15 text-white" : "text-white/80"
+                      )}
+                      title="Menu de Operações Técnicas"
+                    >
+                      <MoreVertical size={15} />
+                    </button>
+                    {isMenuOpen && (
+                      <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-850 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-2 z-50 text-slate-800 dark:text-slate-200 animate-in fade-in slide-in-from-top-2 duration-150 text-left">
+                        <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-700 mb-1">
+                          <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Ações do Canal</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMenuOpen(false);
+                            handleForceGsmSync();
+                          }}
+                          className="w-full px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-[10px] font-black uppercase text-left text-emerald-600 dark:text-emerald-400 cursor-pointer"
+                        >
+                          <RefreshCw size={12} className={isSyncingGsm ? "animate-spin" : ""} />
+                          Forçar Sincronização GSM
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMenuOpen(false);
+                            handleExportLogs();
+                          }}
+                          className="w-full px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-[10px] font-black uppercase text-left cursor-pointer"
+                        >
+                          <Download size={12} />
+                          Exportar Histórico
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMenuOpen(false);
+                            forceTriggerTelemetryCall();
+                          }}
+                          className="w-full px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-[10px] font-black uppercase text-left text-amber-500 dark:text-amber-400 cursor-pointer"
+                        >
+                          <Zap size={12} className="animate-pulse text-amber-500" />
+                          Simular Entrada UNITEL
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMenuOpen(false);
+                            if (activeTab === 'drivers') {
+                              setDriverMessages([]);
+                            } else {
+                              setClientMessages([]);
+                            }
+                            showCustomToast('Ecrã de monitorização limpo temporariamente.', 'info');
+                          }}
+                          className="w-full px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-2 text-[10px] font-black uppercase text-left text-rose-500 cursor-pointer"
+                        >
+                          <X size={12} />
+                          Limpar Ecrã do Canal
+                        </button>
+                        <div className="border-t border-slate-100 dark:border-slate-700 my-1"></div>
+                        <div className="px-3 py-1.5 text-[8.5px] font-bold text-slate-400 uppercase leading-none">
+                          Canal: {activeTab === 'drivers' ? 'Motoristas' : 'Clientes'}
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-[10px] font-black uppercase text-amber-600 tracking-wider">Alerta de Sistema</span>
-                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1 leading-relaxed">
-                          {msg.text}
-                        </p>
-                        <span className="text-[9px] text-amber-500 mt-1 block">
-                          {msg.timestamp.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-1">
-                      <div className={`flex items-center gap-2 mb-1 px-1 ${
-                        msg.sender === 'Operador Central' ? 'justify-end' : 'justify-start'
-                      }`}>
-                        <span className="text-[11px] font-black text-slate-700 dark:text-slate-300">
-                          {msg.sender}
-                        </span>
-                        <span className="text-[9px] font-medium text-slate-400">
-                          • {msg.phone}
-                        </span>
-                      </div>
-                      <div className={`p-3 rounded-2xl ${
-                        msg.sender === 'Operador Central'
-                          ? 'bg-emerald-600 text-white rounded-tr-none'
-                          : msg.isOperational 
-                            ? 'bg-emerald-55 dark:bg-emerald-950/10 border border-emerald-100 dark:border-emerald-900/40 rounded-tl-none text-slate-800 dark:text-slate-250' 
-                            : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-tl-none text-slate-800 dark:text-slate-250'
-                      }`}>
-                        {msg.type === 'location' ? (
-                          <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${
-                              msg.sender === 'Operador Central' ? 'bg-emerald-700 text-white' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600'
-                            }`}>
-                              <MapPin size={16} />
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold leading-normal">{msg.text}</p>
-                              <button className={`text-[10px] font-bold uppercase mt-1.5 flex items-center gap-1 hover:underline ${
-                                msg.sender === 'Operador Central' ? 'text-white' : 'text-blue-600 dark:text-blue-400'
-                              }`}>
-                                Ver no Mapa <ChevronRight size={10} />
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-xs font-medium leading-relaxed">
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Messages Scroll Area with WhatsApp background */}
+          <div 
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth bg-[#efeae2] dark:bg-[#0b141a] relative"
+            style={{
+              backgroundImage: 'radial-gradient(rgba(0,0,0,0.03) 1px, transparent 0)',
+              backgroundSize: '24px 24px'
+            }}
+          >
+            {/* End-to-end encryption notice */}
+            <div className="flex justify-center my-2 select-none">
+              <div className="bg-[#ffe596]/80 dark:bg-[#182229] border border-[#f3d274]/50 dark:border-white/5 px-3.5 py-1.5 rounded-xl max-w-[90%] text-center shadow-sm">
+                <p className="text-[9.5px] text-[#514316] dark:text-[#8696a0] font-black leading-normal uppercase">
+                  🔒 As mensagens e chamadas são encriptadas de ponta a ponta. Ninguém fora desta conversa pode ler.
+                </p>
+              </div>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {filteredMessages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-slate-400 py-12">
+                  <MessageSquare size={28} className="opacity-40 mb-2" />
+                  <p className="text-xs font-bold uppercase tracking-wider">Nenhuma mensagem encontrada</p>
+                </div>
+              ) : (
+                filteredMessages.map((msg) => (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    className={`flex flex-col max-w-[85%] ${
+                      msg.sender === 'Central Operacional' || msg.sender === 'Operador Central' 
+                        ? 'ml-auto mr-0' 
+                        : 'mr-auto ml-0'
+                    }`}
+                  >
+                    {msg.type === 'alert' ? (
+                      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-xl flex items-start gap-3 w-full shadow-sm">
+                        <div className="p-2 bg-amber-100 dark:bg-amber-900/40 text-amber-600 rounded-lg shrink-0">
+                          <AlertTriangle size={16} />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-amber-600 tracking-wider">Alerta de Sistema</span>
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1 leading-relaxed">
                             {msg.text}
                           </p>
-                        )}
-                        <div className="mt-2 pt-2 border-t border-slate-700/10 dark:border-slate-700/50">
-                          <button
-                            onClick={() => alert('Forwarding: ' + msg.text)}
-                            className="text-[10px] flex items-center gap-1 text-slate-500 dark:text-slate-400 hover:text-emerald-500 transition-colors"
-                          >
-                            <Forward size={12} />
-                            Reencaminhar
-                          </button>
-                        </div>
-
-                        {/* Controle Operativo dos Pedidos de Clientes */}
-                        {activeTab === 'clients' && msg.sender !== 'Operador Central' && (
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700/50 flex items-center justify-between gap-4">
-                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                              msg.sender === 'Operador Central' ? 'text-emerald-100' : 'text-slate-400 dark:text-slate-500'
-                            }`}>
-                              Ação Operativa:
-                            </span>
-                            {msg.status === 'pending' ? (
-                              <button
-                                onClick={() => handleDispatch(msg.id)}
-                                className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-lg transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
-                              >
-                                Despachar Táxi 🚖
-                              </button>
-                            ) : msg.status === 'dispatched' ? (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-black uppercase tracking-wider bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/40">
-                                Táxi Despachado ⚡
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">
-                                Concluído
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-end gap-1 mt-1.5">
-                          <span className={`text-[9px] ${
-                            msg.sender === 'Operador Central' ? 'text-emerald-100' : 'text-slate-400'
-                          }`}>
+                          <span className="text-[9px] text-amber-500 mt-1 block">
                             {msg.timestamp.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          <CheckCheck size={12} className={msg.sender === 'Operador Central' ? 'text-emerald-100' : 'text-emerald-500'} />
                         </div>
                       </div>
-                    </div>
-                  )}
-                </motion.div>
-              ))
-            )}
-          </AnimatePresence>
+                    ) : msg.sender === 'Operador Central' || msg.sender === 'Central Operacional' ? (
+                      <div className="space-y-0.5">
+                        <div className="bg-[#d9fdd3] dark:bg-[#005c4b] border border-[#d1f4cc]/85 dark:border-[#004d3e] p-3 rounded-2xl rounded-tr-none text-slate-900 dark:text-slate-100 shadow-sm relative">
+                          <span className="text-[9px] font-black uppercase text-[#075e54] dark:text-[#00a884] block mb-1">
+                            {msg.sender} • {msg.phone}
+                          </span>
+                          {msg.type === 'location' ? (
+                            <div className="flex items-center gap-3 bg-black/5 dark:bg-black/20 p-2 rounded-xl">
+                              <div className="p-2 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 rounded-lg shrink-0">
+                                <MapPin size={16} />
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold leading-normal">{msg.text}</p>
+                                <button className="text-[10px] font-bold uppercase mt-1.5 flex items-center gap-1 hover:underline text-emerald-600 dark:text-emerald-400">
+                                  Ver no Mapa <ChevronRight size={10} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs font-semibold leading-relaxed whitespace-pre-wrap">
+                              {msg.text}
+                            </p>
+                          )}
+
+                          <div className="flex items-center justify-between gap-3 mt-2.5 pt-1.5 border-t border-black/5 dark:border-white/5">
+                            <button
+                              type="button"
+                              onClick={() => alert('Forwarding: ' + msg.text)}
+                              className="text-[9px] flex items-center gap-1 text-[#075e54]/70 dark:text-emerald-450/75 hover:text-emerald-500 font-extrabold uppercase transition-colors"
+                            >
+                              <Forward size={11} />
+                              Reencaminhar
+                            </button>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-medium text-slate-500 dark:text-slate-400">
+                                {msg.timestamp.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <CheckCheck size={12} className="text-[#53bdeb]" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5">
+                        <div className={cn(
+                          "p-3 rounded-2xl rounded-tl-none text-slate-900 dark:text-slate-100 shadow-sm border relative",
+                          msg.isOperational 
+                            ? "bg-[#e8f4fd] dark:bg-[#182229] border-[#d2eafb] dark:border-white/5"
+                            : "bg-white dark:bg-[#202c33] border-slate-200/60 dark:border-white/5"
+                        )}>
+                          <span className="text-[9px] font-black uppercase text-[#00a884] dark:text-[#00a884] block mb-1">
+                            {msg.sender} • {msg.phone}
+                          </span>
+                          {msg.type === 'location' ? (
+                            <div className="flex items-center gap-3 bg-black/5 dark:bg-black/20 p-2 rounded-xl">
+                              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-lg shrink-0">
+                                <MapPin size={16} />
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold leading-normal">{msg.text}</p>
+                                <button className="text-[10px] font-bold uppercase mt-1.5 flex items-center gap-1 hover:underline text-blue-600 dark:text-blue-400">
+                                  Ver no Mapa <ChevronRight size={10} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs font-semibold leading-relaxed whitespace-pre-wrap">
+                              {msg.text}
+                            </p>
+                          )}
+
+                          {/* Controle Operativo dos Pedidos de Clientes */}
+                          {activeTab === 'clients' && msg.sender !== 'Operador Central' && (
+                            <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-white/5 flex items-center justify-between gap-4">
+                              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                Ação Operativa:
+                              </span>
+                              {msg.status === 'pending' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDispatch(msg.id)}
+                                  className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-black rounded-lg transition-all uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer"
+                                >
+                                  Despachar Táxi 🚖
+                                </button>
+                              ) : msg.status === 'dispatched' ? (
+                                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-black uppercase tracking-wider bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 rounded-md border border-amber-100 dark:border-amber-900/40">
+                                  Táxi Despachado ⚡
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">
+                                  Concluído
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between gap-3 mt-2.5 pt-1.5 border-t border-black/5 dark:border-white/5">
+                            <button
+                              type="button"
+                              onClick={() => alert('Forwarding: ' + msg.text)}
+                              className="text-[9px] flex items-center gap-1 text-slate-400 dark:text-slate-500 hover:text-emerald-500 font-extrabold uppercase transition-colors"
+                            >
+                              <Forward size={11} />
+                              Reencaminhar
+                            </button>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] font-medium text-slate-500 dark:text-slate-400">
+                                {msg.timestamp.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <CheckCheck size={12} className="text-slate-400 dark:text-slate-500" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       )}
 
@@ -1389,15 +1874,697 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
       )}
 
       {/* Footer Info */}
-      <div className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
-        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-          Total Ativo: {currentMessages.length} mensagens
-        </p>
-        <div className="flex items-center gap-2">
-           <Phone size={12} className="text-slate-400" />
-           <span className="text-[10px] font-black text-slate-400">+244 CENTRAL LUENA</span>
+      {!isChatFullscreen && (
+        <div className="p-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
+          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+            Total Ativo: {currentMessages.length} mensagens
+          </p>
+          <div className="flex items-center gap-2">
+             <Phone size={12} className="text-slate-400" />
+             <span className="text-[10px] font-black text-slate-400">+244 CENTRAL LUENA</span>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 📞 MODAL DE CHAMADA GSM & RÁDIO OPERACIONAL (LUENA HUB)   */}
+      {/* ========================================================= */}
+      {isPhoneModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-[#075e54] to-[#128c7e] text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center">
+                  <Radio size={20} className="animate-pulse text-emerald-200" />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm uppercase tracking-wider">Painel GSM & Rádio de Campo</h4>
+                  <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest mt-0.5">Moxico Despacho Live • +244 Central</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsPhoneModalOpen(false);
+                  setCallStatus('idle');
+                  setSelectedDriverForCall(null);
+                }}
+                className="p-1.5 hover:bg-white/10 rounded-xl text-white transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content Layout */}
+            <div className="grid grid-cols-1 md:grid-cols-2 flex-1 overflow-y-auto">
+              {/* Left Column: Registered Channels */}
+              <div className="p-5 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+                <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-3">Canais GSM/Rádio Activos</h5>
+                <div className="space-y-2">
+                  {[
+                    { name: 'Augusto Silva (T-04)', phone: '+244 923 111 222', type: 'Motorista', initial: 'AS', isDriver: true },
+                    { name: 'Pedro Kiala (T-12)', phone: '+244 931 444 555', type: 'Motorista', initial: 'PK', isDriver: true },
+                    { name: 'José Manuel (T-09)', phone: '+244 945 777 888', type: 'Motorista', initial: 'JM', isDriver: true },
+                    { name: 'Delfina Manuel', phone: '+244 925 333 444', type: 'Cliente', initial: 'DM', isDriver: false },
+                    { name: 'António Cavula', phone: '+244 932 555 666', type: 'Cliente', initial: 'AC', isDriver: false },
+                  ].map((chan) => (
+                    <button
+                      key={chan.phone}
+                      onClick={() => {
+                        setSelectedDriverForCall(chan);
+                        setCallStatus('idle');
+                      }}
+                      className={cn(
+                        "w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer",
+                        selectedDriverForCall?.phone === chan.phone
+                          ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500 shadow-sm"
+                          : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/50"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "w-8 h-8 rounded-xl font-black text-[10px] flex items-center justify-center text-white",
+                          chan.isDriver ? "bg-slate-800 dark:bg-slate-700" : "bg-emerald-600"
+                        )}>
+                          {chan.initial}
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-slate-900 dark:text-white">{chan.name}</p>
+                          <p className="text-[9px] font-bold text-slate-400 mt-0.5">{chan.phone}</p>
+                        </div>
+                      </div>
+                      <span className="text-[8px] font-black uppercase bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded text-slate-500">
+                        {chan.type}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right Column: Dialing and Active Screen */}
+              <div className="p-5 flex flex-col justify-between bg-white dark:bg-slate-900 min-h-[300px]">
+                {selectedDriverForCall ? (
+                  <div className="flex flex-col flex-1">
+                    {callStatus === 'idle' && (
+                      <div className="text-center py-6 flex-1 flex flex-col justify-center items-center">
+                        <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-300 mb-4 border border-slate-200 dark:border-slate-700">
+                          <Phone size={24} />
+                        </div>
+                        <h6 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">Iniciar Canal de Voz</h6>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Conectando a {selectedDriverForCall.name}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 text-center px-4 leading-relaxed">
+                          O sinal de voz será transmitido por GSM encriptado. O áudio e os registos de chamadas do motorista serão registados na central operacional.
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-3 w-full mt-6">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCallStatus('dialing');
+                              setTimeout(() => setCallStatus('active'), 2000);
+                            }}
+                            className="py-2.5 px-4 bg-[#075e54] hover:bg-[#128c7e] text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md hover:scale-102 transition-all cursor-pointer"
+                          >
+                            <Phone size={12} /> Chamada GSM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCallStatus('dialing');
+                              setTimeout(() => setCallStatus('active'), 1500);
+                            }}
+                            className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md hover:scale-102 transition-all cursor-pointer"
+                          >
+                            <Radio size={12} /> Canal de Rádio
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {callStatus === 'dialing' && (
+                      <div className="text-center py-8 flex-1 flex flex-col justify-center items-center">
+                        <div className="w-20 h-20 rounded-full bg-amber-50 dark:bg-amber-950/20 text-amber-500 flex items-center justify-center mb-6 border border-amber-200 dark:border-amber-800/40 relative">
+                          <span className="absolute inset-0 rounded-full bg-amber-400/20 animate-ping" />
+                          <Phone size={30} className="animate-pulse" />
+                        </div>
+                        <h6 className="text-sm font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider animate-pulse">A Ligar...</h6>
+                        <p className="text-[11px] font-black text-slate-800 dark:text-slate-200 mt-2">{selectedDriverForCall.name}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Via Canal de Voz Luena Hub</p>
+                      </div>
+                    )}
+
+                    {callStatus === 'active' && (
+                      <div className="text-center py-6 flex-1 flex flex-col justify-between items-center">
+                        <div>
+                          <div className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-1 justify-center bg-emerald-50 dark:bg-emerald-950/25 px-2.5 py-1 rounded-full border border-emerald-200/45 dark:border-emerald-900/30">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                            Canal de Voz Conectado (Moxico GSM)
+                          </div>
+                          <p className="text-base font-black text-slate-900 dark:text-white mt-4">{selectedDriverForCall.name}</p>
+                          <p className="text-xs font-bold text-slate-400 tracking-wider mt-1">{selectedDriverForCall.phone}</p>
+                          
+                          {/* Timer */}
+                          <div className="text-3xl font-black text-slate-800 dark:text-white tracking-widest font-mono mt-4">
+                            {formatTime(callTimer)}
+                          </div>
+                        </div>
+
+                        {/* Pulsing Visualizer */}
+                        <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-950/30 border border-slate-100 dark:border-slate-800 px-6 py-4 rounded-2xl w-full max-w-[220px] justify-center my-4">
+                          {[1, 2, 3, 4, 5, 4, 3, 2, 1].map((val, i) => (
+                            <div 
+                              key={i} 
+                              className="w-1 bg-emerald-500 rounded-full transition-all duration-150" 
+                              style={{ 
+                                height: `${isCallMuted ? 3 : val * (Math.random() * 5 + 3)}px`, 
+                                opacity: isCallMuted ? 0.3 : 1 
+                              }} 
+                            />
+                          ))}
+                        </div>
+
+                        <div className="space-y-4 w-full">
+                          <div className="flex justify-center gap-4">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCallMuted(!isCallMuted);
+                                showCustomToast(isCallMuted ? 'Microfone ativado' : 'Microfone silenciado', 'info');
+                              }}
+                              className={cn(
+                                "w-11 h-11 rounded-full flex items-center justify-center transition-all cursor-pointer border shadow",
+                                isCallMuted 
+                                  ? "bg-rose-100 dark:bg-rose-950 text-rose-600 border-rose-300" 
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
+                              )}
+                              title={isCallMuted ? "Ativar Microfone" : "Silenciar Microfone"}
+                            >
+                              <Volume2 size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsRecordingCall(!isRecordingCall);
+                                showCustomToast(isRecordingCall ? 'Gravação da chamada parada' : 'A gravar áudio do canal GSM...', 'info');
+                              }}
+                              className={cn(
+                                "w-11 h-11 rounded-full flex items-center justify-center transition-all cursor-pointer border shadow",
+                                isRecordingCall 
+                                  ? "bg-rose-600 text-white border-rose-600 animate-pulse" 
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
+                              )}
+                              title={isRecordingCall ? "Parar Gravação" : "Gravar Chamada"}
+                            >
+                              <Activity size={16} />
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCallStatus('ended');
+                              const durationStr = formatTime(callTimer);
+                              // Adicionar registo de chamada à lista
+                              const newLog = {
+                                id: `cl-${Date.now()}`,
+                                driverName: selectedDriverForCall.name,
+                                phone: selectedDriverForCall.phone,
+                                type: 'audio',
+                                duration: durationStr,
+                                timestamp: new Date(),
+                                status: 'completed'
+                              };
+                              setCallLogs(prev => [newLog, ...prev]);
+
+                              // Adicionar mensagem especial de log de sistema ao canal
+                              const logAlert: WhatsAppMessage = {
+                                id: `log-${Date.now()}`,
+                                sender: 'Central Operacional',
+                                phone: 'LOG_GSM',
+                                text: `📞 LOG DE CHAMADA GSM OPERACIONAL: Conversação de voz com ${selectedDriverForCall.name} finalizada. Duração: ${durationStr}. Ficheiro de gravação de áudio arquivado na Central PSM.`,
+                                timestamp: new Date(),
+                                type: 'alert',
+                                isOperational: true
+                              };
+                              if (activeTab === 'drivers') {
+                                setDriverMessages(prev => [...prev, logAlert]);
+                              } else {
+                                setClientMessages(prev => [...prev, logAlert]);
+                              }
+
+                              showCustomToast(`Chamada terminada. Registos de chamada enviados para a central com sucesso!`, 'success');
+                              setTimeout(() => {
+                                setCallStatus('idle');
+                                setSelectedDriverForCall(null);
+                              }, 1500);
+                            }}
+                            className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-rose-500/20 active:scale-95 cursor-pointer"
+                          >
+                            Encerrar Ligação GSM
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {callStatus === 'ended' && (
+                      <div className="text-center py-8 flex-1 flex flex-col justify-center items-center">
+                        <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mb-4">
+                          <X size={24} />
+                        </div>
+                        <h6 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-tight">Chamada Terminada</h6>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Logs GSM Guardados</p>
+                        <p className="text-[10px] text-emerald-500 font-extrabold mt-3 uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/20 px-3 py-1 rounded-full border border-emerald-100">
+                          ✓ Sincronizado com Moxico Hub
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col flex-1 justify-between">
+                    <div>
+                      <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-3">Histórico de Chamadas Operacionais</h5>
+                      <div className="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar">
+                        {callLogs.map((log) => (
+                          <div key={log.id} className="p-3 bg-slate-50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                            <div className="text-left">
+                              <p className="text-[11px] font-black text-slate-900 dark:text-white leading-none">{log.driverName}</p>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <span className={cn(
+                                  "w-1.5 h-1.5 rounded-full",
+                                  log.status === 'completed' ? 'bg-emerald-500' : 'bg-rose-500'
+                                )} />
+                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
+                                  {log.status === 'completed' ? `Atendida • ${log.duration}` : 'Perdida'}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-[8px] font-bold text-slate-400 font-mono">
+                              {log.timestamp.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950/30 rounded-2xl border border-slate-100 dark:border-slate-850 text-center text-[10px] text-slate-500 leading-normal">
+                      📟 <strong className="text-slate-700 dark:text-slate-300">Dica Operacional:</strong> Os logs telefónicos dos motoristas (Augusto, Pedro, etc.) sincronizam automaticamente em segundo plano através do nosso canal GSM/Rádio.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 📹 MODAL DE VÍDEO-VIGILÂNCIA LIVE DO MOTORISTA (GSM 4G)    */}
+      {/* ========================================================= */}
+      {isVideoModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="p-5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-rose-500/10 rounded-xl flex items-center justify-center border border-rose-500/30 animate-pulse">
+                  <Video size={20} className="text-rose-500" />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm uppercase tracking-wider">Monitorização de Cabine & Via Live</h4>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Transmissão em Directo via 4G GSM • Luena Central</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsVideoModalOpen(false);
+                  setVideoStatus('idle');
+                  setSelectedDriverForVideo(null);
+                }}
+                className="p-1.5 hover:bg-slate-800 rounded-xl text-white transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content Layout */}
+            <div className="grid grid-cols-1 md:grid-cols-2 flex-1 overflow-y-auto">
+              {/* Left Column: Fleet Selection */}
+              <div className="p-5 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+                <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-wider mb-3">Viatura para Ligar Câmera</h5>
+                <div className="space-y-2">
+                  {[
+                    { plate: 'T-04', driver: 'Augusto Silva', status: 'Online', signal: 'Excelente' },
+                    { plate: 'T-12', driver: 'Pedro Kiala', status: 'Online', signal: 'Bom' },
+                    { plate: 'T-09', driver: 'José Manuel', status: 'Online', signal: 'Excelente' },
+                  ].map((car) => (
+                    <button
+                      key={car.plate}
+                      onClick={() => {
+                        setSelectedDriverForVideo(car);
+                        setVideoStatus('idle');
+                      }}
+                      className={cn(
+                        "w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer",
+                        selectedDriverForVideo?.plate === car.plate
+                          ? "bg-rose-50 dark:bg-rose-950/20 border-rose-500 shadow-sm"
+                          : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/50"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-slate-900 text-white font-black text-xs flex items-center justify-center">
+                          {car.plate}
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-slate-900 dark:text-white">{car.driver}</p>
+                          <p className="text-[9px] font-bold text-slate-400 mt-0.5">Sinal: {car.signal}</p>
+                        </div>
+                      </div>
+                      <span className="text-[8px] font-black uppercase bg-rose-50 dark:bg-rose-950/20 text-rose-600 px-2.5 py-1 rounded-md">
+                        ✓ {car.status}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right Column: Simulated Live Streaming View */}
+              <div className="p-5 flex flex-col justify-between bg-slate-950 text-white min-h-[300px]">
+                {selectedDriverForVideo ? (
+                  <div className="flex flex-col flex-1 h-full">
+                    {videoStatus === 'idle' ? (
+                      <div className="text-center py-10 flex-1 flex flex-col justify-center items-center">
+                        <Video size={36} className="text-slate-500 animate-pulse mb-3" />
+                        <h6 className="text-xs font-black text-slate-300 uppercase tracking-widest">Feed de Vídeo Desligado</h6>
+                        <p className="text-[10px] text-slate-500 uppercase mt-1">Viatura {selectedDriverForVideo.plate} - {selectedDriverForVideo.driver}</p>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVideoStatus('streaming');
+                            showCustomToast('A iniciar link de vídeo GSM...', 'info');
+                          }}
+                          className="mt-6 py-2.5 px-5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-rose-600/20 active:scale-95 transition-all cursor-pointer"
+                        >
+                          <Play size={12} fill="currentColor" /> Conectar Vídeo Live
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col flex-1 justify-between h-full">
+                        {/* High-Tech Animated Road SVG */}
+                        <div className="relative">
+                          <svg className="w-full h-44 bg-slate-950 rounded-2xl relative overflow-hidden border border-slate-800" viewBox="0 0 400 200">
+                            {/* Background road effect with CSS motion */}
+                            <rect width="400" height="200" fill="#0b0f19" />
+                            {/* Star or landscape objects */}
+                            <circle cx="50" cy="50" r="1" fill="#fff" opacity="0.8" />
+                            <circle cx="120" cy="40" r="1.5" fill="#fff" opacity="0.5" />
+                            <circle cx="280" cy="60" r="1" fill="#fff" opacity="0.6" />
+                            {/* Road outlines */}
+                            <path d="M 200 80 L 40 200 M 200 80 L 360 200" stroke="#334155" strokeWidth="2" />
+                            {/* Dash Lines animating */}
+                            <line 
+                              x1="200" 
+                              y1="85" 
+                              x2="200" 
+                              y2="200" 
+                              stroke={videoCameraType === 'road' ? '#e2e8f0' : '#475569'} 
+                              strokeWidth="2.5" 
+                              strokeDasharray="12, 10" 
+                              className="animate-pulse" 
+                            />
+                            
+                            {videoCameraType === 'cabin' ? (
+                              <>
+                                {/* Simulated Cabin Dashboard view */}
+                                <rect x="130" y="70" width="140" height="70" rx="15" fill="#1e293b" opacity="0.9" stroke="#475569" strokeWidth="1" />
+                                <circle cx="200" cy="100" r="18" fill="#0f172a" />
+                                <path d="M 190 100 Q 200 90 210 100" stroke="#f59e0b" strokeWidth="2" fill="none" />
+                                <text x="175" y="130" fill="#10b981" fontSize="7" fontWeight="bold" fontFamily="monospace">PILOTO VIGILÂNCIA</text>
+                              </>
+                            ) : (
+                              <>
+                                {/* Simulated Driver windshield HUD or road line */}
+                                <path d="M 0 160 Q 100 150 200 160 T 400 160 L 400 200 L 0 200 Z" fill="#0f172a" />
+                                <rect x="150" y="165" width="100" height="25" rx="5" fill="#1e293b" />
+                                <line x1="160" y1="177" x2="240" y2="177" stroke="#38bdf8" strokeWidth="2" />
+                              </>
+                            )}
+                            
+                            {/* HUD details */}
+                            <text x="15" y="25" fill="#f43f5e" fontSize="9" fontWeight="900" fontFamily="monospace" className="animate-pulse">● LIVE [{videoCameraType === 'road' ? 'VIA ESTRADA' : 'INTERIOR CABINE'}]</text>
+                            <text x="15" y="42" fill="#94a3b8" fontSize="8" fontWeight="bold" fontFamily="monospace">TEL: {selectedDriverForVideo.driver}</text>
+                            <text x="15" y="54" fill="#94a3b8" fontSize="8" fontWeight="bold" fontFamily="monospace">GPS: {simulatedCoords.lat.toFixed(5)}, {simulatedCoords.lon.toFixed(5)}</text>
+                            <text x="315" y="28" fill="#f59e0b" fontSize="15" fontWeight="900" fontFamily="monospace">{simulatedSpeed} km/h</text>
+                            <text x="315" y="42" fill="#10b981" fontSize="8" fontWeight="bold" fontFamily="monospace">SINAL: LTE 4G</text>
+                            
+                            {/* Scanning Target */}
+                            <circle cx="200" cy="100" r="18" stroke="#ef4444" strokeWidth="1" fill="none" opacity="0.3" className="animate-ping" />
+                          </svg>
+                        </div>
+
+                        {/* Controls */}
+                        <div className="mt-4 space-y-3">
+                          <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                            <span>Viatura: {selectedDriverForVideo.plate}</span>
+                            <span>Tempo de Stream: {formatTime(videoTimer)}</span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVideoCameraType(videoCameraType === 'road' ? 'cabin' : 'road');
+                                showCustomToast(videoCameraType === 'road' ? 'Câmera interior de cabine ativada' : 'Câmera frontal de estrada ativada', 'info');
+                              }}
+                              className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Alternar Câmera
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                showCustomToast('Foto capturada e arquivada nos logs da viatura!', 'success');
+                              }}
+                              className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Capturar Foto
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVideoStatus('idle');
+                              showCustomToast('Transmissão de vídeo encerrada de forma segura.', 'info');
+                            }}
+                            className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-rose-600/30 active:scale-95 transition-all cursor-pointer"
+                          >
+                            Encerrar Stream Live
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col flex-1 justify-center items-center text-center p-6 text-slate-500">
+                    <Video size={40} className="text-slate-700 opacity-40 mb-3" />
+                    <h6 className="text-xs font-black text-slate-400 uppercase tracking-widest">Nenhuma viatura selecionada</h6>
+                    <p className="text-[10px] text-slate-500 mt-1 max-w-[200px] leading-relaxed">
+                      Selecione um táxi activo à esquerda para carregar o feed de vídeo da cabine em directo.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 📡 OVERLAY DE TELEMETRIA UNITEL / MOVICEL EM TEMPO REAL     */}
+      {/* ========================================================= */}
+      {incomingTelemetryCall && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-[120] p-4 animate-in fade-in duration-300">
+          <div className="bg-slate-900 border-2 border-amber-500/80 rounded-[2rem] max-w-lg w-full overflow-hidden shadow-[0_0_50px_rgba(245,158,11,0.25)] text-white relative flex flex-col">
+            
+            {/* Top scanning radar animation */}
+            <div className="h-28 bg-gradient-to-b from-amber-500/20 to-transparent relative flex items-center justify-center overflow-hidden border-b border-slate-800">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-20 h-20 rounded-full border border-amber-500/30 animate-ping absolute" style={{ animationDuration: '3s' }} />
+                <div className="w-12 h-12 rounded-full border border-amber-500/50 animate-ping absolute" style={{ animationDuration: '1.5s' }} />
+                <div className="w-6 h-6 rounded-full bg-amber-500 animate-pulse flex items-center justify-center">
+                  <Activity size={12} className="text-slate-950" />
+                </div>
+              </div>
+              <div className="absolute top-4 left-4 flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-[8px] font-black tracking-widest uppercase text-amber-400">TELEMETRIA LIVE</span>
+              </div>
+              <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-slate-950 px-2.5 py-1 rounded-full border border-slate-800">
+                <span className="text-[8px] font-mono font-bold tracking-widest uppercase text-slate-400">UNITEL 4G LUENA</span>
+              </div>
+              <div className="mt-12 text-center z-10">
+                <h4 className="text-xs font-black tracking-widest uppercase text-amber-500">Deteção de Chamada Entrante</h4>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Central Luena-Moxico • Receptor GSM Activo</p>
+              </div>
+            </div>
+
+            {/* Caller metadata details panel */}
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                <div>
+                  <span className="text-[8px] font-bold uppercase text-slate-500 tracking-wider">Cliente/Origem</span>
+                  <h3 className="text-lg font-black text-white leading-tight">{incomingTelemetryCall.name}</h3>
+                  <p className="text-xs font-mono font-bold text-slate-400 tracking-wide mt-0.5">{incomingTelemetryCall.phone}</p>
+                </div>
+                <div className="bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl text-center">
+                  <span className="text-[8px] font-black uppercase text-amber-400 block tracking-wider">Rede</span>
+                  <span className="text-xs font-black text-amber-500 font-mono">{incomingTelemetryCall.network}</span>
+                </div>
+              </div>
+
+              {/* Technical signal & triangulation telemetry */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-950/50 p-3.5 rounded-xl border border-slate-800/60">
+                  <span className="text-[8.5px] font-bold uppercase text-slate-500 tracking-wider block">ID Célula (BST)</span>
+                  <span className="text-xs font-mono font-bold text-slate-300 block mt-1">{incomingTelemetryCall.cellId}</span>
+                </div>
+                <div className="bg-slate-950/50 p-3.5 rounded-xl border border-slate-800/60">
+                  <span className="text-[8.5px] font-bold uppercase text-slate-500 tracking-wider block">Sinal GSM (RSSI)</span>
+                  <span className="text-xs font-mono font-bold text-emerald-400 flex items-center gap-1 mt-1">
+                    <Activity size={11} className="animate-pulse" />
+                    {incomingTelemetryCall.strength} (Forte)
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-950/30 p-3.5 rounded-xl border border-slate-850/60 flex items-start gap-3">
+                <div className="p-1.5 bg-slate-900 rounded-lg text-amber-400 shrink-0 mt-0.5">
+                  <MapPin size={14} />
+                </div>
+                <div>
+                  <span className="text-[8.5px] font-bold uppercase text-slate-500 tracking-wider block">Estimativa de Triangulação</span>
+                  <span className="text-xs font-bold text-slate-200 block mt-0.5">{incomingTelemetryCall.area}</span>
+                  <span className="text-[9px] text-slate-500 block mt-0.5 font-mono">Setor 1A • Lat: -11.782, Lon: 19.914</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Tactical action buttons */}
+            <div className="p-6 bg-slate-950/40 border-t border-slate-850 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const caller = incomingTelemetryCall;
+                  setIsPhoneModalOpen(true);
+                  setSelectedDriverForCall({
+                    name: caller.name,
+                    phone: caller.phone,
+                    type: 'Cliente',
+                    initial: caller.name[0],
+                    isDriver: false
+                  });
+                  setCallStatus('active');
+                  setCallTimer(0);
+                  setIncomingTelemetryCall(null);
+                  showCustomToast(`Ligação estabelecida com ${caller.name}!`, 'success');
+                }}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] transition-all rounded-xl font-black text-xs uppercase tracking-widest text-white shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Phone size={14} className="animate-bounce" />
+                Atender & Despachar Rádio
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const caller = incomingTelemetryCall;
+                  // Auto-dispatch nearest vehicle (e.g. Augusto T-04)
+                  const textMsg = `🚨 TELEMETRIA AUTOMÁTICA: Chamada Unitel de ${caller.name} no ${caller.area} processada com sucesso. Viatura mais próxima (Augusto Silva - T-04) enviada em missão rápida.`;
+                  
+                  // Save in Firestore for multi-operator sync
+                  try {
+                    addDoc(collection(db, 'whatsapp_messages'), {
+                      sender: 'Central Auto-Pilot',
+                      phone: 'SISTEMA',
+                      text: textMsg,
+                      timestamp: new Date().toISOString(),
+                      type: 'alert',
+                      isOperational: true,
+                      status: 'dispatched',
+                      channel: 'clients'
+                    });
+                  } catch (err) {
+                    console.warn("Erro ao salvar mensagem no Firestore:", err);
+                  }
+
+                  // Also append locally to ensure immediate reactivity
+                  const localMsg = {
+                    id: `sys-${Date.now()}`,
+                    sender: 'Central Auto-Pilot',
+                    phone: 'SISTEMA',
+                    text: textMsg,
+                    timestamp: new Date(),
+                    type: 'alert' as const,
+                    isOperational: true,
+                    status: 'dispatched' as const
+                  };
+                  setClientMessages(prev => [...prev, localMsg]);
+                  setIncomingTelemetryCall(null);
+                  showCustomToast(`Piloto Automático: Augusto Silva (T-04) enviado para ${caller.name}!`, 'success');
+                }}
+                className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 active:scale-[0.98] transition-all rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-amber-900/20 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Zap size={14} />
+                Despachar Táxi Mais Próximo
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIncomingTelemetryCall(null)}
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700/80 active:scale-[0.98] transition-all rounded-xl font-black text-[10px] uppercase tracking-widest text-slate-300 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                Silenciar Alerta
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 📡 OVERLAY DE FORÇAR SINCRONIZAÇÃO GSM                    */}
+      {/* ========================================================= */}
+      {isSyncingGsm && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-sm w-full text-center shadow-2xl">
+            <Loader2 size={36} className="text-emerald-500 animate-spin mx-auto mb-4" />
+            <h4 className="font-black text-slate-900 dark:text-white uppercase tracking-tighter text-sm">Sincronização de Logs GSM</h4>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wide mt-1 italic">Central Luena-Moxico • PSM Hub</p>
+            <div className="w-full bg-slate-100 dark:bg-slate-950 h-2 rounded-full mt-4 overflow-hidden border border-slate-200/50 dark:border-slate-850">
+              <div className="bg-emerald-500 h-full transition-all duration-300" style={{ width: `${syncProgress}%` }} />
+            </div>
+            <div className="flex justify-between items-center text-[9px] font-black uppercase text-slate-400 mt-2">
+              <span>Progresso</span>
+              <span className="text-emerald-500">{syncProgress}%</span>
+            </div>
+            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-3 animate-pulse leading-relaxed">{syncStatusText}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 🔔 SISTEMA DE TOAST NOTIFICATION (FLUTUANTE)              */}
+      {/* ========================================================= */}
+      {toast && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-850 text-white border border-slate-800/60 px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 z-[110] animate-in fade-in slide-in-from-bottom-3 duration-200 max-w-[90%]">
+          <div className={cn(
+            "w-2.5 h-2.5 rounded-full shrink-0",
+            toast.type === 'success' ? 'bg-emerald-500 animate-pulse' : toast.type === 'error' ? 'bg-rose-500' : 'bg-blue-500'
+          )} />
+          <span className="text-xs font-black tracking-wide uppercase text-slate-100 leading-none">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }

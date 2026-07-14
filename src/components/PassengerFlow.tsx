@@ -2276,26 +2276,13 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                                   </div>
                                 )}
 
-                                {appConfig?.panicSosEnabled && (
-                                  <button 
-                                    onClick={() => {
-                                      window.open(`tel:${appConfig?.supportPhone || '+244999123456'}`);
-                                    }}
-                                    className="w-full bg-rose-600 hover:bg-rose-700 text-white text-[9.5px] font-extrabold py-2.5 px-3 rounded-xl flex items-center gap-1.5 border border-rose-500 shadow-xl active:scale-95 transition-all text-left"
-                                  >
-                                    <ShieldAlert size={12} className="text-white animate-pulse shrink-0" />
-                                    <span className="uppercase tracking-wide flex-1 font-black">BOTÃO S.O.S (ALERTA DE SEGURANÇA)</span>
-                                    <span className="text-[8px] font-mono text-white/90 font-black">{appConfig?.supportPhone}</span>
-                                  </button>
-                                )}
-
                                 <div className="grid grid-cols-2 gap-2 text-[8.5px] font-black uppercase">
                                   {appConfig?.supportChatEnabled ? (
                                     <a 
                                       href={activeWhatsappLink}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="p-2.5 bg-[#25D366] hover:bg-[#20ba5a] rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-950 font-black shadow-xl transition-colors"
+                                      className="p-2.5 bg-[#25D366] hover:bg-[#20ba5a] rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-950 font-black shadow-xl transition-all"
                                     >
                                       <MessageSquare size={11} className="text-slate-950 shrink-0" />
                                       <span>{activeCompany?.whatsappGroupLink ? 'Grupo Clientes' : 'WhatsApp Chat'}</span>
@@ -2306,41 +2293,15 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                                     </div>
                                   )}
 
-                                  {appConfig?.historyEnabled ? (
-                                    <button 
-                                      onClick={() => setPassengerTab('perfil')}
-                                      className="p-2.5 bg-slate-900 border border-white/10 hover:bg-slate-800 rounded-xl flex items-center gap-1.5 text-center justify-center text-white font-mono font-black shadow-xl transition-colors"
-                                    >
-                                      <Compass size={11} className="text-amber-400 shrink-0" />
-                                      <span>Minhas Viagens</span>
-                                    </button>
-                                  ) : (
-                                    <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
-                                      <span>Histórico</span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {activeWhatsappGroupLink && activeWhatsappLink !== activeWhatsappGroupLink && (
-                                  <a 
-                                    href={activeWhatsappGroupLink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="w-full mt-1 p-2.5 bg-emerald-600 hover:bg-emerald-700 rounded-xl flex items-center justify-center gap-2 text-[9px] text-white font-extrabold uppercase tracking-wider transition-all shadow-xl"
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowQrModal(true)}
+                                    className="p-2.5 bg-slate-900 border border-white/10 hover:bg-slate-800 rounded-xl flex items-center gap-1.5 text-center justify-center text-amber-400 font-black shadow-xl transition-all cursor-pointer"
                                   >
-                                    <MessageSquare size={11} className="text-white shrink-0" />
-                                    <span>Grupo WhatsApp da Filial</span>
-                                  </a>
-                                )}
-
-                                {/* Recomendation with QR Code Button */}
-                                <button
-                                  onClick={() => setShowQrModal(true)}
-                                  className="w-full mt-1.5 p-2.5 bg-slate-900 hover:bg-slate-850 border border-white/10 rounded-xl flex items-center justify-center gap-2 text-[9px] text-amber-400 font-extrabold uppercase tracking-wider transition-all shadow-xl"
-                                >
-                                  <QrCode size={11} className="text-amber-500 shrink-0" />
-                                  <span>Sugerir App (Código QR)</span>
-                                </button>
+                                    <QrCode size={11} className="text-amber-500 shrink-0" />
+                                    <span>Sugerir App</span>
+                                  </button>
+                                </div>
                               </div>
 
                               {appConfig?.driverRatingEnabled && (
