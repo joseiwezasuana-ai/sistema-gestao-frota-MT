@@ -612,7 +612,7 @@ export default function MechanicView({ user }: MechanicViewProps) {
                 </button>
              </div>
 
-             <div className="flex-1 relative overflow-hidden">
+             <div className="absolute inset-0 z-0">
                 {mapSubTab === 'map' ? (
                    <RealTimeMap />
                 ) : (
@@ -846,7 +846,7 @@ export default function MechanicView({ user }: MechanicViewProps) {
       </main>
 
       {/* Tab Bar Mechanic Style */}
-      <footer className="h-20 bg-slate-900 border-t border-slate-800 flex items-center justify-around px-4 flex-shrink-0 relative z-50">
+      <footer className="h-20 bg-slate-900 border-t border-slate-800 flex items-center justify-around px-4 flex-shrink-0 fixed bottom-0 left-0 w-full z-50">
         <button 
           onClick={() => setActiveInternalTab('dashboard')}
           className={cn("flex flex-col items-center gap-1 transition-all duration-300", activeInternalTab === 'dashboard' ? "text-brand-primary scale-110" : "text-slate-500")}

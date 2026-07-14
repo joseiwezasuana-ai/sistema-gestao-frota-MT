@@ -216,6 +216,7 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
   };
 
   // Efeito para simulação automática de Telemetria de Chamadas UNITEL/Movicel (Despertar do Sistema)
+  /*
   useEffect(() => {
     const listCallers = [
       { name: 'Delfina Manuel', phone: '+244 925 333 444', network: 'UNITEL', cellId: 'LUE-UNITEL-049', strength: '-78 dBm', area: 'Luena Central (Hospital Geral)' },
@@ -251,6 +252,8 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
       clearInterval(interval);
     };
   }, [incomingTelemetryCall, callStatus, isPhoneModalOpen, isVideoModalOpen]);
+  */
+  
 
   // Função para despoletar manualmente uma chamada de telemetria UNITEL
   const forceTriggerTelemetryCall = () => {

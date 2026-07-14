@@ -99,6 +99,8 @@ const STAFF_PALETTES = {
 };
 
 export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffMobileViewProps) {
+  const canManageScales = user?.role === 'admin' || user?.role === 'gerente' || user?.role === 'operator' || user?.role === 'operador';
+
   const [activePalette, setActivePalette] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('psm-staff-theme') || 'default';
@@ -592,7 +594,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     { icon: MapPin, label: 'Mapa da Frota', group: 'Monitores Live', onClick: () => setIsMapOpen(true) },
     { icon: MessageSquare, label: 'Central WhatsApp', group: 'Monitores Live', onClick: () => setIsWhatsAppOpen(true) },
     
-    ...((user?.role === 'admin' || user?.role === 'gerente' || user?.role === 'operator') ? [{ icon: SettingsIcon, label: 'Definições do Sistema', group: 'Configuração', onClick: () => setIsSettingsOpen(true) }] : []),
+    ...((user?.role === 'admin' || user?.role === 'gerente') ? [{ icon: SettingsIcon, label: 'Definições do Sistema', group: 'Configuração', onClick: () => setIsSettingsOpen(true) }] : []),
     { icon: FileText, label: 'Manual de Instruções', group: 'Configuração', onClick: () => setIsManualOpen(true) },
     ...(onExitMobile ? [{ icon: Monitor, label: 'Restaurar Painel Full', group: 'Configuração', onClick: onExitMobile, color: 'text-brand-primary' }] : []),
     { icon: LogOut, label: 'Terminar Sessão', group: 'Configuração', onClick: onLogout, color: 'text-red-500' },
@@ -1242,25 +1244,27 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                <div className="space-y-6">
                  <div className="flex items-center justify-between px-1">
                     <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Turnos & Escalas Registadas</h3>
-                    <button 
-                      onClick={() => {
-                        setScaleFormData({
-                          driverId: '',
-                          driverName: '',
-                          prefix: '',
-                          date: new Date().toISOString().split('T')[0],
-                          shift: 'Diurno',
-                          status: 'Ativo',
-                          phone: '',
-                          secondaryPhone: '',
-                          passengerAppActive: true
-                        });
-                        setIsScaleModalOpen(true);
-                      }}
-                      className="text-[9px] font-black text-brand-primary bg-brand-primary/10 px-3 py-1.5 rounded-full border border-brand-primary/25 uppercase tracking-widest italic flex items-center gap-1.5"
-                    >
-                      <Plus size={11} /> Nova Escala
-                    </button>
+                    {canManageScales && (
+                      <button 
+                        onClick={() => {
+                          setScaleFormData({
+                            driverId: '',
+                            driverName: '',
+                            prefix: '',
+                            date: new Date().toISOString().split('T')[0],
+                            shift: 'Diurno',
+                            status: 'Ativo',
+                            phone: '',
+                            secondaryPhone: '',
+                            passengerAppActive: true
+                          });
+                          setIsScaleModalOpen(true);
+                        }}
+                        className="text-[9px] font-black text-brand-primary bg-brand-primary/10 px-3 py-1.5 rounded-full border border-brand-primary/25 uppercase tracking-widest italic flex items-center gap-1.5"
+                      >
+                        <Plus size={11} /> Nova Escala
+                      </button>
+                    )}
                  </div>
 
                  <div className="space-y-4">
@@ -1298,15 +1302,21 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                                <Clock size={14} className="text-slate-500" />
                                <span className="text-[10px] font-black text-slate-300 uppercase tracking-tight italic">Operacional</span>
                             </div>
-                            <button 
-                              onClick={() => {
-                                setEditingScale(s);
-                                setIsEditScaleModalOpen(true);
-                              }}
-                              className="text-[9px] font-black text-brand-primary uppercase flex items-center gap-1 hover:text-white transition-all bg-brand-primary/10 px-3 py-1.5 rounded-xl border border-brand-primary/20 active:scale-95 duration-200"
-                            >
-                               Gerir <ChevronRight size={12} />
-                            </button>
+                            {canManageScales ? (
+                              <button 
+                                onClick={() => {
+                                  setEditingScale(s);
+                                  setIsEditScaleModalOpen(true);
+                                }}
+                                className="text-[9px] font-black text-brand-primary uppercase flex items-center gap-1 hover:text-white transition-all bg-brand-primary/10 px-3 py-1.5 rounded-xl border border-brand-primary/20 active:scale-95 duration-200"
+                              >
+                                 Gerir <ChevronRight size={12} />
+                              </button>
+                            ) : (
+                              <span className="text-[8px] font-mono font-bold text-slate-500 uppercase tracking-widest bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800/80">
+                                Apenas Leitura
+                              </span>
+                            )}
                          </div>
                       </div>
                     ))}

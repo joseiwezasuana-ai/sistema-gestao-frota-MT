@@ -85,7 +85,7 @@ export default function UserManual() {
                 SUPER TAXI
               </h1>
               <p className="text-brand-primary font-bold text-[11px] uppercase tracking-[0.3em] mt-2">
-                MANUAL DE UTILIZADOR • V1.0 - 2026
+                MANUAL DE UTILIZADOR • V1.1 - 2026
               </p>
             </div>
           </div>
