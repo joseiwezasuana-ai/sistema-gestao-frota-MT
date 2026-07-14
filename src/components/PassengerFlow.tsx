@@ -199,7 +199,7 @@ function PassengerAvatar({ src, name, size = "md" }: { src?: string; name?: stri
   );
 }
 
-export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: { isPublicApp?: boolean; isEmbed?: boolean }) {
+export default function PassengerFlow({ isPublicApp = false, isEmbed = false, onBackToStaff }: { isPublicApp?: boolean; isEmbed?: boolean; onBackToStaff?: () => void }) {
   const [activePalette, setActivePalette] = useState<PassengerTheme>(() => {
     return (localStorage.getItem('psm-passenger-theme') as PassengerTheme) || 'gold';
   });
@@ -1787,6 +1787,19 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
                         <User size={13} />
                         Minha Conta
                       </button>
+
+                      {onBackToStaff && (
+                        <button
+                          onClick={() => {
+                            setIsNavMenuOpen(false);
+                            onBackToStaff();
+                          }}
+                          className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400 border-t border-white/5"
+                        >
+                          <Lock size={13} className="text-amber-500" />
+                          Área de Colaborador
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2034,6 +2047,19 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false }: 
 
 
                     </form>
+                  )}
+
+                  {onBackToStaff && (
+                    <div className="pt-5 border-t border-white/5 text-center mt-5">
+                      <button
+                        type="button"
+                        onClick={onBackToStaff}
+                        className="w-full py-3 bg-white/5 hover:bg-white/10 active:scale-[0.98] border border-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Lock size={12} className="text-amber-500" />
+                        Portal de Colaboradores / Motoristas 🔑
+                      </button>
+                    </div>
                   )}
                 </div>
               ) : passengerProfile.banned ? (

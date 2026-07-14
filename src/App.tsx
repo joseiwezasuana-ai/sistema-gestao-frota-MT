@@ -91,13 +91,23 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const viewParam = params.get('view')?.toLowerCase();
+    const isCollaboratorMode = localStorage.getItem('collaborator_mode') === 'true';
+
     if (viewParam === 'passenger' || viewParam === 'passageiro' || window.location.hash === '#passenger') {
       setShowPublicPassengerFlow(true);
+      localStorage.removeItem('collaborator_mode');
+    } else if (viewParam === 'login' || viewParam === 'staff' || viewParam === 'colaborador') {
+      setShowPublicPassengerFlow(false);
+      localStorage.setItem('collaborator_mode', 'true');
     } else if (!viewParam && typeof window !== 'undefined') {
-      // Auto-detect mobile devices when hitting the root URL to default straight to the passenger app
-      const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      if (isMobileUA) {
-        setShowPublicPassengerFlow(true);
+      if (isCollaboratorMode) {
+        setShowPublicPassengerFlow(false);
+      } else {
+        // Auto-detect mobile devices when hitting the root URL to default straight to the passenger app
+        const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        if (isMobileUA) {
+          setShowPublicPassengerFlow(true);
+        }
       }
     }
   }, []);
@@ -376,7 +386,13 @@ export default function App() {
       <ThemeProvider>
          <ConnectivityBanner />
          <div className="min-h-screen relative w-full overflow-hidden bg-slate-950 flex items-center justify-center">
-            <PassengerFlow isPublicApp={true} />
+            <PassengerFlow 
+              isPublicApp={true} 
+              onBackToStaff={() => {
+                localStorage.setItem('collaborator_mode', 'true');
+                setShowPublicPassengerFlow(false);
+              }}
+            />
          </div>
       </ThemeProvider>
     );
@@ -390,7 +406,14 @@ export default function App() {
     return (
       <ThemeProvider>
         <ConnectivityBanner />
-        <Login key="login-view" onGoogleLogin={handleGoogleLogin} onPassengerFlow={() => setShowPublicPassengerFlow(true)} />
+        <Login 
+          key="login-view" 
+          onGoogleLogin={handleGoogleLogin} 
+          onPassengerFlow={() => {
+            localStorage.removeItem('collaborator_mode');
+            setShowPublicPassengerFlow(true);
+          }} 
+        />
       </ThemeProvider>
     );
   }
