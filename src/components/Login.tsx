@@ -31,7 +31,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
   const [whatsAppLink, setWhatsAppLink] = useState('');
   const [isManualName, setIsManualName] = useState(false);
   const [companies, setCompanies] = useState<{ id: string, name: string }[]>([
-    { id: 'psm', name: 'PSM COMERCIAL (SU), LDA LUENA-MOXICO' }
+    { id: 'psm', name: 'JIS. (SU), LDA LUENA-MOXICO' }
   ]);
   const [selectedTenant, setSelectedTenant] = useState<string>(() => {
     const active = getActiveTenantId();
@@ -62,7 +62,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         if (!list.some(c => c.id === 'psm')) {
           list.unshift({ 
             id: 'psm', 
-            name: 'PSMOREIRA'
+            name: 'JIS. (SU), LDA LUENA-MOXICO'
           });
         }
         setCompanies(list);
@@ -71,7 +71,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         // Robust fallback: keep PSM even on Firestore rules blocking direct search
         setCompanies(prev => {
           if (!prev.some(c => c.id === 'psm')) {
-            return [{ id: 'psm', name: 'PSMOREIRA' }, ...prev];
+            return [{ id: 'psm', name: 'JIS. (SU), LDA LUENA-MOXICO' }, ...prev];
           }
           return prev;
         });
@@ -635,18 +635,17 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4 font-sans antialiased text-slate-900 notranslate selection:bg-brand-primary/30">
+    <div className="flex min-h-screen items-center justify-center bg-white px-0 font-sans antialiased text-slate-900 notranslate selection:bg-brand-primary/30 w-full relative">
       {/* Background Decorative Elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-primary/10 blur-[120px] rounded-full animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-500/5 blur-[120px] rounded-full" />
+      <div className="fixed inset-0 overflow-hidden pointer-events-none bg-white">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-primary/5 blur-[120px] rounded-full animate-pulse" />
       </div>
 
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className={`w-full overflow-hidden rounded-[3rem] bg-white shadow-[0_40px_80px_-15px_rgba(0,0,0,0.5)] border border-white/10 relative z-10 transition-all duration-500 ${
-          loginMethod === 'companies' ? "max-w-6xl m-4" : "max-w-[440px]"
+        className={`w-full bg-white relative z-10 transition-all duration-500 shadow-none border-none ${
+          loginMethod === 'companies' ? "max-w-full min-h-screen flex flex-col" : "max-w-[440px]"
         }`}
       >
         {/* Top Control Bar with 3 dots menu */}
@@ -654,7 +653,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
           <div className="relative">
             <button 
               onClick={() => setShowMenu(!showMenu)}
-              className="p-3 bg-white/10 hover:bg-white/20 dark:bg-white/5 dark:hover:bg-white/10 backdrop-blur-md rounded-2xl transition-all active:scale-95 text-white"
+              className="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-2xl transition-all active:scale-95 text-slate-800 dark:text-white"
             >
               {showMenu ? <X size={20} /> : <MoreVertical size={20} />}
             </button>
@@ -818,32 +817,32 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
           </div>
         </div>
 
-        <div className={`bg-[#0f172a] text-white relative overflow-hidden flex flex-col justify-center transition-all duration-500 ${
+        <div className={`bg-white text-slate-900 relative overflow-hidden flex flex-col justify-center transition-all duration-500 ${
           loginMethod === 'companies' ? "h-[160px] p-6 lg:p-10 text-left" : "h-[200px] p-6 text-center"
         }`}>
           {/* Technical Grid Pattern */}
-          <div className="absolute inset-0 opacity-10 pointer-events-none" 
+          <div className="absolute inset-0 opacity-5 pointer-events-none" 
                style={{ backgroundImage: 'radial-gradient(#94a3b8 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
           
           <div className="absolute top-0 right-0 w-80 h-80 bg-brand-primary/10 blur-[120px] rounded-full -mr-40 -mt-40 animate-pulse" />
           
           {loginMethod === 'companies' ? (
             <div className="flex items-center gap-4 relative z-10">
-              <div className="h-16 w-16 flex items-center justify-center bg-white/5 rounded-2xl p-2 border border-white/10 shadow-xl overflow-hidden shrink-0">
+              <div className="h-16 w-16 flex items-center justify-center bg-slate-50 rounded-2xl p-2 border border-slate-150 shadow-md overflow-hidden shrink-0">
                 <img 
                   src="/logo.svg" 
                   alt="SUPER Taxi" 
-                  className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_20px_rgba(59,130,246,0.5)]"
+                  className="w-full h-full object-contain relative z-10 drop-shadow-[0_4px_12px_rgba(245,158,11,0.25)]"
                 />
               </div>
               <div>
-                <h1 className="text-2xl font-black tracking-tight uppercase italic leading-none flex items-center gap-2 text-white">
+                <h1 className="text-2xl font-black tracking-tight uppercase italic leading-none flex items-center gap-2 text-slate-900">
                   SUPER<span className="text-brand-primary">Taxi</span>
                   <span className="text-xs bg-brand-primary text-white font-black uppercase px-2 py-0.5 rounded-md tracking-wider">
                     Administração Central
                   </span>
                 </h1>
-                <p className="text-xs text-slate-400 font-black uppercase tracking-[0.2em] mt-1">PSM COMERCIAL LUENA • MOXICO</p>
+                <p className="text-xs text-slate-500 font-black uppercase tracking-[0.2em] mt-1">JIS. (SU), LDA LUENA • MOXICO</p>
               </div>
             </div>
           ) : (
@@ -851,22 +850,22 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
               <motion.div 
                 initial={{ scale: 0.8, y: 15 }}
                 animate={{ scale: 1, y: 0 }}
-                className="mx-auto flex h-16 w-16 items-center justify-center relative z-10 mb-3 group bg-white/5 rounded-2xl p-3 border border-white/10 shadow-2xl overflow-hidden"
+                className="mx-auto flex h-16 w-16 items-center justify-center relative z-10 mb-3 group bg-slate-50 rounded-2xl p-3 border border-slate-150 shadow-md overflow-hidden"
               >
                 <img 
                   src="/logo.svg" 
                   alt="SUPER Taxi" 
-                  className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_20px_rgba(59,130,246,0.5)]"
+                  className="w-full h-full object-contain relative z-10 drop-shadow-[0_4px_12px_rgba(245,158,11,0.25)]"
                 />
               </motion.div>
               
-              <h1 className="text-2xl font-black tracking-tighter uppercase italic relative z-10 leading-none">
+              <h1 className="text-2xl font-black tracking-tighter uppercase italic relative z-10 leading-none text-slate-900">
                 SUPER<span className="text-brand-primary ml-1">Taxi</span>
               </h1>
               
               <div className="mt-2 flex items-center justify-center gap-3 relative z-10 px-4">
                  <div className="h-0.5 w-6 bg-brand-primary/40" />
-                 <p className="text-[9px] text-slate-400 font-black uppercase tracking-[0.4em] whitespace-nowrap">PSM COMERCIAL LUENA</p>
+                 <p className="text-[9px] text-slate-500 font-black uppercase tracking-[0.4em] whitespace-nowrap">JIS LUENA • MOXICO</p>
                  <div className="h-0.5 w-6 bg-brand-primary/40" />
               </div>
             </>
@@ -886,7 +885,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                 className="w-full space-y-6"
               >
                 {/* SUPER Taxi Passageiro Oficial Section (Updated for JIS) */}
-                <div className="bg-slate-50 border border-slate-200 rounded-[2.5rem] p-6 space-y-4 text-center">
+                <div className="bg-slate-50 rounded-2xl p-6 space-y-4 text-center">
                   <div className="flex flex-col items-center gap-1 pb-2">
                     <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-1">
                       <Car size={24} />
@@ -969,7 +968,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                           >
                             {companies.map((c, idx) => (
                               <option key={`${c.id}-${idx}`} value={c.id} className="text-slate-800 font-bold uppercase">
-                                {c.id === 'psm' ? 'PSM COMERCIAL' : c.name}
+                                {c.id === 'psm' ? 'JIS. (SU), LDA LUENA-MOXICO' : c.name}
                               </option>
                             ))}
                           </select>
@@ -1116,7 +1115,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                       <input 
                         required
                         type="text" 
-                        placeholder="Ex: PSM-XXXX"
+                        placeholder="Ex: JIS-XXXX"
                         value={code}
                         onChange={(e) => setCode(e.target.value.toUpperCase())}
                         className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary font-mono outline-none transition-all"
@@ -1262,7 +1261,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
           </AnimatePresence>
         </div>
         
-        <div className="px-10 py-6 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-black uppercase tracking-widest italic">
+        <div className="px-10 py-6 bg-white flex items-center justify-between text-[11px] text-slate-400 font-black uppercase tracking-widest italic border-none">
           <span>v6.5 • LUENA</span>
           <span className="opacity-50">SISTEMA AUDITADO</span>
         </div>

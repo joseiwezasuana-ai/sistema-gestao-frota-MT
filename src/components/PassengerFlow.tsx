@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import useSWR from 'swr';
 import { useTheme } from '../context/ThemeContext';
 import { 
   Car, MapPin, Phone, User, Camera, Sun, Moon, Sparkles, ShieldCheck, 
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
-  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy
+  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload
 } from 'lucide-react';
 import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion } from '../lib/firebase';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -28,6 +29,107 @@ function RecenterMap({ center, zoom }: { center: [number, number]; zoom: number 
     map.setView(center, zoom);
   }, [center, zoom, map]);
   return null;
+}
+
+const PROVINCE_COORDINATES: Record<string, [number, number]> = {
+  'moxico': [-11.7833, 19.9167],
+  'luena': [-11.7833, 19.9167],
+  'luanda': [-8.8368, 13.2331],
+  'benguela': [-12.5763, 13.4055],
+  'huambo': [-12.7761, 15.7313],
+  'cabinda': [-5.5500, 12.2000],
+  'huila': [-14.9211, 13.4925],
+  'huíla': [-14.9211, 13.4925],
+  'namibe': [-15.1961, 12.1522],
+  'cunene': [-17.0667, 15.7333],
+  'cuando cubango': [-14.6583, 17.6833],
+  'lunda norte': [-8.3000, 20.5000],
+  'lunda sul': [-9.6667, 20.4000],
+  'bengo': [-8.5833, 13.6667],
+  'zaire': [-6.2667, 14.2333],
+  'bié': [-12.3833, 16.9333],
+  'malanje': [-9.5402, 16.3478],
+  'uige': [-7.6186, 15.0617],
+  'uíge': [-7.6186, 15.0617],
+  'kwanza norte': [-9.3000, 14.9000],
+  'kwanza sul': [-11.1961, 15.0117],
+};
+
+/**
+ * Calcula a distância em quilômetros entre dois pontos usando a fórmula de Haversine.
+ */
+export function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Raio da Terra em km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distância em km
+}
+
+/**
+ * Obtém as coordenadas de uma companhia específica ou da sua província correspondente.
+ */
+export function getCompanyCoordinates(comp: any): [number, number] {
+  if (!comp) return [-11.7833, 19.9167];
+  
+  if (typeof comp.lat === 'number' && typeof comp.lng === 'number') {
+    return [comp.lat, comp.lng];
+  }
+  if (typeof comp.latitude === 'number' && typeof comp.longitude === 'number') {
+    return [comp.latitude, comp.longitude];
+  }
+  
+  if (comp.province) {
+    const provKey = comp.province.trim().toLowerCase();
+    for (const [key, coords] of Object.entries(PROVINCE_COORDINATES)) {
+      if (provKey.includes(key) || key.includes(provKey)) {
+        return coords;
+      }
+    }
+  }
+  
+  return [-11.7833, 19.9167];
+}
+
+/**
+ * Hook para comparar a localização real do utilizador com a central da companhia e avisar se exceder 5km.
+ */
+export function useCompanyDistanceAlert(
+  actualGpsCoords: [number, number] | null,
+  activeCompany: any
+) {
+  const [distanceAlert, setDistanceAlert] = useState<{ show: boolean; distance: number; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (!actualGpsCoords || !activeCompany) {
+      setDistanceAlert(null);
+      return;
+    }
+
+    const companyCoords = getCompanyCoordinates(activeCompany);
+    const dist = calculateHaversineDistance(
+      actualGpsCoords[0],
+      actualGpsCoords[1],
+      companyCoords[0],
+      companyCoords[1]
+    );
+
+    if (dist > 5) {
+      setDistanceAlert({
+        show: true,
+        distance: dist,
+        msg: `Aviso de Cobertura: A sua localização real está a ${dist.toFixed(1)} km da central de "${activeCompany.name}". Excedeu o raio de cobertura de 5 km!`
+      });
+    } else {
+      setDistanceAlert(null);
+    }
+  }, [actualGpsCoords, activeCompany]);
+
+  return distanceAlert;
 }
 
 // Custom distinct Leaflet icons using divIcon with Tailwind classes
@@ -480,6 +582,10 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   // Real-time GPS location state for exact passenger coordinates
   const [passengerCoords, setPassengerCoords] = useState<[number, number]>([-11.784422, 20.067332]);
   const [isGpsExact, setIsGpsExact] = useState(false);
+  const [locationAlert, setLocationAlert] = useState<{ show: boolean; msg: string } | null>(null);
+  
+  // Real raw GPS coordinates of the device (unprojected)
+  const [actualDeviceCoords, setActualDeviceCoords] = useState<[number, number] | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && navigator.geolocation) {
@@ -488,6 +594,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
           if (lat && lng) {
+            // Guardar a localização física real obtida para monitoramento de distância (Haversine)
+            setActualDeviceCoords([lat, lng]);
+            
             // Se a localização estiver fora da área operacional do Luena (e.g. Lubango), projetamos no Luena
             if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
               // Projetar no centro do Luena com um pequeno desvio aleatório controlado para dispersar os pedidos
@@ -515,6 +624,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
           if (lat && lng) {
+            // Guardar a localização física real manual para cálculo de distância Haversine
+            setActualDeviceCoords([lat, lng]);
+            
             if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
               lat = -11.7833 + (Math.random() - 0.5) * 0.015;
               lng = 19.9167 + (Math.random() - 0.5) * 0.015;
@@ -544,10 +656,73 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [companies, setCompanies] = useState<any[]>([]);
   const [activeTenant, setActiveTenant] = useState<string>(() => getActiveTenantId());
   const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+  const [dismissedDistanceAlert, setDismissedDistanceAlert] = useState(false);
+  const [dismissedLocationAlert, setDismissedLocationAlert] = useState(false);
+
+  useEffect(() => {
+    setDismissedDistanceAlert(false);
+    setDismissedLocationAlert(false);
+  }, [activeTenant]);
 
   const activeCompany = companies.find(c => c.id === activeTenant);
+  const distanceAlert = useCompanyDistanceAlert(actualDeviceCoords, activeCompany);
   const activeWhatsappLink = activeCompany?.whatsappGroupLink || activeCompany?.whatsappLink || (appConfig?.supportPhone ? `https://wa.me/${(appConfig?.supportPhone || '').replace(/\D/g, '')}` : "https://wa.me/244923456789");
   const activeWhatsappGroupLink = activeCompany?.whatsappGroupLink || "";
+
+  // Dynamic map re-centering and warning alert based on company registration and passenger location
+  useEffect(() => {
+    if (!activeTenant || companies.length === 0) {
+      setLocationAlert(null);
+      return;
+    }
+
+    const comp = companies.find(c => c.id === activeTenant);
+    if (!comp) {
+      setLocationAlert(null);
+      return;
+    }
+
+    // Determine the coordinates of the company's province
+    let provinceCoords: [number, number] | null = null;
+    if (comp.province) {
+      const provKey = comp.province.trim().toLowerCase();
+      for (const [key, coords] of Object.entries(PROVINCE_COORDINATES)) {
+        if (provKey.includes(key) || key.includes(provKey)) {
+          provinceCoords = coords;
+          break;
+        }
+      }
+    }
+
+    // If we don't have an exact GPS location, or if the passenger is far from this company's operational province,
+    // we center the map on the company's province central coordinates with a small random offset.
+    if (provinceCoords) {
+      if (!isGpsExact) {
+        // Recenter to company province with minor jitter
+        const lat = provinceCoords[0] + (Math.random() - 0.5) * 0.005;
+        const lng = provinceCoords[1] + (Math.random() - 0.5) * 0.005;
+        setPassengerCoords([lat, lng]);
+        console.log(`[Company Centering] Centering map on company province (${comp.province}): ${lat}, ${lng}`);
+      }
+    }
+
+    // Check location mismatch warning
+    if (passengerProfile && passengerProfile.province && comp.province) {
+      const passProv = passengerProfile.province.trim().toLowerCase();
+      const compProv = comp.province.trim().toLowerCase();
+
+      // If provinces don't match, trigger location warning
+      if (!passProv.includes(compProv) && !compProv.includes(passProv)) {
+        setLocationAlert({
+          show: true,
+          msg: `Aviso de Localização: A sua localização atual é na província de "${passengerProfile.province}", mas a companhia "${comp.name}" que selecionou opera na província de "${comp.province}". Poderá estar fora da área de serviço!`
+        });
+        return;
+      }
+    }
+    
+    setLocationAlert(null);
+  }, [activeTenant, companies, passengerProfile, isGpsExact]);
 
   // Call Sequence states
   // 'idle' | 'calling' | 'connected' | 'pricing' | 'offer_received' | 'ride_confirmed' | 'ride_completed' | 'cancelled_by_driver'
@@ -640,12 +815,15 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       if (extTitle && extBody && 'Notification' in window) {
         if (Notification.permission === 'granted') {
           try {
-            new Notification(`🚕 TAXICONTROL: ${extTitle}`, {
+            const notif = new Notification(`🚕 TAXICONTROL: ${extTitle}`, {
               body: extBody,
               icon: '/favicon.ico',
               tag: 'super-taxi-passenger',
               requireInteraction: true
             });
+            notif.onclick = () => {
+              window.focus();
+            };
           } catch (e) {
             console.warn("Standard notification failed, trying backup ServiceWorker notification:", e);
             navigator.serviceWorker?.ready.then(registration => {
@@ -755,40 +933,76 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
   const [passengerTab, setPassengerTab] = useState<'viagem' | 'seguranca' | 'perfil'>('viagem');
 
+  // SWR-based fleet fetcher for offline caching & instant navigability
+  const { data: swrFleet, mutate: mutateFleet } = useSWR('firestore/drivers/fleet', async () => {
+    const activeDriversSnap = await getDocs(collection(db, 'drivers'));
+    const activeDriversList: VehicleOption[] = [];
+    const activeStatuses = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em curso'];
+    
+    activeDriversSnap.forEach(docSnap => {
+      const data = docSnap.data();
+      const status = (data.status || '').toLowerCase().trim();
+      const isPassengerActive = data.passengerAppActive !== false;
+      if ((activeStatuses.includes(status) || data.isOnline === true || data.online === true) && isPassengerActive) {
+        activeDriversList.push({
+          id: docSnap.id,
+          plate: data.plate || 'LD-92-33-PX',
+          driverName: data.name,
+          phone: data.phone || data.secondaryPhone || '+244 923 456 789',
+          model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
+          driverId: data.driverId || '',
+          lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
+          lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
+        });
+      }
+    });
+    
+    // Save to local storage cache for absolute resilience
+    if (activeDriversList.length > 0) {
+      localStorage.setItem('cached_fleet_data', JSON.stringify(activeDriversList));
+    }
+    return activeDriversList;
+  }, {
+    refreshInterval: 12000, // revalidate every 12 seconds
+    fallbackData: (() => {
+      try {
+        const local = localStorage.getItem('cached_fleet_data');
+        return local ? JSON.parse(local) : [];
+      } catch (e) {
+        return [];
+      }
+    })(),
+    revalidateOnFocus: true,
+  });
+
+  // Keep availableVehicles updated from SWR
+  useEffect(() => {
+    if (swrFleet && swrFleet.length > 0) {
+      setAvailableVehicles(swrFleet);
+      if (selectedVehicleId === '' || !swrFleet.some(v => v.id === selectedVehicleId)) {
+        setSelectedVehicleId(swrFleet[0].id);
+      }
+    }
+  }, [swrFleet]);
+
   // Fetch Vehicles & Drivers to Book
   const loadFleetData = async () => {
     setIsLoadingFleet(true);
     try {
-      const activeDriversSnap = await getDocs(collection(db, 'drivers'));
-      const activeDriversList: VehicleOption[] = [];
-      const activeStatuses = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em curso'];
-      
-      activeDriversSnap.forEach(docSnap => {
-        const data = docSnap.data();
-        const status = (data.status || '').toLowerCase().trim();
-        const isPassengerActive = data.passengerAppActive !== false;
-        if ((activeStatuses.includes(status) || data.isOnline === true || data.online === true) && isPassengerActive) {
-          activeDriversList.push({
-            id: docSnap.id,
-            plate: data.plate || 'LD-92-33-PX',
-            driverName: data.name,
-            phone: data.phone || data.secondaryPhone || '+244 923 456 789',
-            model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
-            driverId: data.driverId || '',
-            lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
-            lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
-          });
-        }
-      });
-
-      setAvailableVehicles(activeDriversList);
-      if (activeDriversList.length > 0) {
-        setSelectedVehicleId(activeDriversList[0].id);
-      } else {
-        setSelectedVehicleId('');
+      // SWR revalidates and returns instantly from cache
+      const freshData = await mutateFleet();
+      if (freshData && freshData.length > 0) {
+        setAvailableVehicles(freshData);
       }
     } catch (e) {
-      console.error(e);
+      console.warn("Could not load fleet data (using cache):", e);
+      // Fallback to localStorage if totally offline
+      try {
+        const local = localStorage.getItem('cached_fleet_data');
+        if (local) {
+          setAvailableVehicles(JSON.parse(local));
+        }
+      } catch (err) {}
     } finally {
       setIsLoadingFleet(false);
     }
@@ -818,13 +1032,27 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           });
         }
       });
+      // Update both SWR cache and local state
+      mutateFleet(activeDriversList, false);
       setAvailableVehicles(activeDriversList);
+      if (activeDriversList.length > 0) {
+        localStorage.setItem('cached_fleet_data', JSON.stringify(activeDriversList));
+      }
     }, (error) => {
       console.warn("Error listening to real-time driver coordinates:", error);
+      // Retrieve from cache if listener fails due to network
+      try {
+        const local = localStorage.getItem('cached_fleet_data');
+        if (local) {
+          const parsed = JSON.parse(local);
+          setAvailableVehicles(parsed);
+          mutateFleet(parsed, false);
+        }
+      } catch (e) {}
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [mutateFleet]);
 
   const fetchCompanies = async () => {
     setIsLoadingCompanies(true);
@@ -1615,8 +1843,8 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
       {/* Real-time Smartphone structure mockup */}
       <div className={isPublicApp 
-        ? "w-full flex flex-col flex-1 bg-transparent overflow-hidden" 
-        : "relative mx-auto w-full aspect-[9/18.5] bg-slate-900 rounded-[44px] p-3.5 shadow-2xl border-4 border-slate-800 shadow-slate-950/40 overflow-hidden ring-1 ring-white/10 flex flex-col h-[740px]"
+        ? `w-full flex flex-col flex-1 bg-transparent ${passengerProfile ? 'overflow-hidden' : 'overflow-y-auto'}` 
+        : `relative mx-auto w-full aspect-[9/18.5] bg-slate-900 rounded-[44px] p-3.5 shadow-2xl border-4 border-slate-800 shadow-slate-950/40 ring-1 ring-white/10 flex flex-col h-[740px] ${passengerProfile ? 'overflow-hidden' : 'overflow-y-auto'}`
       }>
         
         {/* Dynamic Status bar phone decoration */}
@@ -1641,7 +1869,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
         {!isPublicApp && <div className="h-4 shrink-0 bg-slate-900" />}
 
         {/* INTERFACE LIVRE E REAL - Passenger App Interactive Screen */}
-        <div className={`w-full h-full overflow-hidden relative flex flex-col ${isPublicApp ? '' : 'rounded-[30px] shadow-inner'} ${currentTheme.bgClass} transition-colors duration-300 flex-1`}>
+        <div className={`w-full h-full relative flex flex-col ${isPublicApp ? '' : 'rounded-[30px] shadow-inner'} ${currentTheme.bgClass} transition-colors duration-300 flex-1 ${passengerProfile ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           
           {/* TOAST NOTIFICATION BANNER SINCRO SUPER TAXI (JIS) - FLUTUANTE COM Z-INDEX IMPEDIDOR DE OVERLAY COVERING */}
           <AnimatePresence>
@@ -1838,29 +2066,24 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
                   {authMode === 'register' ? (
                     <form onSubmit={handleCreateProfile} className="space-y-3">
-                      {/* Selectable Avatars */}
-                      <div className="space-y-1.5 text-center">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block">Foto de Perfil</label>
-                        <div className="flex justify-center gap-3">
-                          {PRESETS_AVATARS.map((av, idx) => (
-                            <div 
-                              key={idx}
-                              onClick={() => setSelectedAvatar(av)}
-                              className={`w-11 h-11 rounded-full overflow-hidden border-2 cursor-pointer transition-all ${selectedAvatar === av ? currentTheme.borderClass + ' scale-110 shadow-lg' : 'border-transparent opacity-60'}`}
-                            >
-                              <img src={av} alt="Avatar" className="w-full h-full object-cover" />
+                      {/* Clickable Profile Photo */}
+                      <div className="space-y-2 text-center flex flex-col items-center justify-center py-2">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">Foto de Perfil</label>
+                        <label className="relative w-20 h-20 rounded-full overflow-hidden border-2 border-dashed border-slate-500 hover:border-amber-500 cursor-pointer flex items-center justify-center transition-all bg-slate-900 group shadow-md">
+                          {selectedAvatar ? (
+                            <img src={selectedAvatar} alt="Foto de Perfil" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-400 group-hover:text-amber-500">
+                              <Camera size={20} className="mb-0.5" />
+                              <span className="text-[7.5px] font-bold uppercase tracking-wider">Adicionar</span>
                             </div>
-                          ))}
-                        </div>
-
-                        {/* Custom Upload Button */}
-                        <div className="mt-2">
-                          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors">
-                            <Camera size={10} className={currentTheme.textClass} />
-                            {isUploading ? 'A Carregar...' : 'Enviar Foto'}
-                            <input type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
-                          </label>
-                        </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                            <Camera size={14} className="text-white" />
+                          </div>
+                          <input type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
+                        </label>
+                        <p className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Toque acima para abrir a galeria</p>
                       </div>
 
                       <div className="space-y-1">
@@ -2251,6 +2474,50 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                               </button>
                             </div>
                           )}
+
+                          {/* Location Mismatch Alert */}
+                          {locationAlert?.show && !dismissedLocationAlert && (
+                            <div className="bg-rose-950/95 backdrop-blur border border-rose-500/40 p-3 rounded-2xl flex items-start gap-2.5 shadow-xl text-white relative">
+                              <div className="p-1.5 bg-rose-600 rounded-lg shrink-0 text-white mt-0.5">
+                                <ShieldAlert size={14} />
+                              </div>
+                              <div className="text-left leading-snug flex-1 pr-6">
+                                <p className="text-[10px] font-black text-rose-300 uppercase tracking-wider leading-none mb-1">Aviso de Localização</p>
+                                <p className="text-[9.5px] font-bold text-white">
+                                  {locationAlert.msg}
+                                </p>
+                              </div>
+                              <button 
+                                onClick={() => setDismissedLocationAlert(true)}
+                                className="absolute top-2.5 right-2.5 p-1 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded-lg transition-all active:scale-90"
+                                title="Fechar aviso"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Distance Coverage Alert (Haversine > 5km) */}
+                          {distanceAlert?.show && !dismissedDistanceAlert && (
+                            <div className="bg-amber-950/95 backdrop-blur border border-amber-500/40 p-3 rounded-2xl flex items-start gap-2.5 shadow-xl text-white relative">
+                              <div className="p-1.5 bg-amber-600 rounded-lg shrink-0 text-white mt-0.5 animate-pulse">
+                                <AlertCircle size={14} />
+                              </div>
+                              <div className="text-left leading-snug flex-1 pr-6">
+                                <p className="text-[10px] font-black text-amber-300 uppercase tracking-wider leading-none mb-1">Aviso de Distância (Haversine)</p>
+                                <p className="text-[9.5px] font-bold text-white">
+                                  {distanceAlert.msg}
+                                </p>
+                              </div>
+                              <button 
+                                onClick={() => setDismissedDistanceAlert(true)}
+                                className="absolute top-2.5 right-2.5 p-1 bg-white/10 hover:bg-white/20 text-white/80 hover:text-white rounded-lg transition-all active:scale-90"
+                                title="Fechar aviso"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Lower panel - floating bottom sheet containing the welcome greeting + main action cards */}
@@ -2272,15 +2539,21 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                                 {appConfig?.bookingEnabled !== false ? (
                                   <div className="flex flex-col gap-2">
                                     <button 
+                                      disabled={!!locationAlert?.show}
                                       onClick={() => {
+                                        if (locationAlert?.show) return;
                                         setIsBookModalOpen(true);
                                         loadFleetData();
                                       }}
-                                      className="w-full text-[10px] font-black py-3 px-4 rounded-xl flex items-center justify-between shadow-xl uppercase transition-all duration-300 transform active:scale-95 cursor-pointer text-slate-950 hover:brightness-110"
-                                      style={{ backgroundColor: currentTheme.accentColor }}
+                                      className={`w-full text-[10px] font-black py-3 px-4 rounded-xl flex items-center justify-between shadow-xl uppercase transition-all duration-300 transform ${
+                                        locationAlert?.show 
+                                          ? "opacity-50 cursor-not-allowed bg-slate-800 text-slate-500" 
+                                          : "active:scale-95 cursor-pointer hover:brightness-110 text-slate-950"
+                                      }`}
+                                      style={locationAlert?.show ? undefined : { backgroundColor: currentTheme.accentColor }}
                                     >
-                                      <span>Pedir Táxi Público Moxico</span>
-                                      <ArrowRight size={13} className="animate-pulse" />
+                                      <span>Pedir Táxi Público</span>
+                                      <ArrowRight size={13} className={locationAlert?.show ? "" : "animate-pulse"} />
                                     </button>
                                   </div>
                                 ) : (
@@ -3283,8 +3556,8 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
-                       <Camera size={14} className="text-blue-400" />
-                       Trocar Foto de Perfil
+                       <Camera size={14} className="text-amber-500" />
+                       Atualizar Foto de Perfil
                     </h3>
                     <button 
                       onClick={() => setShowProfilePicModal(false)}
@@ -3294,98 +3567,82 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                     </button>
                   </div>
 
-                  <div className="space-y-4 py-2 text-center">
-                    <p className="text-[9px] text-slate-400 uppercase font-bold tracking-tight">Escolha um avatar de prestígio ou envie um ficheiro personalizado:</p>
+                  <div className="space-y-4 py-4 text-center flex flex-col items-center justify-center">
+                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">Clique na foto abaixo para abrir a galeria e escolher uma nova imagem de perfil:</p>
                     
-                    {/* Selectable Presets */}
-                    <div className="flex justify-center gap-3">
-                      {PRESETS_AVATARS.map((av, idx) => (
-                        <div 
-                          key={idx}
-                          onClick={async () => {
-                            setSelectedAvatar(av);
-                            // Update local Profile state as well
-                            const updated = { ...passengerProfile, photoUrl: av };
-                            setPassengerProfile(updated);
-                            localStorage.setItem('psm-passenger-profile', JSON.stringify(updated));
-                            // Also persist to Firestore
-                            try {
-                              if (passengerProfile?.id) {
-                                await updateDoc(doc(db, 'passengers', passengerProfile.id), { photoUrl: av });
-                              } else if (passengerProfile?.name) {
-                                const q = query(collection(db, 'passengers'), where('name', '==', passengerProfile.name));
-                                const snap = await getDocs(q);
-                                if (!snap.empty) {
-                                  await updateDoc(doc(db, 'passengers', snap.docs[0].id), { photoUrl: av });
+                    <label className="relative w-32 h-32 rounded-full overflow-hidden border-2 border-dashed border-amber-500/60 hover:border-amber-500 cursor-pointer flex items-center justify-center transition-all bg-slate-950 group shadow-2xl">
+                      {passengerProfile?.photoUrl || selectedAvatar ? (
+                        <img 
+                          src={passengerProfile?.photoUrl || selectedAvatar} 
+                          alt="Foto Atual" 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-slate-400 group-hover:text-amber-500">
+                          <Camera size={32} className="mb-1" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Escolher</span>
+                        </div>
+                      )}
+                      
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity">
+                        <Upload size={20} className="text-white mb-1 animate-bounce" />
+                        <span className="text-[8px] text-white font-black uppercase tracking-widest">Alterar</span>
+                      </div>
+
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            const file = e.target.files[0];
+                            setIsUploading(true);
+                            const reader = new FileReader();
+                            reader.onload = async (event) => {
+                              if (event.target?.result) {
+                                const base64 = event.target.result as string;
+                                setSelectedAvatar(base64);
+                                const updated = { ...passengerProfile, photoUrl: base64 };
+                                setPassengerProfile(updated);
+                                localStorage.setItem('psm-passenger-profile', JSON.stringify(updated));
+                                
+                                // Also persist to Firestore
+                                try {
+                                  if (passengerProfile?.id) {
+                                    await updateDoc(doc(db, 'passengers', passengerProfile.id), { photoUrl: base64 });
+                                  } else if (passengerProfile?.name) {
+                                    const q = query(collection(db, 'passengers'), where('name', '==', passengerProfile.name));
+                                    const snap = await getDocs(q);
+                                    if (!snap.empty) {
+                                      await updateDoc(doc(db, 'passengers', snap.docs[0].id), { photoUrl: base64 });
+                                    }
+                                  }
+                                } catch (err) {
+                                  console.error("Erro ao persistir imagem carregada no Firestore:", err);
                                 }
                               }
-                            } catch (err) {
-                              console.error("Erro ao persistir avatar preferido no Firestore:", err);
-                            }
-                          }}
-                          className={`w-14 h-14 rounded-full overflow-hidden border-2 cursor-pointer transition-all ${
-                            (passengerProfile?.photoUrl || selectedAvatar) === av ? 'border-amber-500 scale-110 shadow-lg' : 'border-transparent opacity-60'
-                          }`}
-                        >
-                          <img src={av} alt="Avatar" className="w-full h-full object-cover" />
-                        </div>
-                      ))}
-                    </div>
+                              setIsUploading(false);
+                              setShowProfilePicModal(false);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }} 
+                        className="hidden" 
+                      />
+                    </label>
 
-                    <div className="pt-2 border-t border-white/5 space-y-3">
-                      <p className="text-[9px] text-slate-500 uppercase font-extrabold tracking-widest">OU CARREGUE DA GALERIA DO DISPOSITIVO</p>
-                      <label className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer transition-all mx-auto">
-                        <Camera size={14} className="text-blue-400" />
-                        {isUploading ? 'A carregar ficheiro...' : 'Anexar Foto do Dispositivo'}
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              const file = e.target.files[0];
-                              setIsUploading(true);
-                              const reader = new FileReader();
-                              reader.onload = async (event) => {
-                                if (event.target?.result) {
-                                  const base64 = event.target.result as string;
-                                  setSelectedAvatar(base64);
-                                  const updated = { ...passengerProfile, photoUrl: base64 };
-                                  setPassengerProfile(updated);
-                                  localStorage.setItem('psm-passenger-profile', JSON.stringify(updated));
-                                  
-                                  // Also persist to Firestore
-                                  try {
-                                    if (passengerProfile?.id) {
-                                      await updateDoc(doc(db, 'passengers', passengerProfile.id), { photoUrl: base64 });
-                                    } else if (passengerProfile?.name) {
-                                      const q = query(collection(db, 'passengers'), where('name', '==', passengerProfile.name));
-                                      const snap = await getDocs(q);
-                                      if (!snap.empty) {
-                                        await updateDoc(doc(db, 'passengers', snap.docs[0].id), { photoUrl: base64 });
-                                      }
-                                    }
-                                  } catch (err) {
-                                    console.error("Erro ao persistir imagem carregada no Firestore:", err);
-                                  }
-                                }
-                                setIsUploading(false);
-                                setShowProfilePicModal(false);
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }} 
-                          className="hidden" 
-                        />
-                      </label>
-                    </div>
+                    {isUploading && (
+                      <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest animate-pulse">A carregar imagem do dispositivo...</p>
+                    )}
 
-                    <button
-                      onClick={() => setShowProfilePicModal(false)}
-                      className="w-full mt-4 py-2.5 bg-white/5 border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-white/10"
-                    >
-                      Concluído
-                    </button>
+                    <p className="text-[8px] text-slate-500 font-extrabold uppercase tracking-widest mt-2">Toque acima para selecionar uma foto da sua galeria</p>
                   </div>
+
+                  <button
+                    onClick={() => setShowProfilePicModal(false)}
+                    className="w-full mt-4 py-2.5 bg-white/5 border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-white/10"
+                  >
+                    Concluído
+                  </button>
                 </div>
               </div>
             )}
@@ -3625,40 +3882,17 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                   </div>
 
                   <div className="space-y-4 text-center py-2">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider max-w-xs mx-auto">
-                      Partilhe o Código QR abaixo para que os passageiros acedam instantaneamente à aplicação oficial:
+                    <p className="text-[11px] text-amber-500 uppercase font-black tracking-widest max-w-xs mx-auto">
+                      ACESSO AO APP DO PASSAGEIRO OFICIAL
                     </p>
 
                     {/* QR Code Graphic Frame */}
                     <div className="bg-white p-4 rounded-2xl w-48 h-48 mx-auto shadow-2xl flex flex-col items-center justify-center border-4 border-amber-500">
-                      <svg viewBox="0 0 100 100" className="w-full h-full text-slate-950" fill="currentColor">
-                        {/* QR Code Outer Frame and corners */}
-                        {/* Top-left locator */}
-                        <path d="M5,5 h25 v25 h-25 z M10,10 h15 v15 h-15 z M13,13 h9 v9 h-9 z" />
-                        {/* Top-right locator */}
-                        <path d="M70,5 h25 v25 h-25 z M75,10 h15 v15 h-15 z M78,13 h9 v9 h-9 z" />
-                        {/* Bottom-left locator */}
-                        <path d="M5,70 h25 v25 h-25 z M10,75 h15 v15 h-15 z M13,78 h9 v9 h-9 z" />
-                        {/* Bottom-right alignment pattern */}
-                        <path d="M78,78 h12 v12 h-12 z M81,81 h6 v6 h-6 z" />
-                        
-                        {/* Elegant abstract barcode and QR data dots (to resemble a real QR) */}
-                        <path d="M35,5 h6 v4 h-6 z M45,5 h4 v6 h-4 z M53,5 h8 v4 h-8 z M65,5 h2 v4 h-2 z" />
-                        <path d="M35,13 h4 v8 h-4 z M43,13 h10 v4 h-10 z M57,13 h4 v4 h-4 z" />
-                        <path d="M35,25 h12 v4 h-12 z M51,25 h6 v4 h-6 z M61,25 h4 v4 h-4 z" />
-                        
-                        <path d="M5,35 h4 v10 h-4 z M13,35 h8 v4 h-8 z M25,35 h4 v4 h-4 z M35,35 h8 v8 h-8 z M47,35 h10 v4 h-10 z M61,35 h8 v4 h-8 z M73,35 h10 v4 h-10 z M87,35 h8 v8 h-8 z" />
-                        <path d="M5,49 h10 v4 h-10 z M19,49 h4 v6 h-4 z M27,49 h6 v4 h-6 z M37,49 h4 v4 h-4 z M45,49 h10 v4 h-10 z M59,49 h6 v6 h-6 z M69,49 h4 v4 h-4 z M77,49 h18 v4 h-18 z" />
-                        <path d="M5,59 h6 v4 h-6 z M15,59 h10 v4 h-10 z M29,59 h4 v4 h-4 z M37,59 h8 v4 h-8 z M49,59 h4 v8 h-4 z M57,59 h10 v4 h-10 z M71,59 h6 v4 h-6 z M81,59 h14 v4 h-14 z" />
-                        
-                        <path d="M35,70 h8 v4 h-8 z M47,70 h4 v4 h-4 z M55,70 h10 v4 h-10 z M69,70 h6 v4 h-6 z" />
-                        <path d="M35,78 h6 v6 h-6 z M45,78 h10 v4 h-10 z M59,78 h4 v4 h-4 z M67,78 h8 v4 h-8 z" />
-                        <path d="M35,88 h12 v4 h-12 z M51,88 h6 v4 h-6 z M61,88 h8 v4 h-8 z" />
-
-                        {/* Yellow mini taxi silhouette inside a shield center of QR */}
-                        <rect x="42" y="42" width="16" height="16" rx="4" fill="#f59e0b" />
-                        <path d="M46,52 h8 v2 h-8 z M48,47 h4 v4 h-4 z" fill="#0f172a" />
-                      </svg>
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(typeof window !== 'undefined' ? `${window.location.origin}/?view=passenger` : "https://taxi-dev")}`} 
+                        alt="Passenger App QR Code" 
+                        className="w-full h-full object-contain"
+                      />
                     </div>
 
                     <div className="space-y-1">

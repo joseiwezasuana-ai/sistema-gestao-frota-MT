@@ -30,6 +30,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
   const [newTenantSlug, setNewTenantSlug] = useState('');
   const [newTenantPhone, setNewTenantPhone] = useState('');
   const [newTenantAddress, setNewTenantAddress] = useState('');
+  const [newTenantCountry, setNewTenantCountry] = useState('Angola');
+  const [newTenantProvince, setNewTenantProvince] = useState('Moxico');
   const [newTenantLogoUrl, setNewTenantLogoUrl] = useState('');
   const [newTenantWhatsappLink, setNewTenantWhatsappLink] = useState('');
   const [newTenantWhatsappGroupLink, setNewTenantWhatsappGroupLink] = useState('');
@@ -74,6 +76,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
     setNewTenantSlug(tenant.id);
     setNewTenantPhone(tenant.phone ? tenant.phone.replace("+244", "") : "");
     setNewTenantAddress(tenant.address || "");
+    setNewTenantCountry(tenant.country || "Angola");
+    setNewTenantProvince(tenant.province || "Moxico");
     setNewTenantLogoUrl(tenant.logoUrl || "");
     setNewTenantWhatsappLink(tenant.whatsappLink || "");
     setNewTenantWhatsappGroupLink(tenant.whatsappGroupLink || "");
@@ -88,6 +92,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
     setNewTenantSlug('');
     setNewTenantPhone('');
     setNewTenantAddress('');
+    setNewTenantCountry('Angola');
+    setNewTenantProvince('Moxico');
     setNewTenantLogoUrl('');
     setNewTenantWhatsappLink('');
     setNewTenantWhatsappGroupLink('');
@@ -124,6 +130,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
         name: newTenantName.trim(),
         phone: formattedPhone,
         address: newTenantAddress.trim(),
+        country: newTenantCountry.trim(),
+        province: newTenantProvince.trim(),
         logoUrl: newTenantLogoUrl.trim() || '',
         whatsappLink: newTenantWhatsappLink.trim() || '',
         whatsappGroupLink: newTenantWhatsappGroupLink.trim() || '',
@@ -201,6 +209,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
       setNewTenantSlug('');
       setNewTenantPhone('');
       setNewTenantAddress('');
+      setNewTenantCountry('Angola');
+      setNewTenantProvince('Moxico');
       setNewTenantLogoUrl('');
       setNewTenantWhatsappLink('');
       setNewTenantWhatsappGroupLink('');
@@ -241,7 +251,7 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
   return (
     <div className="space-y-6">
       {/* Upper informational bar */}
-      <div className="bg-[#0f172a] rounded-2xl border border-slate-800 p-6 text-white relative overflow-hidden shadow-xl shadow-brand-primary/5">
+      <div className="bg-[#0f172a] rounded-2xl p-6 text-white relative overflow-hidden">
         <div className="absolute right-0 top-0 h-40 w-41 bg-brand-primary/10 rounded-full blur-3xl" />
         <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="text-left">
@@ -281,7 +291,7 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-left">
         {/* Registration & Edit form */}
-        <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 flex flex-col justify-between">
+        <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
@@ -412,6 +422,49 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                 <p className="text-[9px] text-slate-400 leading-tight">Link de convite do grupo de WhatsApp desta filial ou companhia.</p>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">País</label>
+                  <input
+                    type="text"
+                    required
+                    value={newTenantCountry}
+                    onChange={(e) => setNewTenantCountry(e.target.value)}
+                    placeholder="Ex: Angola"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:bg-white focus:border-brand-primary transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:focus:bg-slate-900/50"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Província / Estado</label>
+                  <select
+                    required
+                    value={newTenantProvince}
+                    onChange={(e) => setNewTenantProvince(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:bg-white focus:border-brand-primary transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:focus:bg-slate-900/50"
+                  >
+                    <option value="Moxico">Moxico (Luena)</option>
+                    <option value="Luanda">Luanda</option>
+                    <option value="Benguela">Benguela</option>
+                    <option value="Huambo">Huambo</option>
+                    <option value="Cabinda">Cabinda</option>
+                    <option value="Huíla">Huíla</option>
+                    <option value="Namibe">Namibe</option>
+                    <option value="Cunene">Cunene</option>
+                    <option value="Cuando Cubango">Cuando Cubango</option>
+                    <option value="Lunda Norte">Lunda Norte</option>
+                    <option value="Lunda Sul">Lunda Sul</option>
+                    <option value="Bengo">Bengo</option>
+                    <option value="Zaire">Zaire</option>
+                    <option value="Bié">Bié</option>
+                    <option value="Malanje">Malanje</option>
+                    <option value="Uíge">Uíge</option>
+                    <option value="Kwanza Norte">Kwanza Norte</option>
+                    <option value="Kwanza Sul">Kwanza Sul</option>
+                  </select>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Endereço / Sede</label>
                 <textarea
@@ -455,7 +508,7 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
 
         {/* List of companies */}
         <div className="lg:col-span-2 flex flex-col justify-between avatar-list">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 min-h-[450px]">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 min-h-[450px]">
             <div className="flex items-center justify-between mb-6 border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <Building size={18} className="text-indigo-600" />
@@ -481,7 +534,7 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                   </div>
                   
                   <div 
-                    className={`p-5 bg-white dark:bg-slate-850 border rounded-2xl shadow-sm transition-all relative flex flex-col justify-between text-left ${psmBranch.id === activeTenant ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/25' : 'border-slate-200 dark:border-slate-800'}`}
+                    className={`p-5 bg-slate-50 dark:bg-slate-850 rounded-2xl transition-all relative flex flex-col justify-between text-left ${psmBranch.id === activeTenant ? 'ring-2 ring-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/25' : ''}`}
                   >
                     <div>
                       {/* Brand Label Header */}
@@ -543,6 +596,12 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                             </a>
                           </div>
                         )}
+                        <div className="flex items-center gap-2">
+                          <Globe size={12} className="text-indigo-400 shrink-0" />
+                          <span className="font-bold text-[11px] text-slate-600 dark:text-slate-300">
+                            {psmBranch.province || 'Moxico'}, {psmBranch.country || 'Angola'}
+                          </span>
+                        </div>
                         <div className="flex items-start gap-2">
                           <MapPin size={12} className="text-slate-400 shrink-0 mt-0.5" />
                           <span className="text-[11px] leading-tight text-slate-600 dark:text-slate-300 line-clamp-2">{psmBranch.address || 'N/A'}</span>
@@ -605,7 +664,7 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                     otherBranches.map((t) => (
                       <div 
                         key={t.id} 
-                        className={`p-5 bg-white dark:bg-slate-850 border rounded-2xl shadow-sm transition-all hover:shadow-md relative flex flex-col justify-between text-left ${t.id === activeTenant ? 'border-brand-primary bg-brand-primary/5 dark:bg-brand-primary/10' : 'border-slate-200 dark:border-slate-800'}`}
+                        className={`p-5 bg-slate-50 dark:bg-slate-850 rounded-2xl transition-all relative flex flex-col justify-between text-left ${t.id === activeTenant ? 'ring-2 ring-brand-primary bg-brand-primary/5 dark:bg-brand-primary/10' : ''}`}
                       >
                         <div>
                           {/* Brand Label Header */}
@@ -667,6 +726,12 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                                 </a>
                               </div>
                             )}
+                            <div className="flex items-center gap-2">
+                              <Globe size={12} className="text-blue-400 shrink-0" />
+                              <span className="font-bold text-[11px] text-slate-600 dark:text-slate-300">
+                                {t.province || 'Moxico'}, {t.country || 'Angola'}
+                              </span>
+                            </div>
                             <div className="flex items-start gap-2">
                               <MapPin size={12} className="text-slate-400 shrink-0 mt-0.5" />
                               <span className="text-[11px] leading-tight text-slate-600 dark:text-slate-300 line-clamp-2">{t.address || 'N/A'}</span>

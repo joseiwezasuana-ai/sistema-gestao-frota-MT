@@ -39,6 +39,7 @@ import {
   Layout,
 } from "lucide-react";
 import RevenueManagement from "./RevenueManagement";
+import PermissionManager from "./PermissionManager";
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
 import WaitingTimer from './WaitingTimer';
 import { motion, AnimatePresence } from "motion/react";
@@ -246,6 +247,39 @@ export default function DriverView({ user }: DriverViewProps) {
       );
     }
   }, []);
+
+  const triggerNativeDriverNotification = (callData: any) => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "granted") {
+        const title = `🚕 NOVO SERVIÇO: ${callData.passengerName || callData.customerName || "Passageiro"}`;
+        const body = `De: ${callData.originName || "Localização Atual"}\nPara: ${callData.destinationName || "Não especificado"}\nAbra o SUPER Taxi Control para aceitar!`;
+        
+        try {
+          const notif = new Notification(title, {
+            body,
+            icon: "/favicon.ico",
+            tag: `driver-service-${callData.id}`,
+            requireInteraction: true
+          });
+          notif.onclick = () => {
+            window.focus();
+          };
+        } catch (e) {
+          console.warn("Standard notification failed, trying ServiceWorker:", e);
+          navigator.serviceWorker?.ready.then(registration => {
+            registration.showNotification(title, {
+              body,
+              icon: "/favicon.ico",
+              tag: `driver-service-${callData.id}`,
+              requireInteraction: true
+            });
+          }).catch(swErr => console.error("SW notification registration failed:", swErr));
+        }
+      } else if (Notification.permission === "default") {
+        Notification.requestPermission();
+      }
+    }
+  };
 
   const attendCall = async () => {
     if (!currentService?.id) return;
@@ -770,13 +804,10 @@ export default function DriverView({ user }: DriverViewProps) {
 
     const todayStr = new Date().toISOString().split("T")[0];
 
-    // Find the last assignment before today in driver_scales
+    // Find the last assignment before today in driver_scales (filtered and sorted in-memory to prevent requiring composite indexes)
     const lastShiftQuery = query(
       collection(db, "driver_scales"),
       where("driverId", "==", user.uid),
-      where("date", "<", todayStr),
-      orderBy("date", "desc"),
-      limit(1),
     );
 
     const unsubscribe = onSnapshot(lastShiftQuery, async (snapshot) => {
@@ -786,7 +817,19 @@ export default function DriverView({ user }: DriverViewProps) {
         return;
       }
 
-      const shiftData = snapshot.docs[0].data();
+      const allShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      const pastShifts = allShifts.filter(shift => shift.date && shift.date < todayStr);
+
+      if (pastShifts.length === 0) {
+        setLastAssignedShift(null);
+        setLoadingShiftCheck(false);
+        return;
+      }
+
+      // Sort past shifts by date descending
+      pastShifts.sort((a, b) => b.date.localeCompare(a.date));
+
+      const shiftData = pastShifts[0];
       const shiftDate = shiftData.date;
       const vehicleId = shiftData.vehicleId;
       const vehiclePrefix = shiftData.vehiclePrefix || "Viatura";
@@ -870,20 +913,27 @@ export default function DriverView({ user }: DriverViewProps) {
     return () => unsubscribe();
   }, [user?.uid]);
 
-  // Listen for pending / rejected revenues
+  // Listen for pending / rejected revenues (filtered and sorted in-memory to prevent requiring composite indexes)
   useEffect(() => {
     if (!user?.uid) return;
     const q = query(
       collection(db, "revenue_logs"),
       where("driverId", "==", user.uid),
-      where("status", "in", ["pending_approval", "rejected_by_operator", "rejected_by_accountant"]),
-      orderBy("timestamp", "desc"),
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const all = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setPendingRevenues(all.filter(r => r.status === 'pending_approval'));
-      setRejectedRevenues(all.filter(r => r.status !== 'pending_approval'));
+      const all = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() as any }));
+      
+      // Sort in-memory by timestamp descending
+      all.sort((a, b) => {
+        const timeA = a.timestamp?.seconds || a.timestamp || 0;
+        const timeB = b.timestamp?.seconds || b.timestamp || 0;
+        return Number(timeB) - Number(timeA);
+      });
+
+      const filtered = all.filter(r => ["pending_approval", "rejected_by_operator", "rejected_by_accountant"].includes(r.status));
+      setPendingRevenues(filtered.filter(r => r.status === 'pending_approval'));
+      setRejectedRevenues(filtered.filter(r => r.status !== 'pending_approval'));
     }, (error) => handleFirestoreError(error, OperationType.GET, "revenue_logs"));
 
     return () => unsubscribe();
@@ -1166,6 +1216,14 @@ export default function DriverView({ user }: DriverViewProps) {
         } else {
           // Sync current active service state
           console.log("Serviço sincronizado:", callData);
+          
+          // Trigger native driver notification if it is newly pending
+          const prevService = currentServiceRef.current;
+          const isNewlyPending = callData.status === "pending" && (!prevService || prevService.id !== callData.id || prevService.status !== "pending");
+          if (isNewlyPending) {
+            triggerNativeDriverNotification(callData);
+          }
+
           setCurrentService(callData);
           
           if (["pending", "connected", "price_sent", "confirmed"].includes(callData.status)) {
@@ -4123,6 +4181,14 @@ export default function DriverView({ user }: DriverViewProps) {
                     <p className="text-[9px] text-amber-700 font-bold uppercase leading-relaxed">
                       O toque escolhido tocará continuamente no seu telemóvel sempre que houver uma nova chamada pendente para aceitar.
                     </p>
+                  </div>
+
+                  {/* SEÇÃO DE PERMISSÕES OPERACIONAIS, GESTÃO DE CHAMADAS/SMS NATIVAS E VOZ */}
+                  <div className="border-t border-dashed border-slate-200 pt-6">
+                    <PermissionManager 
+                      driverId={user?.uid || "anon-driver"} 
+                      driverName={user?.name || "Motorista Luena"} 
+                    />
                   </div>
 
                   <button
