@@ -99,3 +99,16 @@
   .text-base { font-size: 16.5px !important; }
 }
 
+@keyframes scan {
+  0% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+  100% {
+    top: 0%;
+  }
+}
+
+

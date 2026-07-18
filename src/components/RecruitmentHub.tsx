@@ -62,6 +62,7 @@ const ROLES = [
 type SubTab = 'access' | 'drivers_master' | 'admin_staff' | 'rent_a_car' | 'internal_clients' | 'vehicles' | 'psm_phones' | 'warehouse' | 'driver_config' | 'driver_dashboard';
 
 export default function RecruitmentHub({ user }: { user?: any }) {
+  const isAdmin = user?.role === 'admin' || user?.role === 'gerente' || user?.email === 'joseiwezasuana@gmail.com';
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('access');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -887,116 +888,124 @@ export default function RecruitmentHub({ user }: { user?: any }) {
       <div className="h-px bg-slate-200 w-full" />
 
       {/* Tabela de Colaboradores Ativos */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="px-6 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div>
-            <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">Diretório de Acessos Ativos</h2>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Utilizadores que já sincronizaram conta via Portal</p>
+      {isAdmin ? (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-6 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <div>
+              <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">Diretório de Acessos Ativos</h2>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Utilizadores que já sincronizaram conta via Portal</p>
+            </div>
+            <div className="px-4 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-[10px] font-black uppercase tracking-widest">
+              {activeUsers.length} Logados
+            </div>
           </div>
-          <div className="px-4 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-[10px] font-black uppercase tracking-widest">
-            {activeUsers.length} Logados
-          </div>
-        </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                <th className="px-6 py-4">Colaborador</th>
-                <th className="px-6 py-4">Função / Cargo</th>
-                <th className="px-6 py-4">ID / E-mail de Acesso</th>
-                <th className="px-6 py-4">Data de Cadastro</th>
-                <th className="px-6 py-4 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {activeUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-black italic shadow-lg shadow-black/10">
-                        {user.name.charAt(0)}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                  <th className="px-6 py-4">Colaborador</th>
+                  <th className="px-6 py-4">Função / Cargo</th>
+                  <th className="px-6 py-4">ID / E-mail de Acesso</th>
+                  <th className="px-6 py-4">Data de Cadastro</th>
+                  <th className="px-6 py-4 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {activeUsers.map((user) => (
+                  <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-black italic shadow-lg shadow-black/10">
+                          {user.name.charAt(0)}
+                        </div>
+                        <span className="text-xs font-black text-slate-800 uppercase italic tracking-tight">{user.name}</span>
                       </div>
-                      <span className="text-xs font-black text-slate-800 uppercase italic tracking-tight">{user.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                     <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest ${
-                        ROLES.find(r => r.id === user.role)?.bg
-                     } ${
-                        ROLES.find(r => r.id === user.role)?.color
-                     }`}>
-                        {ROLES.find(r => r.id === user.role)?.label || user.role}
-                     </span>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                         <span className="text-xs font-bold text-slate-500">{user.email}</span>
-                         <button onClick={() => copyToClipboard(user.email)} className="text-slate-300 hover:text-brand-primary transition-colors">
-                           <Copy size={12} />
-                         </button>
-                      </div>
-                      {(() => {
-                        const originalCodeDoc = allCodesHistory.find((c: any) => 
-                          c.usedBy === user.id || 
-                          c.usedBy === user.uid || 
-                          c.targetName === user.name ||
-                          (c.assignedId && user.email.toLowerCase().includes(c.assignedId.toLowerCase()))
-                        );
-                        if (originalCodeDoc) {
-                          return (
-                            <div className="flex items-center gap-1">
-                              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Chave original:</span>
-                              <code className="text-[9px] font-black text-brand-primary font-mono bg-brand-primary/5 px-1.5 py-0.5 rounded border border-brand-primary/10 select-all">
-                                {originalCodeDoc.code}
-                              </code>
-                            </div>
+                    </td>
+                    <td className="px-6 py-5">
+                       <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest ${
+                          ROLES.find(r => r.id === user.role)?.bg
+                       } ${
+                          ROLES.find(r => r.id === user.role)?.color
+                       }`}>
+                          {ROLES.find(r => r.id === user.role)?.label || user.role}
+                       </span>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                           <span className="text-xs font-bold text-slate-500">{user.email}</span>
+                           <button onClick={() => copyToClipboard(user.email)} className="text-slate-300 hover:text-brand-primary transition-colors">
+                             <Copy size={12} />
+                           </button>
+                        </div>
+                        {(() => {
+                          const originalCodeDoc = allCodesHistory.find((c: any) => 
+                            c.usedBy === user.id || 
+                            c.usedBy === user.uid || 
+                            c.targetName === user.name ||
+                            (c.assignedId && user.email.toLowerCase().includes(c.assignedId.toLowerCase()))
                           );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                    {formatSafe(user.createdAt, 'dd/MM/yyyy', 'Sistema')}
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    {user.email !== 'joseiwezasuana@gmail.com' ? (
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => {
-                            setSelectedUserForReset(user);
-                            setShowResetPasswordModal(true);
-                          }}
-                          className="text-slate-400 hover:text-brand-primary transition-colors p-2 hover:bg-brand-primary/5 rounded-lg"
-                          title="Redefinir Palavra-passe do Colaborador"
-                        >
-                          <Lock size={15} />
-                        </button>
-                        <button 
-                          onClick={() => deleteUser(user.id, user.name)}
-                          className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-lg"
-                          title="Remover Acesso"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                          if (originalCodeDoc) {
+                            return (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Chave original:</span>
+                                <code className="text-[9px] font-black text-brand-primary font-mono bg-brand-primary/5 px-1.5 py-0.5 rounded border border-brand-primary/10 select-all">
+                                  {originalCodeDoc.code}
+                                </code>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
-                    ) : (
-                      <span className="text-[9px] text-emerald-500 font-black uppercase tracking-wider bg-emerald-50 px-2 py-1 rounded-md border border-emerald-100">MASTER ADMIN</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {activeUsers.length === 0 && (
-                <tr>
-                   <td colSpan={5} className="py-12 text-center text-[11px] font-bold text-slate-300 uppercase tracking-widest">Nenhum utilizador sincronizado</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    </td>
+                    <td className="px-6 py-5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                      {formatSafe(user.createdAt, 'dd/MM/yyyy', 'Sistema')}
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      {user.email !== 'joseiwezasuana@gmail.com' ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => {
+                              setSelectedUserForReset(user);
+                              setShowResetPasswordModal(true);
+                            }}
+                            className="text-slate-400 hover:text-brand-primary transition-colors p-2 hover:bg-brand-primary/5 rounded-lg"
+                            title="Redefinir Palavra-passe do Colaborador"
+                          >
+                            <Lock size={15} />
+                          </button>
+                          <button 
+                            onClick={() => deleteUser(user.id, user.name)}
+                            className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                            title="Remover Acesso"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] text-emerald-500 font-black uppercase tracking-wider bg-emerald-50 px-2 py-1 rounded-md border border-emerald-100">MASTER ADMIN</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {activeUsers.length === 0 && (
+                  <tr>
+                     <td colSpan={5} className="py-12 text-center text-[11px] font-bold text-slate-300 uppercase tracking-widest">Nenhum utilizador sincronizado</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-sm">
+          <Lock className="mx-auto text-slate-300 mb-2" size={24} />
+          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest italic">Acesso Restrito</h3>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">O Diretório de Acessos Ativos é exclusivo para o Administrador.</p>
+        </div>
+      )}
 
       {/* Modal Redefinir Senha Administrador (exclusivo José) */}
       <AnimatePresence>

@@ -520,9 +520,9 @@ export default function DriverView({ user }: DriverViewProps) {
   >("dashboard");
   const [selectedRingtone, setSelectedRingtone] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('driver_ringtone') || 'classic';
+      return localStorage.getItem('driver_ringtone') || 'voice_supertaxi';
     }
-    return 'classic';
+    return 'voice_supertaxi';
   });
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -1904,14 +1904,7 @@ export default function DriverView({ user }: DriverViewProps) {
     <div className="flex flex-col w-full h-screen h-[100dvh] bg-slate-50 relative overflow-hidden font-sans">
       {/* Non-scrollable header and status bar zone */}
       <div className="bg-slate-50 shrink-0 z-40 border-b border-slate-100">
-        {/* Status Bar App Style */}
-        <div className="px-6 py-2 flex items-center justify-between text-[11px] font-bold text-slate-400">
-          <span>9:41</span>
-          <div className="flex items-center gap-1.5">
-            <Activity size={10} />
-            <span>PSM Live</span>
-          </div>
-        </div>
+
 
         <header className="px-4 py-4 flex items-center justify-between bg-white">
             <div className="flex items-center gap-3">
@@ -1954,7 +1947,7 @@ export default function DriverView({ user }: DriverViewProps) {
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
               >
-                <Menu size={20} />
+                <MoreVertical size={20} />
               </button>
 
               <AnimatePresence>
@@ -1968,7 +1961,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       initial={{ opacity: 0, scale: 0.95, y: -10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                      className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 py-2 z-50"
+                      className="absolute top-full right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 py-2 z-50"
                     >
                       <div className="px-4 py-2 border-b border-slate-50 mb-1">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -1978,18 +1971,76 @@ export default function DriverView({ user }: DriverViewProps) {
                           {user?.name}
                         </p>
                       </div>
+
+                      {/* Navegação Principal */}
+                      <div className="px-4 py-1.5">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                          Navegação
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("dashboard"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "dashboard" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <Layout size={14} className={activeInternalTab === "dashboard" ? "text-brand-primary" : "text-slate-400"} />
+                        Painel
+                      </button>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("history"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "history" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <History size={14} className={activeInternalTab === "history" ? "text-brand-primary" : "text-slate-400"} />
+                        Viagens
+                      </button>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("contracts"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "contracts" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <FileSignature size={14} className={activeInternalTab === "contracts" ? "text-brand-primary" : "text-slate-400"} />
+                        Contrato
+                      </button>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("rendas"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "rendas" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <Wallet size={14} className={activeInternalTab === "rendas" ? "text-brand-primary" : "text-slate-400"} />
+                        Rendas
+                      </button>
+
+                      <div className="h-px bg-slate-100 my-1.5" />
+
                       <button
                         onClick={() => { setActiveInternalTab("settings"); setIsMenuOpen(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "settings" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
                       >
-                        <Settings size={14} />
+                        <Settings size={14} className={activeInternalTab === "settings" ? "text-brand-primary" : "text-slate-400"} />
                         Configurar Toque
                       </button>
+
                       <button
                         onClick={() => signOut(auth)}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50 transition-colors text-left"
                       >
-                        <Power size={14} />
+                        <Power size={14} className="text-red-400" />
                         Terminar Sessão
                       </button>
                     </motion.div>
@@ -4773,27 +4824,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
         {/* O modal flutuante foi completamente removido a pedido do administrador José Iweza Suana para evitar ecrãs duplicados; apenas a consola de controlo dedicada/painel inferior é utilizado */}
 
-      {/* Bottom Navigation */}
-      <div className="fixed bottom-0 left-0 w-full bg-white border-t border-slate-200 flex justify-around items-center py-3 z-[100] shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
-        {[
-          { id: 'dashboard', label: 'Painel', icon: Layout },
-            { id: 'history', label: 'Viagens', icon: History },
-            { id: 'contracts', label: 'Contratos', icon: FileSignature },
-            { id: 'rendas', label: 'Rendas', icon: Wallet },
-          ].map(item => (
-            <button
-              key={item.id}
-              onClick={() => setActiveInternalTab(item.id as any)}
-              className={cn(
-                "flex flex-col items-center gap-1 p-2 w-16 transition-all",
-                activeInternalTab === item.id ? "text-brand-primary" : "text-slate-400"
-              )}
-            >
-              <item.icon size={20} />
-              <span className="text-[9px] font-black uppercase tracking-tighter">{item.label}</span>
-            </button>
-          ))}
-        </div>
+
 
       {/* Passenger Cancellation Alert Popup for Driver */}
       <AnimatePresence>

@@ -35,6 +35,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
   const [newTenantLogoUrl, setNewTenantLogoUrl] = useState('');
   const [newTenantWhatsappLink, setNewTenantWhatsappLink] = useState('');
   const [newTenantWhatsappGroupLink, setNewTenantWhatsappGroupLink] = useState('');
+  const [newTenantWhatsappGroupDrivers, setNewTenantWhatsappGroupDrivers] = useState('');
+  const [newTenantWhatsappGroupCustomers, setNewTenantWhatsappGroupCustomers] = useState('');
   
   // Edit states
   const [isEditing, setIsEditing] = useState(false);
@@ -81,6 +83,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
     setNewTenantLogoUrl(tenant.logoUrl || "");
     setNewTenantWhatsappLink(tenant.whatsappLink || "");
     setNewTenantWhatsappGroupLink(tenant.whatsappGroupLink || "");
+    setNewTenantWhatsappGroupDrivers(tenant.whatsappGroupDrivers || "");
+    setNewTenantWhatsappGroupCustomers(tenant.whatsappGroupCustomers || "");
     setTenantError(null);
     setTenantSuccess(null);
   };
@@ -97,6 +101,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
     setNewTenantLogoUrl('');
     setNewTenantWhatsappLink('');
     setNewTenantWhatsappGroupLink('');
+    setNewTenantWhatsappGroupDrivers('');
+    setNewTenantWhatsappGroupCustomers('');
     setTenantError(null);
     setTenantSuccess(null);
   };
@@ -134,7 +140,9 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
         province: newTenantProvince.trim(),
         logoUrl: newTenantLogoUrl.trim() || '',
         whatsappLink: newTenantWhatsappLink.trim() || '',
-        whatsappGroupLink: newTenantWhatsappGroupLink.trim() || '',
+        whatsappGroupLink: newTenantWhatsappGroupCustomers.trim() || newTenantWhatsappGroupLink.trim() || '',
+        whatsappGroupDrivers: newTenantWhatsappGroupDrivers.trim() || '',
+        whatsappGroupCustomers: newTenantWhatsappGroupCustomers.trim() || '',
         updatedAt: new Date().toISOString(),
         updatedBy: auth.currentUser?.email || 'admin'
       };
@@ -214,6 +222,8 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
       setNewTenantLogoUrl('');
       setNewTenantWhatsappLink('');
       setNewTenantWhatsappGroupLink('');
+      setNewTenantWhatsappGroupDrivers('');
+      setNewTenantWhatsappGroupCustomers('');
       setIsEditing(false);
       setEditingTenantId(null);
     } catch (err: any) {
@@ -408,18 +418,33 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Link do Grupo de WhatsApp da Filial</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Grupo de WhatsApp (Motoristas - Frota)</label>
                 <div className="relative flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 focus-within:border-brand-primary bg-slate-50 dark:bg-slate-800">
-                  <span className="bg-slate-100 dark:bg-slate-700 px-3 flex items-center text-xs font-black text-slate-500 dark:text-slate-300 border-r border-slate-200 dark:border-slate-600">GRUPO</span>
+                  <span className="bg-slate-100 dark:bg-slate-700 px-3 flex items-center text-xs font-black text-slate-500 dark:text-slate-300 border-r border-slate-200 dark:border-slate-600">FROTA</span>
                   <input
                     type="url"
-                    value={newTenantWhatsappGroupLink}
-                    onChange={(e) => setNewTenantWhatsappGroupLink(e.target.value)}
+                    value={newTenantWhatsappGroupDrivers}
+                    onChange={(e) => setNewTenantWhatsappGroupDrivers(e.target.value)}
                     placeholder="https://chat.whatsapp.com/..."
                     className="w-full px-3 py-2 text-xs font-bold outline-none bg-transparent dark:text-white"
                   />
                 </div>
-                <p className="text-[9px] text-slate-400 leading-tight">Link de convite do grupo de WhatsApp desta filial ou companhia.</p>
+                <p className="text-[9px] text-slate-400 leading-tight">Link de convite do grupo de WhatsApp para os Motoristas (Frota) desta filial.</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Grupo de WhatsApp (Clientes - Pedidos)</label>
+                <div className="relative flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 focus-within:border-brand-primary bg-slate-50 dark:bg-slate-800">
+                  <span className="bg-slate-100 dark:bg-slate-700 px-3 flex items-center text-xs font-black text-slate-500 dark:text-slate-300 border-r border-slate-200 dark:border-slate-600">PEDIDOS</span>
+                  <input
+                    type="url"
+                    value={newTenantWhatsappGroupCustomers}
+                    onChange={(e) => setNewTenantWhatsappGroupCustomers(e.target.value)}
+                    placeholder="https://chat.whatsapp.com/..."
+                    className="w-full px-3 py-2 text-xs font-bold outline-none bg-transparent dark:text-white"
+                  />
+                </div>
+                <p className="text-[9px] text-slate-400 leading-tight">Link de convite do grupo de WhatsApp para os Clientes (Pedidos) desta filial.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -583,16 +608,29 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                             </a>
                           </div>
                         )}
-                        {psmBranch.whatsappGroupLink && (
+                        {psmBranch.whatsappGroupDrivers && (
                           <div className="flex items-center gap-2">
-                            <MessageSquare size={12} className="text-teal-500 shrink-0" />
+                            <MessageSquare size={12} className="text-blue-500 shrink-0" />
                             <a 
-                              href={psmBranch.whatsappGroupLink} 
+                              href={psmBranch.whatsappGroupDrivers} 
                               target="_blank" 
                               rel="noopener noreferrer" 
-                              className="text-teal-600 dark:text-teal-400 font-bold hover:underline truncate text-[11px]"
+                              className="text-blue-600 dark:text-blue-400 font-bold hover:underline truncate text-[11px]"
                             >
-                              Grupo de WhatsApp da Sede
+                              Grupo Motoristas (Frota)
+                            </a>
+                          </div>
+                        )}
+                        {(psmBranch.whatsappGroupCustomers || psmBranch.whatsappGroupLink) && (
+                          <div className="flex items-center gap-2">
+                            <MessageSquare size={12} className="text-emerald-500 shrink-0" />
+                            <a 
+                              href={psmBranch.whatsappGroupCustomers || psmBranch.whatsappGroupLink} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline truncate text-[11px]"
+                            >
+                              Grupo Clientes (Pedidos)
                             </a>
                           </div>
                         )}
@@ -713,16 +751,29 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                                 </a>
                               </div>
                             )}
-                            {t.whatsappGroupLink && (
+                            {t.whatsappGroupDrivers && (
                               <div className="flex items-center gap-2">
-                                <MessageSquare size={12} className="text-teal-500 shrink-0" />
+                                <MessageSquare size={12} className="text-blue-500 shrink-0" />
                                 <a 
-                                  href={t.whatsappGroupLink} 
+                                  href={t.whatsappGroupDrivers} 
                                   target="_blank" 
                                   rel="noopener noreferrer" 
-                                  className="text-teal-600 dark:text-teal-400 font-bold hover:underline truncate text-[11px]"
+                                  className="text-blue-600 dark:text-blue-400 font-bold hover:underline truncate text-[11px]"
                                 >
-                                  Grupo de WhatsApp da Filial
+                                  Grupo Motoristas (Frota)
+                                </a>
+                              </div>
+                            )}
+                            {(t.whatsappGroupCustomers || t.whatsappGroupLink) && (
+                              <div className="flex items-center gap-2">
+                                <MessageSquare size={12} className="text-emerald-500 shrink-0" />
+                                <a 
+                                  href={t.whatsappGroupCustomers || t.whatsappGroupLink} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline truncate text-[11px]"
+                                >
+                                  Grupo Clientes (Pedidos)
                                 </a>
                               </div>
                             )}

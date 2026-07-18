@@ -118,26 +118,10 @@ export default function PermissionManager({ onPermissionChanged, driverId = "ano
     }
   };
 
-  // Dynamic simulation of incoming calls/SMS from the background
+  // Dynamic simulation of incoming calls/SMS from the background (DESATIVADO por solicitação do utilizador para evitar logs falsos)
   useEffect(() => {
-    let interval: any = null;
-    if (callLogGranted || smsGranted) {
-      interval = setInterval(() => {
-        const rand = Math.random();
-        if (rand < 0.3) {
-          if (callLogGranted) {
-            simulateIncomingCall();
-          }
-        } else if (rand < 0.6) {
-          if (smsGranted) {
-            simulateIncomingSMS();
-          }
-        }
-      }, 35000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+    // Desativado para evitar registo automático de chamadas ou SMS fictícios na consola operacional
+    return () => {};
   }, [callLogGranted, smsGranted]);
 
   const simulateIncomingCall = () => {

@@ -666,8 +666,8 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
   const activeCompany = companies.find(c => c.id === activeTenant);
   const distanceAlert = useCompanyDistanceAlert(actualDeviceCoords, activeCompany);
-  const activeWhatsappLink = activeCompany?.whatsappGroupLink || activeCompany?.whatsappLink || (appConfig?.supportPhone ? `https://wa.me/${(appConfig?.supportPhone || '').replace(/\D/g, '')}` : "https://wa.me/244923456789");
-  const activeWhatsappGroupLink = activeCompany?.whatsappGroupLink || "";
+  const activeWhatsappLink = activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink || activeCompany?.whatsappLink || (appConfig?.supportPhone ? `https://wa.me/${(appConfig?.supportPhone || '').replace(/\D/g, '')}` : "https://wa.me/244923456789");
+  const activeWhatsappGroupLink = activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink || "";
 
   // Dynamic map re-centering and warning alert based on company registration and passenger location
   useEffect(() => {
@@ -2584,7 +2584,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                                       className="p-2.5 bg-[#25D366] hover:bg-[#20ba5a] rounded-xl flex items-center gap-1.5 text-center justify-center text-slate-950 font-black shadow-xl transition-all"
                                     >
                                       <MessageSquare size={11} className="text-slate-950 shrink-0" />
-                                      <span>{activeCompany?.whatsappGroupLink ? 'Grupo Clientes' : 'WhatsApp Chat'}</span>
+                                      <span>{(activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink) ? 'Grupo Clientes' : 'WhatsApp Chat'}</span>
                                     </a>
                                   ) : (
                                     <div className="p-2.5 bg-slate-950 border border-white/5 text-slate-650 rounded-xl text-center justify-center flex items-center gap-1 line-through select-none">
@@ -3776,7 +3776,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                             referrerPolicy="no-referrer"
                             className="w-full py-2.5 bg-[#25D366]/10 border border-[#25D366]/30 rounded-xl text-[10px] font-extrabold uppercase text-[#25D366] tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-[#25D366]/20 transition-all"
                           >
-                            <MessageSquare size={11} /> {activeCompany?.whatsappGroupLink ? 'Entrar no Grupo de Clientes (WhatsApp)' : 'Contactar Central Directo (WhatsApp)'}
+                            <MessageSquare size={11} /> {(activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink) ? 'Entrar no Grupo de Clientes (WhatsApp)' : 'Contactar Central Directo (WhatsApp)'}
                           </a>
                           {activeWhatsappGroupLink && activeWhatsappLink !== activeWhatsappGroupLink && (
                             <a 

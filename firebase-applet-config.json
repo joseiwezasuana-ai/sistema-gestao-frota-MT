@@ -1,10 +1,11 @@
 {
   "projectId": "joseiwezasuana-org",
-  "appId": "1:617761169333:web:73fcab79b75bc59bdd83fc",
+  "appId": "1:617761169333:web:64e837b008d27c26dd83fc",
   "apiKey": "AIzaSyACKzcsBb9U2HOMV9YRGvCjkXxNHx0iC-s",
   "authDomain": "joseiwezasuana-org.firebaseapp.com",
   "firestoreDatabaseId": "(default)",
   "storageBucket": "joseiwezasuana-org.firebasestorage.app",
   "messagingSenderId": "617761169333",
-  "measurementId": ""
+  "measurementId": "",
+  "recaptchaSiteKey": ""
 }

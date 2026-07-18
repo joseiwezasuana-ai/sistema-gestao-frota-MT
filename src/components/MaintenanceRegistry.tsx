@@ -14,7 +14,9 @@ import {
   DollarSign,
   TrendingUp,
   Trash2,
-  Filter
+  Filter,
+  QrCode,
+  Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -22,6 +24,7 @@ import autoTable from 'jspdf-autotable';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, writeBatch, serverTimestamp, getDocs } from '@/src/lib/firebase';
 import { cn } from '../lib/utils';
+import QrScannerModal from './QrScannerModal';
 
 export default function MaintenanceRegistry({ user }: { user?: any }) {
   const [logs, setLogs] = useState<any[]>([]);
@@ -52,6 +55,104 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
   const [filter, setFilter] = useState(currentMonth);
 
   const [searchTerm, setSearchTerm] = useState('');
+
+  const [isQrReaderOpen, setIsQrReaderOpen] = useState(false);
+  const [qrTarget, setQrTarget] = useState<'search' | 'vehicle' | 'material'>('search');
+
+  const handleQrScanSuccess = (decodedText: string) => {
+    setIsQrReaderOpen(false);
+    const cleanedText = decodedText.trim();
+    if (qrTarget === 'search') {
+      setSearchTerm(cleanedText);
+    } else if (qrTarget === 'vehicle') {
+      const foundVehicle = masterVehicles.find(v => 
+        v.id.toLowerCase() === cleanedText.toLowerCase() || 
+        v.prefix.toLowerCase() === cleanedText.toLowerCase() ||
+        v.name.toLowerCase().includes(cleanedText.toLowerCase())
+      ) || vehicles.find(v => 
+        v.id.toLowerCase() === cleanedText.toLowerCase() || 
+        v.prefix.toLowerCase() === cleanedText.toLowerCase() ||
+        v.name.toLowerCase().includes(cleanedText.toLowerCase())
+      );
+      if (foundVehicle) {
+        setFormData(prev => ({ 
+          ...prev, 
+          vehicleId: foundVehicle.id,
+          prefix: foundVehicle.prefix || '' 
+        }));
+      } else {
+        alert(`Viatura "${cleanedText}" não encontrada.`);
+      }
+    } else if (qrTarget === 'material') {
+      const foundItem = inventory.find(i => 
+        i.id.toLowerCase() === cleanedText.toLowerCase() || 
+        i.id.toLowerCase().endsWith(cleanedText.toLowerCase()) ||
+        i.name.toLowerCase().includes(cleanedText.toLowerCase())
+      );
+      if (foundItem) {
+        if (foundItem.stock <= 0) {
+          alert(`O item "${foundItem.name}" está esgotado no armazém.`);
+        } else {
+          setSelectedMaterial(foundItem.id);
+        }
+      } else {
+        alert(`Material "${cleanedText}" não encontrado no armazém.`);
+      }
+    }
+  };
+
+
+  // Gemini Maintenance Prediction
+  const [selectedAnalysisVehicle, setSelectedAnalysisVehicle] = useState('');
+  const [analysisResult, setAnalysisResult] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const runMaintenanceAnalysis = async () => {
+    if (!selectedAnalysisVehicle) return;
+    setIsAnalyzing(true);
+    setAnalysisResult('');
+    
+    const selectedVehicle = masterVehicles.find(v => v.id === selectedAnalysisVehicle) || vehicles.find(v => v.id === selectedAnalysisVehicle);
+    const prefix = selectedVehicle?.prefix || 'N/A';
+    
+    // Calculate current mileage
+    let currentMileage = 0;
+    if (selectedVehicle) {
+      currentMileage = Number(selectedVehicle.mileage || selectedVehicle.km || 0);
+    }
+    const vehicleLogs = logs.filter(l => l.vehicleId === selectedAnalysisVehicle);
+    if (vehicleLogs.length > 0 && currentMileage === 0) {
+      currentMileage = Math.max(...vehicleLogs.map(l => Number(l.mileage || 0)));
+    }
+
+    try {
+      const response = await fetch('/api/gemini/maintenance-analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prefix,
+          currentMileage,
+          logs: vehicleLogs.map(l => ({
+            type: l.type,
+            mileage: l.mileage,
+            date: l.date,
+            description: l.description,
+            status: l.status,
+          })),
+        }),
+      });
+
+      const data = await response.json();
+      setAnalysisResult(data.text || 'Não foi possível gerar análise técnica.');
+    } catch (error) {
+      console.error('Error running maintenance analysis:', error);
+      setAnalysisResult('Ocorreu um erro ao ligar ao motor de IA. Tente novamente.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente' || user?.email === 'joseiwezasuana@gmail.com';
   const isContabilista = user?.role === 'contabilista';
@@ -556,6 +657,146 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
         </div>
       </div>
 
+      {/* Bloco de Análise Preditiva de Manutenção - IA Gemini */}
+      <div className="bg-slate-900 text-white rounded-xl p-6 border border-slate-800 shadow-xl space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
+              <Wrench size={16} className="text-amber-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-tight text-white">Análise Preditiva de Revisões (IA Gemini 1.5 Flash)</h3>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Diagnóstico Inteligente baseado em Quilometragem e Histórico</p>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 bg-amber-400/10 text-amber-400 text-[8px] font-black rounded uppercase tracking-widest border border-amber-400/20">
+            Inteligência Artificial
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+          <div className="md:col-span-4 space-y-1.5">
+            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Seleccionar Viatura para Análise</label>
+            <select
+              value={selectedAnalysisVehicle}
+              onChange={(e) => {
+                setSelectedAnalysisVehicle(e.target.value);
+                setAnalysisResult('');
+              }}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs font-bold text-white outline-none focus:border-brand-primary"
+            >
+              <option value="" className="text-slate-500">Escolha um veículo...</option>
+              {masterVehicles.length > 0 && (
+                <optgroup label="Frota Master (Permanente)" className="bg-slate-950 text-slate-400">
+                  {masterVehicles.map(v => (
+                    <option key={v.id} value={v.id} className="text-white">{v.prefix} - {v.brand} ({v.plate})</option>
+                  ))}
+                </optgroup>
+              )}
+              {vehicles.length > 0 && (
+                <optgroup label="Frota Ativa (Condutores)" className="bg-slate-950 text-slate-400">
+                  {vehicles.map(v => (
+                    <option key={v.id} value={v.id} className="text-white">{v.prefix} - {v.name}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+
+          <div className="md:col-span-3">
+            <button
+              type="button"
+              onClick={runMaintenanceAnalysis}
+              disabled={isAnalyzing || !selectedAnalysisVehicle}
+              className={cn(
+                "w-full bg-brand-primary hover:bg-brand-secondary disabled:bg-slate-800 disabled:text-slate-500 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer",
+                selectedAnalysisVehicle && !isAnalyzing ? "shadow-brand-primary/20 hover:shadow-brand-primary/30" : ""
+              )}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Clock className="animate-spin text-amber-400" size={14} />
+                  A Analisar...
+                </>
+              ) : (
+                <>
+                  <Wrench size={14} className="text-amber-400" />
+                  Gerar Previsão
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="md:col-span-5 text-left md:text-right">
+            <p className="text-[9px] text-slate-500 font-black uppercase tracking-wide leading-relaxed">
+              O modelo cruzará os quilómetros percorridos da viatura selecionada com as datas das últimas trocas de consumíveis e as condições de Luena.
+            </p>
+          </div>
+        </div>
+
+        {/* Resultados */}
+        <AnimatePresence mode="wait">
+          {isAnalyzing && (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="bg-slate-950/60 rounded-xl p-5 border border-slate-800/80 text-center py-10 space-y-3"
+            >
+              <div className="flex justify-center">
+                <div className="relative w-12 h-12 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-4 border-slate-800 border-t-amber-400 animate-spin" />
+                  <Wrench size={18} className="text-amber-400 animate-bounce" />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-300">Consultar Motor Cognitivo Gemini</p>
+                <p className="text-[9px] text-slate-500 font-bold uppercase">A analisar ciclos de desgaste de óleo, travões e poeira do Moxico...</p>
+              </div>
+            </motion.div>
+          )}
+
+          {!isAnalyzing && analysisResult && (
+            <motion.div
+              key="result"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-slate-950 rounded-xl p-5 border border-slate-800/80 space-y-3 relative overflow-hidden"
+            >
+              {/* Decorative side accent */}
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400" />
+              
+              <div className="flex items-center justify-between">
+                <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                  <Wrench size={10} /> Relatório de Diagnóstico de Saúde IA
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setAnalysisResult('')}
+                  className="text-[9px] text-slate-500 hover:text-white font-black uppercase tracking-widest"
+                >
+                  Limpar
+                </button>
+              </div>
+
+              <div className="text-xs text-slate-300 leading-relaxed font-bold font-sans whitespace-pre-line">
+                {analysisResult}
+              </div>
+              
+              <div className="pt-2 border-t border-slate-900 flex justify-between items-center">
+                <p className="text-[8px] text-slate-600 font-black uppercase tracking-wider">
+                  PSM COMERCIAL LUENA • GESTÃO PREDITIVA
+                </p>
+                <p className="text-[8px] text-slate-400 font-black uppercase tracking-wider italic">
+                  *As estimativas consideram clima arenoso e vias secundárias
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between bg-slate-50/50 gap-4">
           <div className="flex items-center gap-3">
@@ -586,15 +827,26 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
              </div>
           </div>
 
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+          <div className="relative flex-1 max-w-md flex items-center">
+            <Search className="absolute left-3 text-slate-400 pointer-events-none" size={14} />
             <input 
               type="text"
               placeholder="Pesquisar por viatura, serviço ou notas..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-brand-primary shadow-sm"
+              className="w-full pl-9 pr-10 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:border-brand-primary shadow-sm"
             />
+            <button
+              type="button"
+              onClick={() => {
+                setQrTarget('search');
+                setIsQrReaderOpen(true);
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-brand-primary transition-colors hover:bg-slate-100 rounded cursor-pointer flex items-center justify-center"
+              title="Pesquisar por QR Code"
+            >
+              <QrCode size={14} />
+            </button>
           </div>
         </div>
 
@@ -730,7 +982,20 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
               <form onSubmit={handleSubmit} className="p-8 space-y-5">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Viatura (Prefixo)</label>
+                    <div className="flex items-center justify-between ml-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Viatura (Prefixo)</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQrTarget('vehicle');
+                          setIsQrReaderOpen(true);
+                        }}
+                        className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-brand-primary hover:text-brand-secondary transition-colors cursor-pointer"
+                      >
+                        <Camera size={12} />
+                        Escanear (QR)
+                      </button>
+                    </div>
                     <select 
                       required
                       value={formData.vehicleId}
@@ -840,6 +1105,17 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
                        <Box size={14} className="text-brand-primary" />
                        Peças & Materiais Utilizados
                     </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQrTarget('material');
+                        setIsQrReaderOpen(true);
+                      }}
+                      className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-brand-primary hover:text-brand-secondary transition-colors cursor-pointer"
+                    >
+                      <Camera size={12} />
+                      Escanear Peça (QR)
+                    </button>
                   </div>
                   
                   <div className="flex gap-2">
@@ -965,6 +1241,26 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
           </div>
         )}
       </AnimatePresence>
+
+      <QrScannerModal
+        isOpen={isQrReaderOpen}
+        onClose={() => setIsQrReaderOpen(false)}
+        onScanSuccess={handleQrScanSuccess}
+        title={
+          qrTarget === 'search' 
+            ? 'Pesquisar Viatura / Serviço' 
+            : qrTarget === 'vehicle' 
+              ? 'Escanear Viatura (QR)' 
+              : 'Escanear Peça / Material (QR)'
+        }
+        hint={
+          qrTarget === 'vehicle'
+            ? 'Aponte para o QR Code da Viatura (Prefix, Ex: TX-01)'
+            : qrTarget === 'material'
+              ? 'Aponte para o QR Code da Peça (ID do Material ou Nome)'
+              : 'Aponte para o QR Code para pesquisar'
+        }
+      />
     </div>
   );
 }

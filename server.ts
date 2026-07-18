@@ -422,6 +422,54 @@ async function startServer() {
     }
   });
 
+  app.post("/api/gemini/maintenance-analysis", async (req, res) => {
+    const { prefix, currentMileage, logs } = req.body;
+    const key = process.env.GEMINI_API_KEY;
+
+    const getFallbackMaintenance = () => {
+      const lastOilChange = Array.isArray(logs) ? logs.find(l => l.type === "Troca de Óleo") : null;
+      const nextOilMileage = lastOilChange ? (Number(lastOilChange.mileage || 0) + 5000) : (Number(currentMileage || 0) + 2000);
+      const daysToAdd = 60; // ~2 months
+      const nextOilDate = new Date();
+      nextOilDate.setDate(nextOilDate.getDate() + daysToAdd);
+      const formattedDate = nextOilDate.toISOString().split('T')[0];
+
+      return `ANÁLISE DE SAÚDE OPERACIONAL (MÁXIMA PRONTIDÃO) • Viatura: ${prefix || 'N/A'}
+• Quilometragem Atual: ${currentMileage || 0} KM.
+• Recomendação Próxima Revisão: Sugerida aos ${nextOilMileage} KM (estimado para ${formattedDate}) para Troca de Óleo e Filtros de Ar.
+• Foco Técnico Crítico: Devido às vias exigentes e poeirentas do Moxico, verifique com urgência a suspensão (amortecedores e sinoblocos) e o estado das pastilhas de travão.`;
+    };
+
+    const cacheKey = `maint_analysis_${prefix || 'unknown'}_${currentMileage || 0}_${(Array.isArray(logs) ? logs.length : 0)}`;
+
+    const prompt = `
+      Aja como engenheiro mecânico sénior e gestor de frota da "TaxiControl" (empresa PSM COMERCIAL. (SU), LDA em Luena, Moxico, Angola).
+      Analise o histórico de manutenção da viatura prefixo: "${prefix || 'N/A'}" com quilometragem atual de ${currentMileage || 0} KM.
+      
+      Histórico de manutenções recentes:
+      ${JSON.stringify(logs || [], null, 2)}
+      
+      Forneça recomendações técnicas precisas em Português (PT) sobre:
+      1. Quando deve ser realizada a próxima revisão técnica (estimativa de quilometragem e data recomendada, considerando o tráfego severo, calor e poeira arenosa de Luena).
+      2. Quais são as peças ou sistemas mecânicos que merecem atenção urgente (óleo, suspensão, pneus ou travões).
+      
+      Apresente uma resposta estruturada de forma muito concisa e elegante com bullets (•) e linguagem operacional de alta precisão técnica. Limite a 120 palavras.
+    `;
+
+    try {
+      const text = await generateContentWithFallbackAndCache(
+        cacheKey,
+        prompt,
+        key,
+        1800000, // Cache for 30 minutes
+        getFallbackMaintenance
+      );
+      res.json({ text });
+    } catch (err) {
+      res.json({ text: getFallbackMaintenance() });
+    }
+  });
+
   // Config Endpoint to safely provide public-ish keys to the client without baking them in the bundle
   app.get("/api/config", (req, res) => {
     res.json({

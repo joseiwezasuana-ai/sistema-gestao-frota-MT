@@ -38,7 +38,8 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc } from '@/src/lib/firebase';
-import { db, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
+import { db, getActiveTenantId, setActiveTenantId, useSyncQueue } from '../lib/firebase';
+import { Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../context/ThemeContext';
@@ -56,6 +57,7 @@ interface LayoutProps {
 
 export default function Layout({ children, user, globalSettings, activeTab, onTabChange, onLogout, onToggleMobile, onEditProfile }: LayoutProps) {
   const { theme, toggleTheme } = useTheme();
+  const { queue: syncQueue, isOnline, syncNow } = useSyncQueue();
   const [panicAlerts, setPanicAlerts] = useState<any[]>([]);
   const [isAlertsDropdownOpen, setIsAlertsDropdownOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -366,10 +368,32 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
               <span className="text-[10px] font-black text-white uppercase tracking-widest italic group-hover:text-brand-primary transition-colors hidden sm:inline">Smartphone View</span>
             </button>
 
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-200 dark:bg-slate-800 dark:border-white/5">
-               <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-               <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Sync Live</span>
-            </div>
+            {isOnline ? (
+              syncQueue.length === 0 ? (
+                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 rounded-full border border-emerald-200 dark:border-emerald-900/30">
+                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                  <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Sincronizado</span>
+                </div>
+              ) : (
+                <button 
+                  onClick={syncNow}
+                  className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-full border border-amber-200 dark:border-amber-900/30 transition-all cursor-pointer group active:scale-95"
+                  title="Clique para forçar a sincronização de alterações pendentes"
+                >
+                  <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
+                  <span className="text-[10px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-widest flex items-center gap-1">
+                    Sincronizar {syncQueue.length} {syncQueue.length === 1 ? 'Alteração' : 'Alterações'}
+                  </span>
+                </button>
+              )
+            ) : (
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-rose-50 dark:bg-rose-950/20 rounded-full border border-rose-200 dark:border-rose-900/30 animate-pulse">
+                <WifiOff size={12} className="text-rose-500" />
+                <span className="text-[10px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-widest">
+                  Modo Offline {syncQueue.length > 0 ? `(${syncQueue.length} Salvas)` : ''}
+                </span>
+              </div>
+            )}
             
             <div className="h-4 w-px bg-slate-200 dark:bg-white/10 hidden sm:block" />
 

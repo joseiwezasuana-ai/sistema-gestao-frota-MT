@@ -1,10 +1,21 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Permissive rules for multi-tenant TaxiControl operations (PSM COMERCIAL LUENA MOXICO)
-    // Developed dynamically to bypass Firebase Authentication "operation-not-allowed" console errors.
-    match /{document=**} {
+
+    // 1. Users collection (used for both Firebase Auth sync and local credentials fallback)
+    match /users/{userId} {
       allow read, write: if true;
+    }
+
+    // 2. Tenants & all tenant-scoped subcollections (Dynamic Multi-tenant)
+    match /tenants/{tenantId} {
+      allow read, write: if true;
+
+      // Recursively allow all nested collections (vehicles, speed violations, revenue logs, messages, etc.)
+      // This is crucial to support local collaborator sessions where Firebase Auth is bypassed.
+      match /{document=**} {
+        allow read, write: if true;
+      }
     }
   }
 }

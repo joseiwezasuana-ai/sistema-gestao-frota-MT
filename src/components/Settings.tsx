@@ -24,7 +24,9 @@ import {
   Globe,
   Terminal,
   BookOpen,
-  Lock
+  Lock,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { collection, addDoc, setDoc, onSnapshot, query, orderBy, deleteDoc, doc, Timestamp, serverTimestamp, getDocs, writeBatch } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
@@ -32,8 +34,10 @@ import { formatSafe } from '../lib/dateUtils';
 import ThresholdSettings from './ThresholdSettings';
 import WhatsAppWebhookConfig from './WhatsAppWebhookConfig';
 import FirebaseSetupHelper from './FirebaseSetupHelper';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Settings() {
+  const { theme, toggleTheme } = useTheme();
   const [codes, setCodes] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [whatsAppLink, setWhatsAppLink] = useState('');
@@ -55,6 +59,8 @@ export default function Settings() {
   const [newTenantLogoUrl, setNewTenantLogoUrl] = useState('');
   const [newTenantWhatsappLink, setNewTenantWhatsappLink] = useState('');
   const [newTenantWhatsappGroupLink, setNewTenantWhatsappGroupLink] = useState('');
+  const [newTenantWhatsappGroupDrivers, setNewTenantWhatsappGroupDrivers] = useState('');
+  const [newTenantWhatsappGroupCustomers, setNewTenantWhatsappGroupCustomers] = useState('');
   const [isCreatingTenant, setIsCreatingTenant] = useState(false);
   const [tenantError, setTenantError] = useState<string | null>(null);
   const [tenantSuccess, setTenantSuccess] = useState<string | null>(null);
@@ -107,7 +113,9 @@ export default function Settings() {
         address: newTenantAddress.trim(),
         logoUrl: newTenantLogoUrl.trim() || '',
         whatsappLink: newTenantWhatsappLink.trim() || '',
-        whatsappGroupLink: newTenantWhatsappGroupLink.trim() || '',
+        whatsappGroupLink: newTenantWhatsappGroupCustomers.trim() || newTenantWhatsappGroupLink.trim() || '',
+        whatsappGroupDrivers: newTenantWhatsappGroupDrivers.trim() || '',
+        whatsappGroupCustomers: newTenantWhatsappGroupCustomers.trim() || '',
         createdAt: new Date().toISOString(),
         createdBy: auth.currentUser?.email || 'admin'
       });
@@ -128,6 +136,8 @@ export default function Settings() {
       setNewTenantLogoUrl('');
       setNewTenantWhatsappLink('');
       setNewTenantWhatsappGroupLink('');
+      setNewTenantWhatsappGroupDrivers('');
+      setNewTenantWhatsappGroupCustomers('');
     } catch (err: any) {
       console.error(err);
       setTenantError("Erro ao registar companhia: " + err.message);
@@ -373,6 +383,46 @@ export default function Settings() {
                </button>
             </div>
           </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-white/5 overflow-hidden h-fit shadow-sm">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-slate-800/50 flex items-center gap-2">
+              <Sun size={16} className="text-brand-primary" />
+              <h3 className="font-bold text-[13px] text-slate-900 dark:text-white uppercase tracking-wider">Aparência do Sistema</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Modo Escuro (Dark Mode)</h4>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Ativar ou desativar o tema escuro na interface</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    theme === 'dark' ? 'bg-brand-primary' : 'bg-slate-200 dark:bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-slate-950 shadow ring-0 transition duration-200 ease-in-out flex items-center justify-center ${
+                      theme === 'dark' ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  >
+                    {theme === 'dark' ? (
+                      <Moon size={10} className="text-brand-primary" />
+                    ) : (
+                      <Sun size={10} className="text-amber-500" />
+                    )}
+                  </span>
+                </button>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/30 rounded-lg border border-slate-100 dark:border-white/5 flex items-start gap-2.5 text-slate-600 dark:text-slate-400 text-[11px] leading-normal font-medium">
+                <Info size={14} className="text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
+                <p>
+                  A preferência de tema é guardada no <code className="bg-slate-200/50 dark:bg-slate-800 px-1 rounded font-bold font-mono">localStorage</code> para que o sistema se lembre da sua escolha ao iniciar.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="lg:col-span-2 bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
@@ -552,18 +602,33 @@ export default function Settings() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Link do Grupo de WhatsApp da Filial</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Grupo de WhatsApp (Motoristas - Frota)</label>
                 <div className="relative flex rounded-lg overflow-hidden border border-slate-200 focus-within:border-brand-primary">
-                  <span className="bg-slate-100 px-3 flex items-center text-xs font-black text-slate-500 border-r border-slate-200">GRUPO</span>
+                  <span className="bg-slate-100 px-3 flex items-center text-xs font-black text-slate-500 border-r border-slate-200">FROTA</span>
                   <input
                     type="url"
-                    value={newTenantWhatsappGroupLink}
-                    onChange={(e) => setNewTenantWhatsappGroupLink(e.target.value)}
+                    value={newTenantWhatsappGroupDrivers}
+                    onChange={(e) => setNewTenantWhatsappGroupDrivers(e.target.value)}
                     placeholder="https://chat.whatsapp.com/..."
                     className="w-full px-3 py-2 bg-white text-xs font-bold outline-none"
                   />
                 </div>
-                <p className="text-[9px] text-slate-400 leading-tight">Link de convite do grupo de WhatsApp desta filial.</p>
+                <p className="text-[9px] text-slate-400 leading-tight">Link de convite do grupo de WhatsApp exclusivo para motoristas e frota.</p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Grupo de WhatsApp (Clientes - Pedidos)</label>
+                <div className="relative flex rounded-lg overflow-hidden border border-slate-200 focus-within:border-brand-primary">
+                  <span className="bg-slate-100 px-3 flex items-center text-xs font-black text-slate-500 border-r border-slate-200">PEDIDOS</span>
+                  <input
+                    type="url"
+                    value={newTenantWhatsappGroupCustomers}
+                    onChange={(e) => setNewTenantWhatsappGroupCustomers(e.target.value)}
+                    placeholder="https://chat.whatsapp.com/..."
+                    className="w-full px-3 py-2 bg-white text-xs font-bold outline-none"
+                  />
+                </div>
+                <p className="text-[9px] text-slate-400 leading-tight">Link de convite do grupo de WhatsApp para clientes e pedidos.</p>
               </div>
 
               <div className="space-y-1">
@@ -661,16 +726,29 @@ export default function Settings() {
                               </a>
                             </div>
                           )}
-                          {t.whatsappGroupLink && (
+                          {t.whatsappGroupDrivers && (
                             <div className="flex items-center gap-1.5 text-[11px]">
-                              <MessageSquare size={11} className="text-teal-500 shrink-0" />
+                              <MessageSquare size={11} className="text-blue-500 shrink-0" />
                               <a 
-                                href={t.whatsappGroupLink} 
+                                href={t.whatsappGroupDrivers} 
                                 target="_blank" 
                                 rel="noopener noreferrer" 
-                                className="text-teal-600 font-bold hover:underline truncate"
+                                className="text-blue-600 font-bold hover:underline truncate"
                               >
-                                Grupo de WhatsApp
+                                Grupo Motoristas (Frota)
+                              </a>
+                            </div>
+                          )}
+                          {(t.whatsappGroupCustomers || t.whatsappGroupLink) && (
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <MessageSquare size={11} className="text-emerald-500 shrink-0" />
+                              <a 
+                                href={t.whatsappGroupCustomers || t.whatsappGroupLink} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-emerald-600 font-bold hover:underline truncate"
+                              >
+                                Grupo Clientes (Pedidos)
                               </a>
                             </div>
                           )}

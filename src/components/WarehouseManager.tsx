@@ -12,12 +12,16 @@ import {
   Box,
   X,
   Loader2,
-  Trash2
+  Trash2,
+  QrCode,
+  Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc, serverTimestamp, writeBatch } from '@/src/lib/firebase';
 import { cn } from '../lib/utils';
+import QrScannerModal from './QrScannerModal';
+
 
 export default function WarehouseManager({ user }: { user?: any }) {
   const [inventory, setInventory] = useState<any[]>([]);
@@ -26,6 +30,40 @@ export default function WarehouseManager({ user }: { user?: any }) {
   const [modalType, setModalType] = useState<'add' | 'entry' | 'edit' | 'output'>('add');
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const [isQrReaderOpen, setIsQrReaderOpen] = useState(false);
+  const [qrTarget, setQrTarget] = useState<'search' | 'item' | 'vehicle'>('search');
+
+  const handleQrScanSuccess = (decodedText: string) => {
+    setIsQrReaderOpen(false);
+    const cleanedText = decodedText.trim();
+    if (qrTarget === 'search') {
+      setSearchTerm(cleanedText);
+    } else if (qrTarget === 'item') {
+      const foundItem = inventory.find(i => 
+        i.id.toLowerCase() === cleanedText.toLowerCase() || 
+        i.id.toLowerCase().endsWith(cleanedText.toLowerCase()) ||
+        i.name.toLowerCase().includes(cleanedText.toLowerCase())
+      );
+      if (foundItem) {
+        setEntryData(prev => ({ ...prev, itemId: foundItem.id }));
+      } else {
+        alert(`Peça "${cleanedText}" não encontrada no inventário.`);
+      }
+    } else if (qrTarget === 'vehicle') {
+      const foundVehicle = vehicles.find(v => 
+        v.id.toLowerCase() === cleanedText.toLowerCase() || 
+        v.prefix.toLowerCase() === cleanedText.toLowerCase() ||
+        v.name.toLowerCase().includes(cleanedText.toLowerCase())
+      );
+      if (foundVehicle) {
+        setEntryData(prev => ({ ...prev, vehicleId: foundVehicle.id }));
+      } else {
+        alert(`Viatura "${cleanedText}" não encontrada.`);
+      }
+    }
+  };
+
 
   const [formData, setFormData] = useState({
     name: '',
@@ -240,8 +278,19 @@ export default function WarehouseManager({ user }: { user?: any }) {
               placeholder="Pesquisar peça..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-brand-primary w-full md:w-64" 
+              className="pl-9 pr-10 py-2 bg-white border border-slate-200 rounded-lg text-xs outline-none focus:border-brand-primary w-full md:w-64" 
              />
+             <button
+               type="button"
+               onClick={() => {
+                 setQrTarget('search');
+                 setIsQrReaderOpen(true);
+               }}
+               className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-brand-primary transition-colors hover:bg-slate-100 rounded cursor-pointer flex items-center justify-center"
+               title="Pesquisar por QR Code"
+             >
+               <QrCode size={14} />
+             </button>
            </div>
         </div>
 
@@ -368,7 +417,20 @@ export default function WarehouseManager({ user }: { user?: any }) {
                 {modalType === 'entry' || modalType === 'output' ? (
                   <>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Material</label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Material</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQrTarget('item');
+                            setIsQrReaderOpen(true);
+                          }}
+                          className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-brand-primary hover:text-brand-secondary transition-colors cursor-pointer"
+                        >
+                          <Camera size={12} />
+                          Escanear Peça (QR)
+                        </button>
+                      </div>
                       <select 
                         required
                         value={entryData.itemId}
@@ -396,7 +458,20 @@ export default function WarehouseManager({ user }: { user?: any }) {
                     </div>
                     {modalType === 'output' && (
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Viatura Vinculada (Opcional)</label>
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Viatura Vinculada (Opcional)</label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQrTarget('vehicle');
+                              setIsQrReaderOpen(true);
+                            }}
+                            className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-brand-primary hover:text-brand-secondary transition-colors cursor-pointer"
+                          >
+                            <Camera size={12} />
+                            Escanear Viatura (QR)
+                          </button>
+                        </div>
                         <select 
                           value={entryData.vehicleId}
                           onChange={(e) => setEntryData({...entryData, vehicleId: e.target.value})}
@@ -490,6 +565,24 @@ export default function WarehouseManager({ user }: { user?: any }) {
           </div>
         )}
       </AnimatePresence>
+
+      <QrScannerModal
+        isOpen={isQrReaderOpen}
+        onClose={() => setIsQrReaderOpen(false)}
+        onScanSuccess={handleQrScanSuccess}
+        title={
+          qrTarget === 'search' 
+            ? 'Pesquisar Material' 
+            : qrTarget === 'item' 
+              ? 'Escanear Peça / Material' 
+              : 'Escanear Viatura (QR)'
+        }
+        hint={
+          qrTarget === 'vehicle'
+            ? 'Aponte para o QR Code da Viatura (Prefix, Ex: TX-01)'
+            : 'Aponte para o QR Code da Peça (ID do Material ou Nome)'
+        }
+      />
     </div>
   );
 }

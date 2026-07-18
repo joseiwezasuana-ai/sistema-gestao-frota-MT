@@ -365,36 +365,65 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         ? `${normalizedCode.substring(0, 4)}-${normalizedCode.substring(4)}`
         : normalizedCode;
 
+      let foundCodeDoc = null;
+      let foundCodeData = null;
+      let targetTenantId = selectedTenant;
+
       const q = query(
         collection(db, 'access_codes'), 
         where('code', '==', finalCode)
       );
-      const querySnapshot = await withTimeout(getDocs(q));
+      let querySnapshot = await withTimeout(getDocs(q));
 
-      if (querySnapshot.empty) {
-        throw new Error(`Código de ativação inválido. Verifique se digitou corretamente (por exemplo: ${finalCode}).`);
+      if (!querySnapshot.empty) {
+        foundCodeDoc = querySnapshot.docs[0];
+        foundCodeData = foundCodeDoc.data();
+      } else {
+        // Search across all other companies/tenants as a fallback
+        for (const comp of companies) {
+          if (comp.id === selectedTenant) continue;
+          try {
+            // query using the collection method which handles tenant paths
+            const specificColl = collection(db, 'tenants', comp.id, 'access_codes');
+            const specificQ = query(specificColl, where('code', '==', finalCode));
+            const specSnap = await withTimeout(getDocs(specificQ));
+            if (!specSnap.empty) {
+              foundCodeDoc = specSnap.docs[0];
+              foundCodeData = foundCodeDoc.data();
+              targetTenantId = comp.id;
+              
+              // Automatically switch state and localStorage to this tenant
+              setSelectedTenant(comp.id);
+              setActiveTenantId(comp.id);
+              break;
+            }
+          } catch (tenantSearchErr) {
+            console.warn(`Could not search in tenant ${comp.id}:`, tenantSearchErr);
+          }
+        }
       }
 
-      const codeDoc = querySnapshot.docs[0];
-      const codeData = codeDoc.data();
+      if (!foundCodeDoc || !foundCodeData) {
+        throw new Error(`Código de ativação inválido ou não pertence a nenhuma filial registrada. Verifique se digitou corretamente (por exemplo: ${finalCode}).`);
+      }
 
-      if (codeData.used) {
+      if (foundCodeData.used) {
         throw new Error("Este código de ativação já foi utilizado por outro colaborador.");
       }
 
       // Check case-insensitive assignedId matching (if set)
-      if (codeData.assignedId && codeData.assignedId.trim()) {
-        const expectedId = codeData.assignedId.trim().toUpperCase();
+      if (foundCodeData.assignedId && foundCodeData.assignedId.trim()) {
+        const expectedId = foundCodeData.assignedId.trim().toUpperCase();
         const inputId = id.trim().toUpperCase();
         if (expectedId !== inputId) {
           throw new Error(`O ID fornecido (${inputId}) não corresponde ao ID autorizado para este código (${expectedId}).`);
         }
       }
 
-      const role = codeData.role || 'driver';
+      const role = foundCodeData.role || 'driver';
       setValidationRole(role);
       setIsCodeValidated(true);
-      setSuccess('Combinação ID + Código validada! Escolha agora o seu nome.');
+      setSuccess(`Código validado com sucesso para a empresa ${companies.find(c => c.id === targetTenantId)?.name || targetTenantId}! Selecione agora o seu nome.`);
     } catch (err: any) {
       console.error("Verification error:", err);
       setError(err.message || "Erro ao verificar dados de acesso.");
@@ -641,6 +670,175 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-primary/5 blur-[120px] rounded-full animate-pulse" />
       </div>
 
+      {/* Top Control Bar with 3 dots menu - Fixed in the upper corner of the screen */}
+      <div className="fixed top-4 right-4 md:top-6 md:right-6 z-50 flex items-center gap-2">
+        <div className="relative">
+          <button 
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-2xl transition-all active:scale-95 text-slate-800 dark:text-white"
+          >
+            {showMenu ? <X size={20} /> : <MoreVertical size={20} />}
+          </button>
+
+          <AnimatePresence>
+            {showMenu && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                className="absolute right-0 mt-3 w-64 bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden p-3 space-y-2 z-50 text-slate-900 text-left"
+              >
+                <div 
+                  onClick={() => setShowMasterField(!showMasterField)} 
+                  className="px-3 py-1.5 border-b border-slate-100 mb-1 flex items-center justify-between gap-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-all"
+                  title="Clique para Desbloquear Administração Master"
+                >
+                  <div className="flex items-center gap-2">
+                    <Lock size={14} className={showMasterField ? "text-brand-primary" : "text-slate-500"} />
+                    <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Área Restrita</span>
+                  </div>
+                  {!isMasterUnlocked && (
+                    <span className="text-[8px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded uppercase">Master Check</span>
+                  )}
+                </div>
+
+                {/* Inline Verification Input to Unlock Admin Panel Option (Visible ONLY to Admin Master) */}
+                {showMasterField && !isMasterUnlocked && (
+                  <form onSubmit={handleUnlockMaster} className="p-2.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-2 text-left">
+                    <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-brand-primary tracking-wider">
+                      <Shield className="animate-pulse" size={12} />
+                      Confirmar Palavra-passe JIS
+                    </div>
+                    <div className="space-y-1.5">
+                      <input 
+                        type="password"
+                        value={masterPasswordInput}
+                        onChange={(e) => {
+                          setMasterPasswordInput(e.target.value);
+                          setMasterError(null);
+                        }}
+                        placeholder="Palavra-passe do Administrador"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[10.5px] font-bold outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 text-slate-800"
+                        autoFocus
+                        disabled={isMasterValidating}
+                      />
+                      {masterError && (
+                        <p className="text-[8px] text-red-600 font-extrabold uppercase">{masterError}</p>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={isMasterValidating || !masterPasswordInput}
+                        className="w-full py-1.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        {isMasterValidating ? (
+                          <>
+                            <Loader2 size={10} className="animate-spin" />
+                            A validar...
+                          </>
+                        ) : (
+                          <>
+                            <Key size={10} />
+                            Validar Acesso
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
+                      Confirme com a palavra-passe associada ao e-mail principal para revelar as Opções de Administração.
+                    </p>
+                  </form>
+                )}
+
+                {/* Administração Subgroup - Visible ONLY after master verification */}
+                {isMasterUnlocked && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-1.5 bg-gradient-to-br from-indigo-50/50 to-amber-50/20 rounded-2xl border border-indigo-100/50 space-y-1"
+                  >
+                    <div className="flex items-center justify-between mb-1 px-2.5 pt-1.5">
+                      <p className="text-[9px] font-black uppercase text-indigo-750 tracking-wider flex items-center gap-1">
+                        <ShieldCheck size={11} className="text-emerald-500 animate-bounce" />
+                        Administração Master (JIS)
+                      </p>
+                      <span className="text-[7.5px] bg-emerald-500/10 text-emerald-600 font-black px-1.5 py-0.2 rounded uppercase">Ativo</span>
+                    </div>
+                    
+                    {/* Acesso Admin via Google */}
+                    <button 
+                      onClick={() => handleMethodChange('google')}
+                      className="w-full flex items-center justify-between p-2 bg-white rounded-xl hover:bg-indigo-50/50 transition-all group active:scale-[0.98]"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 group-hover:scale-115 transition-transform">
+                          <Shield size={14} />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-[10px] font-black uppercase tracking-tight text-slate-800 leading-snug">Entrar no Painel</p>
+                          <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider">Acesso via Google</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={12} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                    </button>
+
+                    {/* Gestão de Companhias */}
+                    <button 
+                      onClick={() => handleMethodChange('companies')}
+                      className="w-full flex items-center justify-between p-2 bg-white rounded-xl hover:bg-indigo-50/50 transition-all group active:scale-[0.98]"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600 shrink-0 group-hover:scale-115 transition-transform">
+                          <Building size={14} />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-[10px] font-black uppercase tracking-tight text-slate-800 leading-snug">Gestão de Companhias</p>
+                          <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider">Filiais & Multi-Tenant</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={12} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                    </button>
+                  </motion.div>
+                )}
+
+                {/* Colaborador */}
+                <button 
+                  onClick={() => handleMethodChange('credentials')}
+                  className="w-full flex items-center justify-between p-2.5 bg-white border border-slate-50 hover:border-brand-primary/30 rounded-2xl hover:bg-slate-50 transition-all group active:scale-[0.98]"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-pink-50 flex items-center justify-center text-pink-600 shrink-0 group-hover:scale-110 transition-transform">
+                      <LogIn size={16} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-800">Colaborador</p>
+                      <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Entrar com credenciais</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+
+                {/* Autenticar */}
+                <button 
+                  onClick={() => handleMethodChange('register')}
+                  className="w-full flex items-center justify-between p-2.5 bg-white border border-slate-50 hover:border-brand-primary/30 rounded-2xl hover:bg-slate-50 transition-all group active:scale-[0.98]"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0 group-hover:scale-110 transition-transform">
+                      <Key size={16} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-800">Ativar Conta</p>
+                      <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Validar código de equipe</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -648,175 +846,6 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
           loginMethod === 'companies' ? "max-w-full min-h-screen flex flex-col" : "max-w-[440px]"
         }`}
       >
-        {/* Top Control Bar with 3 dots menu */}
-        <div className="absolute top-8 right-8 z-50 flex items-center gap-2">
-          <div className="relative">
-            <button 
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-2xl transition-all active:scale-95 text-slate-800 dark:text-white"
-            >
-              {showMenu ? <X size={20} /> : <MoreVertical size={20} />}
-            </button>
-
-            <AnimatePresence>
-              {showMenu && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                  className="absolute right-0 mt-3 w-64 bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden p-3 space-y-2 z-50 text-slate-900 text-left"
-                >
-                  <div 
-                    onClick={() => setShowMasterField(!showMasterField)} 
-                    className="px-3 py-1.5 border-b border-slate-100 mb-1 flex items-center justify-between gap-2 hover:bg-slate-50 cursor-pointer rounded-lg transition-all"
-                    title="Clique para Desbloquear Administração Master"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Lock size={14} className={showMasterField ? "text-brand-primary" : "text-slate-500"} />
-                      <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Área Restrita</span>
-                    </div>
-                    {!isMasterUnlocked && (
-                      <span className="text-[8px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded uppercase">Master Check</span>
-                    )}
-                  </div>
-
-                  {/* Inline Verification Input to Unlock Admin Panel Option (Visible ONLY to Admin Master) */}
-                  {showMasterField && !isMasterUnlocked && (
-                    <form onSubmit={handleUnlockMaster} className="p-2.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-2 text-left">
-                      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-brand-primary tracking-wider">
-                        <Shield className="animate-pulse" size={12} />
-                        Confirmar Palavra-passe JIS
-                      </div>
-                      <div className="space-y-1.5">
-                        <input 
-                          type="password"
-                          value={masterPasswordInput}
-                          onChange={(e) => {
-                            setMasterPasswordInput(e.target.value);
-                            setMasterError(null);
-                          }}
-                          placeholder="Palavra-passe do Administrador"
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-[10.5px] font-bold outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 text-slate-800"
-                          autoFocus
-                          disabled={isMasterValidating}
-                        />
-                        {masterError && (
-                          <p className="text-[8px] text-red-600 font-extrabold uppercase">{masterError}</p>
-                        )}
-                        <button
-                          type="submit"
-                          disabled={isMasterValidating || !masterPasswordInput}
-                          className="w-full py-1.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 disabled:opacity-50"
-                        >
-                          {isMasterValidating ? (
-                            <>
-                              <Loader2 size={10} className="animate-spin" />
-                              A validar...
-                            </>
-                          ) : (
-                            <>
-                              <Key size={10} />
-                              Validar Acesso
-                            </>
-                          )}
-                        </button>
-                      </div>
-                      <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
-                        Confirme com a palavra-passe associada ao e-mail principal para revelar as Opções de Administração.
-                      </p>
-                    </form>
-                  )}
-
-                  {/* Administração Subgroup - Visible ONLY after master verification */}
-                  {isMasterUnlocked && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-1.5 bg-gradient-to-br from-indigo-50/50 to-amber-50/20 rounded-2xl border border-indigo-100/50 space-y-1"
-                    >
-                      <div className="flex items-center justify-between mb-1 px-2.5 pt-1.5">
-                        <p className="text-[9px] font-black uppercase text-indigo-750 tracking-wider flex items-center gap-1">
-                          <ShieldCheck size={11} className="text-emerald-500 animate-bounce" />
-                          Administração Master (JIS)
-                        </p>
-                        <span className="text-[7.5px] bg-emerald-500/10 text-emerald-600 font-black px-1.5 py-0.2 rounded uppercase">Ativo</span>
-                      </div>
-                      
-                      {/* Acesso Admin via Google */}
-                      <button 
-                        onClick={() => handleMethodChange('google')}
-                        className="w-full flex items-center justify-between p-2 bg-white rounded-xl hover:bg-indigo-50/50 transition-all group active:scale-[0.98]"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 shrink-0 group-hover:scale-115 transition-transform">
-                            <Shield size={14} />
-                          </div>
-                          <div className="text-left">
-                            <p className="text-[10px] font-black uppercase tracking-tight text-slate-800 leading-snug">Entrar no Painel</p>
-                            <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider">Acesso via Google</p>
-                          </div>
-                        </div>
-                        <ChevronRight size={12} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                      </button>
-
-                      {/* Gestão de Companhias */}
-                      <button 
-                        onClick={() => handleMethodChange('companies')}
-                        className="w-full flex items-center justify-between p-2 bg-white rounded-xl hover:bg-indigo-50/50 transition-all group active:scale-[0.98]"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600 shrink-0 group-hover:scale-115 transition-transform">
-                            <Building size={14} />
-                          </div>
-                          <div className="text-left">
-                            <p className="text-[10px] font-black uppercase tracking-tight text-slate-800 leading-snug">Gestão de Companhias</p>
-                            <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider">Filiais & Multi-Tenant</p>
-                          </div>
-                        </div>
-                        <ChevronRight size={12} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                      </button>
-                    </motion.div>
-                  )}
-
-                  {/* Colaborador */}
-                  <button 
-                    onClick={() => handleMethodChange('credentials')}
-                    className="w-full flex items-center justify-between p-2.5 bg-white border border-slate-50 hover:border-brand-primary/30 rounded-2xl hover:bg-slate-50 transition-all group active:scale-[0.98]"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-pink-50 flex items-center justify-center text-pink-600 shrink-0 group-hover:scale-110 transition-transform">
-                        <LogIn size={16} />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-800">Colaborador</p>
-                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Entrar com credenciais</p>
-                      </div>
-                    </div>
-                    <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
-
-                  {/* Autenticar */}
-                  <button 
-                    onClick={() => handleMethodChange('register')}
-                    className="w-full flex items-center justify-between p-2.5 bg-white border border-slate-50 hover:border-brand-primary/30 rounded-2xl hover:bg-slate-50 transition-all group active:scale-[0.98]"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0 group-hover:scale-110 transition-transform">
-                        <Key size={16} />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-800">Ativar Conta</p>
-                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Validar código de equipe</p>
-                      </div>
-                    </div>
-                    <ChevronRight size={14} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
-
         <div className={`bg-white text-slate-900 relative overflow-hidden flex flex-col justify-center transition-all duration-500 ${
           loginMethod === 'companies' ? "h-[160px] p-6 lg:p-10 text-left" : "h-[200px] p-6 text-center"
         }`}>
@@ -1157,6 +1186,23 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                     {renderErrorAlert(error)}
                     {!isCodeValidated ? (
                        <div className="space-y-4">
+                          <div className="space-y-1 text-left">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Empresa / Filial</label>
+                            <select
+                              value={selectedTenant}
+                              onChange={(e) => {
+                                setSelectedTenant(e.target.value);
+                                setActiveTenantId(e.target.value);
+                              }}
+                              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all uppercase"
+                            >
+                              {companies.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                           <input 
                             placeholder="ID"
                             value={id}
