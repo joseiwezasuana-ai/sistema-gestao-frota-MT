@@ -854,7 +854,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           try {
             const notif = new Notification(`🚕 TAXICONTROL: ${extTitle}`, {
               body: extBody,
-              icon: '/favicon.ico',
+              icon: '/icon-192.png',
               tag: 'super-taxi-passenger',
               requireInteraction: true
             });
@@ -866,7 +866,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             navigator.serviceWorker?.ready.then(registration => {
               registration.showNotification(`🚕 TAXICONTROL: ${extTitle}`, {
                 body: extBody,
-                icon: '/favicon.ico',
+                icon: '/icon-192.png',
                 tag: 'super-taxi-passenger'
               });
             });

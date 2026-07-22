@@ -283,7 +283,7 @@ export default function DriverView({ user }: DriverViewProps) {
         try {
           const notif = new Notification(title, {
             body,
-            icon: "/favicon.ico",
+            icon: "/icon-192.png",
             tag: `driver-service-${callData.id}`,
             requireInteraction: true
           });
@@ -295,7 +295,7 @@ export default function DriverView({ user }: DriverViewProps) {
           navigator.serviceWorker?.ready.then(registration => {
             registration.showNotification(title, {
               body,
-              icon: "/favicon.ico",
+              icon: "/icon-192.png",
               tag: `driver-service-${callData.id}`,
               requireInteraction: true
             });

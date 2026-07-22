@@ -280,8 +280,8 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
       if (Notification.permission === 'granted') {
         const notifOptions = {
           body: alert.message,
-          icon: '/pwa-192x192.png',
-          badge: '/pwa-192x192.png',
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
           vibrate: alert.type === 'revenue' || alert.type === 'panic' ? [300, 100, 300, 100, 300, 100, 300] : [200, 100, 200],
           tag: alert.id,
           renotify: true,
