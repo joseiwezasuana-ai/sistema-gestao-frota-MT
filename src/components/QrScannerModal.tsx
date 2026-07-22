@@ -213,20 +213,29 @@ export default function QrScannerModal({ isOpen, onClose, onScanSuccess, title =
                   </div>
                   <div>
                     <h4 className="text-xs font-black text-white uppercase tracking-wider">Falha de Ligação</h4>
-                    <p className="text-[10px] text-rose-400 font-semibold mt-2 max-w-xs leading-relaxed">{error}</p>
-                  </div>
-                  {cameraPermission === 'denied' ? (
-                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest max-w-[240px]">
-                      Aceda às definições do navegador para dar autorização de câmara ao site.
+                    <p className="text-[10px] text-rose-400 font-semibold mt-2 max-w-xs leading-relaxed">
+                      {error.includes("Requested device not found") || error.includes("Could not start video source")
+                        ? "Não foi possível aceder à câmara física (pode estar a ser utilizada por outra aplicação ou bloqueada pelo iframe)."
+                        : error}
                     </p>
-                  ) : (
-                    <button
-                      onClick={initializeScanner}
-                      className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                    >
-                      Tentar Novamente
-                    </button>
-                  )}
+                  </div>
+                  <div className="space-y-3 w-full max-w-xs">
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-normal">
+                      💡 DICA: Se estiver a usar a pré-visualização, clique em <span className="text-brand-primary">"Open in a new tab"</span> (canto superior direito) para ignorar restrições de iframe.
+                    </p>
+                    {cameraPermission === 'denied' ? (
+                      <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest leading-normal">
+                        Aceda às definições do navegador para dar autorização de câmara a esta página.
+                      </p>
+                    ) : (
+                      <button
+                        onClick={initializeScanner}
+                        className="w-full px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                      >
+                        Tentar Novamente
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

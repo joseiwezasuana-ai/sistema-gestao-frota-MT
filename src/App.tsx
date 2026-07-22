@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -59,8 +59,10 @@ import {
   Map as MapIcon,
   Copy,
   CheckCircle2,
-  X
+  X,
+  Car
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import InvoiceDrafting from './components/InvoiceDrafting';
 import { ThemeProvider } from './context/ThemeContext';
 import { ConnectivityBanner } from './components/ConnectivityBanner';
@@ -73,6 +75,17 @@ export default function App() {
   const [showPublicPassengerFlow, setShowPublicPassengerFlow] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
+  const startTimeRef = useRef<number>(Date.now());
+
+  const finishLoading = useCallback(() => {
+    const MIN_SPLASH_TIME = 5000; // Min 5 seconds requested by José Iweza Suana (JIS)
+    const elapsed = Date.now() - startTimeRef.current;
+    const remaining = Math.max(0, MIN_SPLASH_TIME - elapsed);
+    setTimeout(() => {
+      setLoading(false);
+    }, remaining);
+  }, []);
+
   const [viewPreference, setViewPreference] = useState<'auto' | 'mobile' | 'desktop'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('view_preference');
@@ -89,25 +102,25 @@ export default function App() {
 
   // Public Passenger App Route Dispatcher (Requested by José Iweza Suana)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const viewParam = params.get('view')?.toLowerCase();
-    const isCollaboratorMode = localStorage.getItem('collaborator_mode') === 'true';
+    if (typeof window !== 'undefined') {
+      const href = window.location.href.toLowerCase();
+      const search = window.location.search.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
 
-    if (viewParam === 'passenger' || viewParam === 'passageiro' || window.location.hash === '#passenger') {
-      setShowPublicPassengerFlow(true);
-      localStorage.removeItem('collaborator_mode');
-    } else if (viewParam === 'login' || viewParam === 'staff' || viewParam === 'colaborador') {
-      setShowPublicPassengerFlow(false);
-      localStorage.setItem('collaborator_mode', 'true');
-    } else if (!viewParam && typeof window !== 'undefined') {
-      if (isCollaboratorMode) {
-        setShowPublicPassengerFlow(false);
+      // Check if URL search parameters, hash, or full URL specify passenger app
+      const isPassengerRoute = 
+        search.includes('passenger') || 
+        search.includes('passageiro') || 
+        hash.includes('passenger') || 
+        hash.includes('passageiro') || 
+        href.includes('=passenger') || 
+        href.includes('=passageiro');
+
+      if (isPassengerRoute) {
+        setShowPublicPassengerFlow(true);
       } else {
-        // Auto-detect mobile devices when hitting the root URL to default straight to the passenger app
-        const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        if (isMobileUA) {
-          setShowPublicPassengerFlow(true);
-        }
+        // Default URL (e.g. JIS-st.web.app) opens the Collaborator / Staff Portal
+        setShowPublicPassengerFlow(false);
       }
     }
   }, []);
@@ -152,13 +165,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Safety timeout: if auth doesn't resolve in 8s, show login anyway
+    // Safety timeout: if auth doesn't resolve in 12s, show login anyway
     const safetyTimeout = setTimeout(() => {
       if (loading) {
         console.warn("Auth initialization timed out, showing login.");
-        setLoading(false);
+        finishLoading();
       }
-    }, 8000);
+    }, 12000);
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
@@ -185,7 +198,7 @@ export default function App() {
               } else if (session.role === 'contabilista') {
                 setActiveTab('accounting');
               }
-              setLoading(false);
+              finishLoading();
               clearTimeout(safetyTimeout);
               return;
             } catch (e) {
@@ -194,7 +207,7 @@ export default function App() {
           }
           setUser(null);
           setUserProfile(null);
-          setLoading(false);
+          finishLoading();
           clearTimeout(safetyTimeout);
           return;
         }
@@ -221,7 +234,7 @@ export default function App() {
               const session = JSON.parse(savedLocalSession);
               if (session && (session.uid === firebaseUser.uid || session.email === firebaseUser.email)) {
                 setUserProfile(session);
-                setLoading(false);
+                finishLoading();
                 clearTimeout(safetyTimeout);
                 return;
               }
@@ -255,7 +268,7 @@ export default function App() {
           };
           
           setUserProfile(fallbackProfile);
-          setLoading(false);
+          finishLoading();
           clearTimeout(safetyTimeout);
           return;
         }
@@ -301,7 +314,7 @@ export default function App() {
           setActiveTenantId(preSelectedTenant);
           setUserProfile(adminProfile);
           clearTimeout(safetyTimeout);
-          setLoading(false);
+          finishLoading();
           setDoc(doc(db, 'users', firebaseUser.uid), adminProfile).catch(console.error);
           return;
         } else {
@@ -323,7 +336,7 @@ export default function App() {
           setDbError(`Erro ao recuperar perfil: ${err.message}`);
         }
       } finally {
-        setLoading(false);
+        finishLoading();
         clearTimeout(safetyTimeout);
       }
     });
@@ -368,13 +381,71 @@ export default function App() {
   }
 
   if (loading) {
+    const letters = "TAXICONTROL".split("");
     return (
       <ThemeProvider>
         <ConnectivityBanner />
-        <div key="loading-state" className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-          <div className="flex flex-col items-center gap-4">
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-brand-primary border-t-transparent shadow-xl shadow-brand-primary/20"></div>
-            <p className="text-slate-500 dark:text-slate-400 animate-pulse font-black text-xs uppercase tracking-[0.3em] italic">TaxiControl v6.5 Inicializando...</p>
+        <div key="loading-state" className="flex h-screen w-full items-center justify-center bg-slate-950 text-white overflow-hidden relative selection:bg-amber-500 selection:text-slate-950">
+          {/* Ambient background glow */}
+          <div className="absolute w-96 h-96 bg-blue-600/10 rounded-full blur-3xl -top-20 -left-20 pointer-events-none" />
+          <div className="absolute w-96 h-96 bg-amber-500/10 rounded-full blur-3xl -bottom-20 -right-20 pointer-events-none" />
+
+          <div className="flex flex-col items-center justify-center gap-6 relative z-10 px-4">
+            {/* Animated Car Icon emblem */}
+            <motion.div 
+              initial={{ scale: 0, rotate: -180 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }}
+              className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-blue-600 via-blue-500 to-amber-500 p-0.5 shadow-2xl shadow-blue-500/30"
+            >
+              <div className="w-full h-full bg-slate-950 rounded-[22px] flex items-center justify-center">
+                <Car className="text-amber-400 animate-pulse" size={38} />
+              </div>
+            </motion.div>
+
+            {/* Letter-by-letter TAXICONTROL animation */}
+            <div className="flex items-center justify-center gap-1 sm:gap-2">
+              {letters.map((char, index) => (
+                <motion.span
+                  key={index}
+                  initial={{ opacity: 0, y: 30, scale: 0.5, filter: 'blur(8px)' }}
+                  animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                  transition={{ 
+                    duration: 0.45, 
+                    delay: index * 0.08,
+                    ease: "easeOut"
+                  }}
+                  className={`text-3xl sm:text-5xl font-black tracking-widest uppercase font-sans drop-shadow-md ${
+                    index < 4 ? 'text-blue-400' : 'text-amber-400'
+                  }`}
+                >
+                  {char}
+                </motion.span>
+              ))}
+            </div>
+
+            {/* Animated Loading Bar */}
+            <div className="w-48 sm:w-64 h-1.5 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-white/10 shadow-inner">
+              <motion.div 
+                initial={{ width: "0%" }}
+                animate={{ width: "100%" }}
+                transition={{ duration: 2.2, ease: "easeInOut", repeat: Infinity }}
+                className="h-full bg-gradient-to-r from-blue-500 via-amber-400 to-amber-500 rounded-full shadow-lg shadow-amber-500/50"
+              />
+            </div>
+
+            {/* Subtext */}
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.9, duration: 0.5 }}
+              className="flex items-center gap-2"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+              <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.35em] text-slate-400 italic">
+                - JIS ANGOLA • MOBILIDADE OFICIAL -
+              </p>
+            </motion.div>
           </div>
         </div>
       </ThemeProvider>
@@ -385,14 +456,8 @@ export default function App() {
     return (
       <ThemeProvider>
          <ConnectivityBanner />
-         <div className="min-h-screen relative w-full overflow-hidden bg-slate-950 flex items-center justify-center">
-            <PassengerFlow 
-              isPublicApp={true} 
-              onBackToStaff={() => {
-                localStorage.setItem('collaborator_mode', 'true');
-                setShowPublicPassengerFlow(false);
-              }}
-            />
+         <div className="h-screen h-[100dvh] relative w-full overflow-hidden bg-slate-950 flex flex-col items-center justify-center">
+            <PassengerFlow isPublicApp={true} />
          </div>
       </ThemeProvider>
     );
@@ -445,7 +510,7 @@ export default function App() {
       <ThemeProvider>
         <ConnectivityBanner />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-          {shouldNotifyAlert && <AlertNotificationManager />}
+          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <StaffMobileView 
             user={userProfile} 
             onLogout={() => signOut(auth)} 
@@ -462,7 +527,7 @@ export default function App() {
       <ThemeProvider>
         <ConnectivityBanner />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-          {shouldNotifyAlert && <AlertNotificationManager />}
+          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <MechanicView user={userProfile} />
         </div>
       </ThemeProvider>
@@ -474,7 +539,7 @@ export default function App() {
       <ThemeProvider>
         <ConnectivityBanner />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-          {shouldNotifyAlert && <AlertNotificationManager />}
+          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <DriverView user={userProfile} />
         </div>
       </ThemeProvider>
@@ -500,7 +565,7 @@ export default function App() {
           onToggleMobile={() => setViewPreference('mobile')}
           onEditProfile={() => setIsProfileEditOpen(true)}
         >
-          {shouldNotifyAlert && <AlertNotificationManager />}
+          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <ProfileEdit 
             user={userProfile} 
             isOpen={isProfileEditOpen} 

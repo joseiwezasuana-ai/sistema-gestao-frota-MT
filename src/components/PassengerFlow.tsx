@@ -9,6 +9,7 @@ import {
   Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload
 } from 'lucide-react';
 import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion } from '../lib/firebase';
+import { requestPassengerFcmToken, listenToFcmForegroundMessages } from '../lib/fcmService';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -543,6 +544,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   });
   const [isUploading, setIsUploading] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
+  const [authPortalView, setAuthPortalView] = useState<'welcome' | 'form'>('welcome');
   const [loginName, setLoginName] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -555,6 +557,39 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   // Terms & Conditions and Safety Policies for Registration (JIS)
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+
+  // Observer Pattern state & ref for Registration Form Scroll End Detection
+  const [isFormEndVisible, setIsFormEndVisible] = useState(false);
+  const formBottomRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (authMode !== 'register' || passengerProfile) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting) {
+          setIsFormEndVisible(true);
+        } else {
+          setIsFormEndVisible(false);
+        }
+      },
+      {
+        root: null,
+        threshold: 0.1
+      }
+    );
+
+    if (formBottomRef.current) {
+      observer.observe(formBottomRef.current);
+    }
+
+    return () => {
+      if (formBottomRef.current) {
+        observer.unobserve(formBottomRef.current);
+      }
+    };
+  }, [authMode, passengerProfile, authPortalView]);
   
   // New States requested by José Iweza Suana (JIS)
   const [showRidesHistoryModal, setShowRidesHistoryModal] = useState(false);
@@ -1089,7 +1124,23 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   useEffect(() => {
     loadFleetData();
     fetchCompanies();
-    // Request notification permission to actively wake up passenger when backgrounded (JIS)
+    // Request FCM notification permission and token for push notifications (JIS)
+    requestPassengerFcmToken().catch(e => console.warn('[FCM] Token init warning:', e));
+
+    // Listen to foreground push messages from Firebase Cloud Messaging
+    listenToFcmForegroundMessages((payload) => {
+      if (payload?.notification || payload?.data) {
+        const title = payload.notification?.title || payload.data?.title || '🚕 TAXICONTROL';
+        const body = payload.notification?.body || payload.data?.body || 'Atualização da sua corrida';
+        playNotificationSound('ding', title, body);
+        setNotificationBanner({
+          title: title,
+          message: body,
+          visible: true
+        });
+      }
+    });
+
     if ('Notification' in window && Notification.permission === 'default') {
       try {
         Notification.requestPermission();
@@ -1571,6 +1622,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       localStorage.removeItem('psm-passenger-profile');
       localStorage.removeItem('active_call_id');
       setPassengerProfile(null);
+      setAuthPortalView('welcome');
       setCallState('idle');
       setActiveRideRecord(null);
       activeStatusRef.current = null;
@@ -1607,6 +1659,8 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
     // Write preliminary ride to Firestore
     try {
       const boardingToken = generateToken();
+      const currentFcmToken = localStorage.getItem('passenger_fcm_token') || '';
+
       const docRef = await addDoc(collection(db, 'calls'), {
         passengerId: passengerProfile ? passengerProfile.name.toLowerCase().replace(/\s/g, '') : 'anon',
         passengerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
@@ -1632,9 +1686,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
         status: 'pending',
         boardingToken,
         usedBonus: useBonusForRide,
+        fcmToken: currentFcmToken,
+        passengerFcmToken: currentFcmToken,
         createdAt: new Date().toISOString(),
         timestamp: new Date().toISOString()
       });
+
+      // Request and attach fresh FCM token if it wasn't saved yet
+      requestPassengerFcmToken(docRef.id).catch(err => console.warn('[FCM] Token update error:', err));
 
       activeStatusRef.current = 'pending';
       setActiveRideRecord({ 
@@ -1838,13 +1897,13 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       {/* Header removed by request of Jose Iweza Suana (JIS) */}
 
       {/* Centered Smartphone Layout - Simulator Controller panel removed for a clean, direct passenger experience by request of José Iweza Suana (JIS) */}
-      <div className={isEmbed ? "w-full flex justify-center items-center h-full" : (isPublicApp ? "w-full flex-1 flex flex-col justify-stretch items-stretch" : "p-4 py-8 max-w-sm mx-auto w-full flex justify-center items-center min-h-[calc(100vh-80px)]")}>
+      <div className={isEmbed ? "w-full flex justify-center items-center h-full" : (isPublicApp ? "w-full flex-1 min-h-0 flex flex-col justify-stretch items-stretch" : "p-4 py-8 max-w-sm mx-auto w-full flex justify-center items-center min-h-[calc(100vh-80px)]")}>
         
 
       {/* Real-time Smartphone structure mockup */}
       <div className={isPublicApp 
-        ? `w-full flex flex-col flex-1 bg-transparent ${passengerProfile ? 'overflow-hidden' : 'overflow-y-auto'}` 
-        : `relative mx-auto w-full aspect-[9/18.5] bg-slate-900 rounded-[44px] p-3.5 shadow-2xl border-4 border-slate-800 shadow-slate-950/40 ring-1 ring-white/10 flex flex-col h-[740px] ${passengerProfile ? 'overflow-hidden' : 'overflow-y-auto'}`
+        ? `w-full flex flex-col flex-1 min-h-0 bg-transparent overflow-hidden` 
+        : `relative mx-auto w-full aspect-[9/18.5] bg-slate-900 rounded-[44px] p-3.5 shadow-2xl border-4 border-slate-800 shadow-slate-950/40 ring-1 ring-white/10 flex flex-col h-[740px] max-h-[90vh] overflow-hidden`
       }>
         
         {/* Dynamic Status bar phone decoration */}
@@ -1869,7 +1928,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
         {!isPublicApp && <div className="h-4 shrink-0 bg-slate-900" />}
 
         {/* INTERFACE LIVRE E REAL - Passenger App Interactive Screen */}
-        <div className={`w-full h-full relative flex flex-col ${isPublicApp ? '' : 'rounded-[30px] shadow-inner'} ${currentTheme.bgClass} transition-colors duration-300 flex-1 ${passengerProfile ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <div className={`w-full h-full relative flex flex-col min-h-0 ${isPublicApp ? '' : 'rounded-[30px] shadow-inner'} ${currentTheme.bgClass} transition-colors duration-300 flex-1 overflow-hidden`}>
           
           {/* TOAST NOTIFICATION BANNER SINCRO SUPER TAXI (JIS) - FLUTUANTE COM Z-INDEX IMPEDIDOR DE OVERLAY COVERING */}
           <AnimatePresence>
@@ -1897,8 +1956,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             )}
           </AnimatePresence>
           
-          {/* Passenger App Interactive Header */}
-          <header className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20 shrink-0 relative z-50">
+          {/* Passenger App Interactive Header - Only visible when passenger is logged into their account */}
+          {passengerProfile && (
+            <header className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20 shrink-0 relative z-50">
               <div className="flex items-center gap-2">
                 <div className={`p-1.5 rounded-lg ${currentTheme.cardClass}`}>
                   <Car size={14} className={currentTheme.textClass} />
@@ -2016,58 +2076,149 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                         Minha Conta
                       </button>
 
-                      {onBackToStaff && (
-                        <button
-                          onClick={() => {
-                            setIsNavMenuOpen(false);
-                            onBackToStaff();
-                          }}
-                          className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400 border-t border-white/5"
-                        >
-                          <Lock size={13} className="text-amber-500" />
-                          Área de Colaborador
-                        </button>
-                      )}
+                      {/* No collaborator buttons inside passenger app */}
                     </div>
                   )}
                 </div>
               </div>
             </header>
+          )}
 
 
             {/* SCREEN SCROLLABLE AREA */}
-            <div className={`flex-1 relative ${passengerTab === 'viagem' && passengerProfile && !passengerProfile.banned ? 'overflow-hidden p-0' : 'overflow-y-auto no-scrollbar p-5'}`}>
+            <div className={`flex-1 min-h-0 relative ${passengerTab === 'viagem' && passengerProfile && !passengerProfile.banned ? 'overflow-hidden p-0' : 'overflow-y-auto overscroll-contain touch-pan-y p-5 pb-24'}`}>
               
               {!passengerProfile && passengerTab !== 'seguranca' ? (
-                /* PROFILE CREATION OR PORTAL (REGISTER / LOGIN Toggle) */
-                <div className="space-y-4 py-2">
-                  <div className="text-center space-y-1">
-                    <span className="text-[9px] font-black text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 uppercase tracking-widest italic">PRESTÍGIO MÁXIMO</span>
-                    <h2 className="text-lg font-black tracking-tight mt-1">
-                      {authMode === 'register' ? 'CRIAR CONTA PASSAGEIRO' : 'ENTRAR NA CONTA'}
-                    </h2>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Luena - Moxico • Angola</p>
-                  </div>
+                authPortalView === 'welcome' ? (
+                  /* WELCOME PORTAL SELECTION PAGE */
+                  <div className="space-y-6 py-6 flex flex-col items-center justify-center min-h-[420px]">
+                    <div className="text-center space-y-3">
+                      <div className="w-16 h-16 bg-blue-500/10 rounded-3xl flex items-center justify-center mx-auto border border-blue-500/20 mb-3 shadow-md">
+                        <Car className="text-blue-500" size={32} />
+                      </div>
 
-                  <div className={`flex p-1 rounded-xl border mb-2 ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-200/50 border-slate-300/60'}`}>
-                    <button 
-                      onClick={() => setAuthMode('register')}
-                      className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'register' ? currentTheme.btnClass : `text-slate-400 ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}`}
-                    >
-                      Criar Conta
-                    </button>
-                    <button 
-                      onClick={() => setAuthMode('login')}
-                      className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'login' ? currentTheme.btnClass : `text-slate-400 ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}`}
-                    >
-                      Entrar
-                    </button>
-                  </div>
+                      <h1 className="text-3xl font-black tracking-tighter uppercase italic leading-none text-center">
+                        <span className="text-blue-500">SUPER</span>
+                        <span className={`ml-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>TAXI</span>
+                      </h1>
 
+                      <div className="flex items-center justify-center gap-2 mt-1">
+                        <div className="h-0.5 w-6 bg-blue-500/40" />
+                        <p className="text-[11px] text-blue-400 font-black uppercase tracking-[0.3em] whitespace-nowrap">
+                          - JIS ANGOLA -
+                        </p>
+                        <div className="h-0.5 w-6 bg-blue-500/40" />
+                      </div>
+                    </div>
+
+                    <div className="w-full space-y-3 max-w-sm pt-4">
+                      {/* OPTION 1: CREATE ACCOUNT */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('register');
+                          setAuthPortalView('form');
+                        }}
+                        className={`w-full p-4 rounded-2xl border text-left flex items-center gap-4 transition-all duration-300 transform active:scale-95 cursor-pointer ${
+                          isDark 
+                            ? 'bg-white/5 border-white/10 hover:border-amber-500/50 hover:bg-white/[0.08]' 
+                            : 'bg-white border-slate-200 hover:border-amber-500/50 hover:bg-amber-50/20'
+                        }`}
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
+                          <User size={20} />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-xs font-black uppercase tracking-wider text-amber-500">Criar Perfil</h4>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Criar uma nova conta de passageiro</p>
+                        </div>
+                        <ArrowRight size={14} className="text-slate-500 shrink-0" />
+                      </button>
+
+                      {/* OPTION 2: LOGIN */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('login');
+                          setAuthPortalView('form');
+                        }}
+                        className={`w-full p-4 rounded-2xl border text-left flex items-center gap-4 transition-all duration-300 transform active:scale-95 cursor-pointer ${
+                          isDark 
+                            ? 'bg-white/5 border-white/10 hover:border-amber-500/50 hover:bg-white/[0.08]' 
+                            : 'bg-white border-slate-200 hover:border-amber-500/50 hover:bg-amber-50/20'
+                        }`}
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
+                          <Lock size={20} />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-xs font-black uppercase tracking-wider text-amber-500">Entrar se já tiver perfil</h4>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Aceder a uma conta existente</p>
+                        </div>
+                        <ArrowRight size={14} className="text-slate-500 shrink-0" />
+                      </button>
+                    </div>
+
+                    {/* No staff portal buttons in passenger welcome flow */}
+
+                    <p className="text-[8px] text-slate-500 font-extrabold uppercase tracking-widest text-center pt-2">
+                      PLATAFORMA AUDITADA • CONTROLADO POR JIS
+                    </p>
+                  </div>
+                ) : (
+                  /* PROFILE CREATION OR PORTAL (REGISTER / LOGIN Toggle) */
+                  <div className="space-y-4 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setAuthPortalView('welcome')}
+                      className={`text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer transition-colors ${
+                        isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      ← Voltar à Seleção
+                    </button>
+
+                    <div className="text-center space-y-1">
+                      <span className="text-[9px] font-black text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 uppercase tracking-widest italic">PRESTÍGIO MÁXIMO</span>
+                      <h2 className="text-lg font-black tracking-tight mt-1">
+                        {authMode === 'register' ? 'CRIAR CONTA PASSAGEIRO' : 'ENTRAR NA CONTA'}
+                      </h2>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Luena - Moxico • Angola</p>
+                    </div>
+
+                    <div className={`flex p-1 rounded-xl border mb-2 ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-200/50 border-slate-300/60'}`}>
+                      <button 
+                        onClick={() => setAuthMode('register')}
+                        className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'register' ? currentTheme.btnClass : `text-slate-400 ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}`}
+                      >
+                        Criar Conta
+                      </button>
+                      <button 
+                        onClick={() => setAuthMode('login')}
+                        className={`flex-1 py-2 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${authMode === 'login' ? currentTheme.btnClass : `text-slate-400 ${isDark ? 'hover:text-white' : 'hover:text-slate-900'}`}`}
+                      >
+                        Entrar
+                      </button>
+                    </div>
+
+                  <AnimatePresence mode="wait">
                   {authMode === 'register' ? (
-                    <form onSubmit={handleCreateProfile} className="space-y-3">
+                    <motion.form 
+                      key="register-form"
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -15 }}
+                      transition={{ duration: 0.25, ease: "easeInOut" }}
+                      onSubmit={handleCreateProfile} 
+                      className="space-y-3 pb-28 sm:pb-36"
+                    >
                       {/* Clickable Profile Photo */}
-                      <div className="space-y-2 text-center flex flex-col items-center justify-center py-2">
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.05 }}
+                        className="space-y-2 text-center flex flex-col items-center justify-center py-2"
+                      >
                         <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">Foto de Perfil</label>
                         <label className="relative w-20 h-20 rounded-full overflow-hidden border-2 border-dashed border-slate-500 hover:border-amber-500 cursor-pointer flex items-center justify-center transition-all bg-slate-900 group shadow-md">
                           {selectedAvatar ? (
@@ -2084,9 +2235,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                           <input type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
                         </label>
                         <p className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Toque acima para abrir a galeria</p>
-                      </div>
+                      </motion.div>
 
-                      <div className="space-y-1">
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.1 }}
+                        className="space-y-1"
+                      >
                         <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Nome de Passageiro</label>
                         <div className="relative">
                           <User size={12} className="absolute left-3.5 top-3.5 text-slate-500" />
@@ -2102,9 +2258,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                             }`}
                           />
                         </div>
-                      </div>
+                      </motion.div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.15 }}
+                        className="grid grid-cols-2 gap-3"
+                      >
                         <div className="space-y-1">
                           <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Idade</label>
                           <input 
@@ -2136,9 +2297,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                             <option value="Outro" className={isDark ? "bg-slate-800 text-white" : "bg-white text-slate-900"}>Outro / Mais</option>
                           </select>
                         </div>
-                      </div>
+                      </motion.div>
 
-                      <div className="space-y-1">
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.2 }}
+                        className="space-y-1"
+                      >
                         <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Província Atual</label>
                         <input 
                           type="text" 
@@ -2151,9 +2317,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                               : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
                           }`}
                         />
-                      </div>
+                      </motion.div>
 
-                      <div className="space-y-1">
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.25 }}
+                        className="space-y-1"
+                      >
                         <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Contacto de Backup (Se Offline)</label>
                         <div className="relative">
                           <Phone size={12} className="absolute left-3.5 top-3.5 text-slate-500" />
@@ -2176,9 +2347,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                         <p className="text-[8px] text-slate-400 mt-1 font-extrabold uppercase tracking-tight">
                           * Usado se o telemóvel principal estiver offline.
                         </p>
-                      </div>
+                      </motion.div>
 
-                      <div className="space-y-1">
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.3 }}
+                        className="space-y-1"
+                      >
                         <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Palavra-passe</label>
                         <input 
                           type="password" 
@@ -2191,10 +2367,15 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                               : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
                           }`}
                         />
-                      </div>
+                      </motion.div>
 
                       {/* Checkbox de Termos e Politica de Segurança */}
-                      <div className={`flex items-start gap-2.5 border p-3 rounded-xl mt-2 ${isDark ? 'bg-white/5 border-white/5 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.35 }}
+                        className={`flex items-start gap-2.5 border p-3 rounded-xl mt-2 ${isDark ? 'bg-white/5 border-white/5 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                      >
                         <input 
                           type="checkbox" 
                           id="accept_security_terms"
@@ -2213,18 +2394,37 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                           </button>{' '}
                           vigentes no ecossistema SUPER Táxi.
                         </label>
-                      </div>
+                      </motion.div>
 
-                      <button 
-                        type="submit"
-                        className={`w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${currentTheme.btnClass}`}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.4 }}
                       >
-                        Registar e Entrar
-                      </button>
-                    </form>
+                        <button 
+                          type="submit"
+                          className={`w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all ${currentTheme.btnClass}`}
+                        >
+                          Registar e Entrar
+                        </button>
+                      </motion.div>
+                    </motion.form>
                   ) : (
-                    <form onSubmit={handleLogin} className="space-y-4 pt-4">
-                      <div className="space-y-1">
+                    <motion.form 
+                      key="login-form"
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -15 }}
+                      transition={{ duration: 0.25, ease: "easeInOut" }}
+                      onSubmit={handleLogin} 
+                      className="space-y-4 pt-4 pb-28"
+                    >
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.05 }}
+                        className="space-y-1"
+                      >
                         <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Nome de Utilizador ou Nº de Telefone</label>
                         <div className="relative">
                           <User size={12} className="absolute left-3.5 top-3.5 text-slate-500" />
@@ -2240,9 +2440,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                             }`}
                           />
                         </div>
-                      </div>
+                      </motion.div>
 
-                      <div className="space-y-1">
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.1 }}
+                        className="space-y-1"
+                      >
                         <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Palavra-passe</label>
                         <div className="relative">
                           <Lock size={12} className="absolute left-3.5 top-3.5 text-slate-500" />
@@ -2258,34 +2463,29 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                             }`}
                           />
                         </div>
-                      </div>
+                      </motion.div>
 
-                      <button 
-                        type="submit"
-                        disabled={isLoggingIn}
-                        className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${currentTheme.btnClass} ${isLoggingIn ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: 0.15 }}
                       >
-                        {isLoggingIn ? <RefreshCw className="animate-spin" size={14} /> : 'Aceder à Minha Conta'}
-                      </button>
-
-
-                    </form>
+                        <button 
+                          type="submit"
+                          disabled={isLoggingIn}
+                          className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${currentTheme.btnClass} ${isLoggingIn ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          {isLoggingIn ? <RefreshCw className="animate-spin" size={14} /> : 'Aceder à Minha Conta'}
+                        </button>
+                      </motion.div>
+                    </motion.form>
                   )}
+                  </AnimatePresence>
 
-                  {onBackToStaff && (
-                    <div className="pt-5 border-t border-white/5 text-center mt-5">
-                      <button
-                        type="button"
-                        onClick={onBackToStaff}
-                        className="w-full py-3 bg-white/5 hover:bg-white/10 active:scale-[0.98] border border-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <Lock size={12} className="text-amber-500" />
-                        Portal de Colaboradores / Motoristas 🔑
-                      </button>
-                    </div>
-                  )}
+                  {/* No staff portal buttons in passenger auth portal */}
                 </div>
-              ) : passengerProfile.banned ? (
+              )
+            ) : passengerProfile.banned ? (
                 /* RESTRICTED/BANNED VIEW (Requested by JIS) */
                 <div className="bg-red-950/45 border border-red-500/25 p-8 rounded-[2rem] text-center space-y-6 shadow-2xl relative overflow-hidden backdrop-blur-md text-white">
                   <div className="absolute -top-12 -left-12 w-40 h-40 bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -2320,6 +2520,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                     onClick={() => {
                         localStorage.removeItem('psm-passenger-profile');
                         setPassengerProfile(null);
+                        setAuthPortalView('welcome');
                     }}
                     className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all cursor-pointer border border-white/5"
                   >

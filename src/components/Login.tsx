@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LogIn, Car, User, Key, ArrowRight, Shield, AlertCircle, Loader2, CheckCircle2, ShieldCheck, ChevronRight, ChevronDown, ChevronUp, MessageSquare, MoreVertical, X, Globe, Lock, Building, HelpCircle } from 'lucide-react';
+import { LogIn, Car, User, Key, ArrowRight, Shield, AlertCircle, Loader2, CheckCircle2, ShieldCheck, ChevronRight, ChevronDown, ChevronUp, MessageSquare, MoreVertical, X, Globe, Lock, Building, HelpCircle, QrCode, Copy, Check, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithRedirect } from 'firebase/auth';
 import { db, auth, googleProvider, withTimeout, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
@@ -42,6 +42,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     return active;
   });
   const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   
   // Master Administration Unlock states (only visible to José Iweza Suana)
   const [isMasterUnlocked, setIsMasterUnlocked] = useState(false);
@@ -913,35 +914,68 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="w-full space-y-6"
               >
-                {/* SUPER Taxi Passageiro Oficial Section (Updated for JIS) */}
-                <div className="bg-slate-50 rounded-2xl p-6 space-y-4 text-center">
-                  <div className="flex flex-col items-center gap-1 pb-2">
-                    <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-1">
-                      <Car size={24} />
-                    </div>
-                    <h4 className="text-base font-black uppercase tracking-widest text-slate-850">SUPER TÁXI PASSAGEIRO</h4>
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider leading-none">Aplicativo do Passageiro Oficial</p>
+                {/* QR Code de Divulgação do App do Passageiro (JIS. SU, LDA LUENA-MOXICO) */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-2xl relative overflow-hidden text-white">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full">
+                      Divulgação • App do Passageiro
+                    </span>
+                    <h4 className="text-sm font-black uppercase tracking-wider text-white mt-1">QR CODE DO APP PASSAGEIRO</h4>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight max-w-xs leading-relaxed">
+                      Digitalize com a câmara do telemóvel para abrir a App do Passageiro Oficial em Luena - Moxico
+                    </p>
                   </div>
 
-                  <button 
-                    onClick={() => {
-                      if (onPassengerFlow) {
-                        onPassengerFlow();
-                      }
-                    }}
-                    className="w-full flex items-center justify-between p-4 bg-slate-950 hover:bg-slate-900 text-white rounded-2xl shadow-xl transition-all group active:scale-[0.98]"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center text-brand-primary shrink-0 group-hover:scale-110 transition-transform">
-                        <Car size={16} />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[11px] font-black uppercase tracking-wider text-brand-primary">ENTRAR OU CRIAR PERFIL</p>
-                        <p className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-tight">Utilizar app completa no telemóvel</p>
+                  {/* QR Image Frame */}
+                  <div className="flex justify-center my-2">
+                    <div className="p-3 bg-white rounded-2xl border-2 border-amber-500/30 shadow-xl relative group">
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                          typeof window !== 'undefined' 
+                            ? `${window.location.protocol}//${window.location.host}/?app=passenger` 
+                            : "https://jis-st.web.app?app=passenger"
+                        )}`} 
+                        alt="QR Code App Passageiro"
+                        className="w-40 h-40 object-contain rounded-lg"
+                      />
+                      <div className="absolute -bottom-2 -right-2 bg-amber-500 text-slate-950 p-1.5 rounded-xl shadow-lg border border-white">
+                        <Car size={16} className="font-bold" />
                       </div>
                     </div>
-                    <ChevronRight size={16} className="text-brand-primary group-hover:translate-x-0.5 transition-transform" />
-                  </button>
+                  </div>
+
+                  {/* Actions: Copy Link & Open App */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const url = typeof window !== 'undefined' 
+                          ? `${window.location.protocol}//${window.location.host}/?app=passenger` 
+                          : "https://jis-st.web.app?app=passenger";
+                        navigator.clipboard.writeText(url);
+                        setCopiedLink(true);
+                        setTimeout(() => setCopiedLink(false), 2500);
+                      }}
+                      className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-slate-950 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-md"
+                    >
+                      {copiedLink ? <Check size={14} /> : <Copy size={14} />}
+                      {copiedLink ? 'Link Copiado!' : 'Copiar Link App'}
+                    </button>
+
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const url = typeof window !== 'undefined' 
+                          ? `${window.location.protocol}//${window.location.host}/?app=passenger` 
+                          : "https://jis-st.web.app?app=passenger";
+                        window.open(url, '_blank');
+                      }}
+                      className="w-full py-2.5 px-3 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 border border-slate-700 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <ExternalLink size={14} />
+                      Abrir em Nova Aba
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             ) : (

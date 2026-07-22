@@ -510,6 +510,40 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
         });
       }
 
+      // Notify Admin & Gerente when Operator approves revenue (Mobile)
+      if (newStatus === 'approved_by_operator') {
+        await addDoc(collection(db, 'messages'), {
+          type: 'alert',
+          category: 'revenue_operator_approved',
+          title: '🚨 Renda Validada pelo Operador',
+          content: `A renda do dia ${revenue.date} (Viatura ${revenue.prefix || 'N/A'} - ${revenue.driverName || 'Motorista'}) no valor de ${Number(revenue.amount || 0).toLocaleString()} Kz foi validada pelo operador (${user?.name || 'Operador'}) via mobile e aguarda aprovação do Admin/Gerente.`,
+          targets: ['admin', 'gerente', 'administrator', 'manager'],
+          targetRoles: ['admin', 'gerente'],
+          driverId: revenue.driverId || 'N/A',
+          prefix: revenue.prefix || 'N/A',
+          revenueId: revenue.id,
+          status: 'unread',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Notify Contabilista when Admin/Gerente approves & delivers revenue to Accountant (Mobile)
+      if (newStatus === 'approved_by_accountant') {
+        await addDoc(collection(db, 'messages'), {
+          type: 'info',
+          category: 'revenue_delivered_to_accountant',
+          title: '💰 Renda Entregue ao Contabilista',
+          content: `O Admin/Gerente (${user?.name || 'Admin'}) entregou a renda do dia ${revenue.date} (Viatura ${revenue.prefix || 'N/A'} - ${revenue.driverName || 'Motorista'}) no valor de ${Number(revenue.amount || 0).toLocaleString()} Kz para auditoria e encerramento pelo Contabilista.`,
+          targets: ['contabilista', 'admin', 'gerente'],
+          targetRoles: ['contabilista'],
+          driverId: revenue.driverId || 'N/A',
+          prefix: revenue.prefix || 'N/A',
+          revenueId: revenue.id,
+          status: 'unread',
+          timestamp: new Date().toISOString()
+        });
+      }
+
       showCustomNotification(`Renda do motorista ${revenue.driverName || 'N/A'} aprovada com sucesso para: ${newStatus === 'finalized' ? 'Auditado/Final' : newStatus === 'approved_by_accountant' ? 'Pendente Contab.' : 'Pendente Admin'}`, 'success');
     } catch (err: any) {
       console.error("Error approving revenue on mobile:", err);

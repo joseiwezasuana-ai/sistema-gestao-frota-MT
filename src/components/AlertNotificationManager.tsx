@@ -11,7 +11,8 @@ import {
   Phone,
   Activity,
   Trash2,
-  MessageSquare
+  MessageSquare,
+  Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, addDoc, serverTimestamp } from '@/src/lib/firebase';
@@ -21,7 +22,7 @@ import WaitingTimer from './WaitingTimer';
 
 interface Alert {
   id: string;
-  type: 'speeding' | 'missed_call' | 'security' | 'geo_fence' | 'panic';
+  type: 'speeding' | 'missed_call' | 'security' | 'geo_fence' | 'panic' | 'revenue';
   title: string;
   message: string;
   timestamp: Date;
@@ -29,7 +30,7 @@ interface Alert {
   metadata?: any;
 }
 
-export default function AlertNotificationManager() {
+export default function AlertNotificationManager({ user }: { user?: any }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [showPermissionBanner, setShowPermissionBanner] = useState(false);
@@ -159,12 +160,103 @@ export default function AlertNotificationManager() {
       });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'panic_alerts'));
 
+    // 4. Monitor Revenue Approval (Operator -> Admin/Gerente) & Revenue Delivery (Admin/Gerente -> Contabilista)
+    const qRevenueMessages = query(
+      collection(db, 'messages'),
+      orderBy('timestamp', 'desc'),
+      limit(10)
+    );
+
+    const unsubRevenueMessages = onSnapshot(qRevenueMessages, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const msg = change.doc.data();
+          const role = (user?.role || '').toLowerCase();
+          const isAdminOrGerente = role === 'admin' || role === 'gerente' || role === 'administrator' || role === 'manager' || user?.isMasterAdmin;
+          const isContabilista = role === 'contabilista' || role === 'accountant' || isAdminOrGerente;
+
+          // Event 1: Operator approved revenue -> Awakening Alert for Admin and Gerente
+          if (msg.category === 'revenue_operator_approved' && (isAdminOrGerente || !user?.role)) {
+            // Play awakening chime sound
+            try {
+              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+              osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.15); // A5
+              gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+              osc.start();
+              osc.stop(audioCtx.currentTime + 0.4);
+            } catch (e) {}
+
+            triggerAlert({
+              id: `rev-op-${change.doc.id}`,
+              type: 'revenue',
+              title: msg.title || '🚨 RENDA VALIDADA PELO OPERADOR',
+              message: msg.content || `Operador aprovou a renda da viatura ${msg.prefix || ''}. Requer aprovação do Admin/Gerente.`,
+              severity: 'critical',
+              timestamp: new Date(),
+              metadata: msg
+            });
+          }
+
+          // Event 2: Admin/Gerente delivered revenue -> Alert for Contabilista
+          if (msg.category === 'revenue_delivered_to_accountant' && (isContabilista || !user?.role)) {
+            // Play accountant delivery sound
+            try {
+              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+              osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.15); // E5
+              osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.3); // G5
+              gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+              osc.start();
+              osc.stop(audioCtx.currentTime + 0.5);
+            } catch (e) {}
+
+            triggerAlert({
+              id: `rev-contab-${change.doc.id}`,
+              type: 'revenue',
+              title: msg.title || '💰 RENDA ENTREGUE AO CONTABILISTA',
+              message: msg.content || `Admin/Gerente entregou a renda da viatura ${msg.prefix || ''} para liquidação e encerramento.`,
+              severity: 'warning',
+              timestamp: new Date(),
+              metadata: msg
+            });
+          }
+        }
+      });
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'messages'));
+
     return () => {
       unsubCalls();
       unsubSpeed();
       unsubPanic();
+      unsubRevenueMessages();
     };
-  }, []);
+  }, [user]);
+
+  const speakText = (text: string) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'pt-PT';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.warn("Speech synthesis error:", e);
+      }
+    }
+  };
 
   const triggerAlert = (alert: Alert) => {
     let isDuplicate = false;
@@ -178,23 +270,57 @@ export default function AlertNotificationManager() {
 
     if (isDuplicate) return;
 
-    // Browser notification
-    if (Notification.permission === 'granted') {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready
-          .then(registration => {
-            registration.showNotification(alert.title, {
-              body: alert.message,
-            }).catch(e => console.error("Service worker notification failed:", e));
-          })
-          .catch(e => console.error("Service worker not ready:", e));
-      } else {
-        console.warn("Service worker not supported, cannot show notification.");
+    // Trigger Voice Speech Synthesis for critical alerts (Awakening Admin/Gerente or Accountant)
+    if (alert.type === 'revenue' || alert.type === 'panic') {
+      speakText(`${alert.title}. ${alert.message}`);
+    }
+
+    // Push / Browser Notification logic
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'granted') {
+        const notifOptions = {
+          body: alert.message,
+          icon: '/pwa-192x192.png',
+          badge: '/pwa-192x192.png',
+          vibrate: alert.type === 'revenue' || alert.type === 'panic' ? [300, 100, 300, 100, 300, 100, 300] : [200, 100, 200],
+          tag: alert.id,
+          renotify: true,
+          requireInteraction: alert.type === 'revenue' || alert.type === 'panic',
+          data: alert.metadata
+        };
+
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready
+            .then(registration => {
+              registration.showNotification(alert.title, notifOptions)
+                .catch(() => {
+                  try {
+                    new Notification(alert.title, notifOptions);
+                  } catch (e) {}
+                });
+            })
+            .catch(() => {
+              try {
+                new Notification(alert.title, notifOptions);
+              } catch (e) {}
+            });
+        } else {
+          try {
+            new Notification(alert.title, notifOptions);
+          } catch (e) {
+            console.warn("Direct Notification fallback failed:", e);
+          }
+        }
+      } else if (Notification.permission === 'default') {
+        // Request notification permission if not explicitly denied
+        try {
+          Notification.requestPermission();
+        } catch (e) {}
       }
     }
 
-    // Auto-dismiss after 15 seconds (longer for critical)
-    const duration = alert.type === 'panic' ? 30000 : 15000;
+    // Auto-dismiss after 15-30 seconds
+    const duration = alert.type === 'panic' || alert.type === 'revenue' ? 30000 : 15000;
     setTimeout(() => {
       removeAlert(alert.id);
     }, duration);
@@ -266,6 +392,7 @@ export default function AlertNotificationManager() {
                     {alertItem.type === 'speeding' && <Activity size={24} className="text-white animate-pulse" />}
                     {alertItem.type === 'missed_call' && <Phone size={24} className="text-white animate-bounce" />}
                     {alertItem.type === 'panic' && <ShieldAlert size={24} className="text-white animate-[ping_1.5s_infinite]" />}
+                    {alertItem.type === 'revenue' && <Wallet size={24} className="text-white animate-bounce" />}
                   </div>
                   
                   <div className="flex-1">

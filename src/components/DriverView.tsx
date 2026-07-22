@@ -72,6 +72,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { geminiService } from "../services/geminiService";
+import { sendPassengerPushNotification } from "../lib/fcmService";
 
 // Fix for Leaflet default icon issues
 // @ts-ignore
@@ -231,6 +232,31 @@ export default function DriverView({ user }: DriverViewProps) {
   const [mapMode, setMapMode] = useState<"radar" | "real">("real");
   const [driverLiveCoords, setDriverLiveCoords] = useState<[number, number]>([-11.7833, 19.9167]);
 
+  // Notification Permission Check & Explanatory Modal for Drivers
+  const [showDeniedNotifModal, setShowDeniedNotifModal] = useState<boolean>(false);
+  const [notifPermissionStatus, setNotifPermissionStatus] = useState<NotificationPermission>('default');
+
+  const checkDriverNotificationPermissions = React.useCallback(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const status = Notification.permission;
+      setNotifPermissionStatus(status);
+      if (status === 'denied') {
+        setShowDeniedNotifModal(true);
+      } else if (status === 'default') {
+        Notification.requestPermission().then((res) => {
+          setNotifPermissionStatus(res);
+          if (res === 'denied') {
+            setShowDeniedNotifModal(true);
+          }
+        }).catch(() => {});
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    checkDriverNotificationPermissions();
+  }, [checkDriverNotificationPermissions]);
+
   useEffect(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -327,6 +353,16 @@ export default function DriverView({ user }: DriverViewProps) {
       setCurrentService({ ...currentService, status: "price_sent", price: finalPrice });
       setProposedPrice("");
       setShowNotification(false);
+
+      // Trigger automatic FCM Push notification to passenger
+      sendPassengerPushNotification({
+        fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
+        callId: currentService.id,
+        title: "💬 Proposta de Preço Recebida!",
+        body: `O motorista ${user?.name || "Oficial"} propôs o valor de ${finalPrice.toLocaleString()} Kz para a sua viagem.`,
+        notificationType: "price_proposed"
+      }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+
       alert(`Proposta de preço de ${finalPrice.toLocaleString()} Kz enviada ao passageiro.`);
     } catch (error: any) {
       alert("Erro ao propor preço: " + error.message);
@@ -1622,6 +1658,15 @@ export default function DriverView({ user }: DriverViewProps) {
             driverName: user?.name || "Driver",
           }),
         });
+
+        // Trigger automatic FCM Push notification to passenger
+        sendPassengerPushNotification({
+          fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
+          callId: currentService.id,
+          title: "🚗 Corrida Aceite pelo Motorista!",
+          body: `O motorista ${user?.name || "Oficial"} aceitou o seu pedido de corrida no SUPER TÁXI!`,
+          notificationType: "ride_accepted"
+        }).catch(err => console.warn("[DriverView] FCM Push error:", err));
       }
 
       if (assignedVehicle?.id) {
@@ -1722,6 +1767,16 @@ export default function DriverView({ user }: DriverViewProps) {
     try {
       const callRef = doc(db, "calls", currentService.id);
       await updateDoc(callRef, { status: "arrived" });
+
+      // Trigger automatic FCM Push notification to passenger
+      sendPassengerPushNotification({
+        fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
+        callId: currentService.id,
+        title: "🚕 Motorista Chegou ao Local!",
+        body: `O motorista ${user?.name || "Oficial"} já está no ponto de recolha esperando por si.`,
+        notificationType: "driver_arrived"
+      }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+
       alert("Passageiro notificado da sua chegada!");
     } catch (err) {
       console.error(err);
@@ -4825,6 +4880,122 @@ export default function DriverView({ user }: DriverViewProps) {
         {/* O modal flutuante foi completamente removido a pedido do administrador José Iweza Suana para evitar ecrãs duplicados; apenas a consola de controlo dedicada/painel inferior é utilizado */}
 
 
+
+      {/* Driver Notification Permission Denied Activation Modal */}
+      <AnimatePresence>
+        {showDeniedNotifModal && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeniedNotifModal(false)}
+              className="fixed inset-0 bg-slate-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg bg-slate-900 border border-amber-500/30 rounded-[2.5rem] p-6 text-white shadow-2xl z-10 space-y-5 overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-amber-500/20 border border-amber-500/40 rounded-2xl flex items-center justify-center text-amber-400 shrink-0">
+                    <Bell size={22} className="animate-bounce" />
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      GUIA DE ATIVAÇÃO DE NOTIFICAÇÕES
+                    </span>
+                    <h3 className="text-base font-black tracking-tight text-white mt-1">
+                      Notificações Desativadas no Navegador
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDeniedNotifModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-all cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Warning Notice */}
+              <div className="bg-rose-500/10 border border-rose-500/30 p-3.5 rounded-2xl space-y-1">
+                <div className="flex items-center gap-2 text-rose-400 font-bold text-xs uppercase tracking-wider">
+                  <AlertTriangle size={14} />
+                  <span>Atenção Motorista (Risco de Perda de Corridas)</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed font-medium">
+                  As notificações foram <strong>negadas ou bloqueadas</strong> nas definições do navegador. Sem este acesso, o seu telemóvel <strong>não irá tocar nem vibrar</strong> quando um novo passageiro solicitar táxi em Luena enquanto a aplicação estiver em segundo plano ou no ecrã bloqueado.
+                </p>
+              </div>
+
+              {/* Step by Step Activation Guide */}
+              <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/10 text-xs">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                  COMO ATIVAR AS NOTIFICAÇÕES (PASSO A PASSO):
+                </p>
+
+                {/* Chrome / Android */}
+                <div className="space-y-1.5 border-l-2 border-amber-500 pl-3 py-1">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Smartphone size={13} className="text-amber-400" />
+                    1. Google Chrome (Android / Desktop):
+                  </span>
+                  <ol className="text-[10.5px] text-slate-300 space-y-1 font-medium list-disc list-inside">
+                    <li>Toque no ícone de <strong>Ajustes/Cadeado 🔒</strong> ao lado do endereço do site (URL).</li>
+                    <li>Aceda a <strong>Permissões do Site</strong> → <strong>Notificações</strong>.</li>
+                    <li>Mude a opção de <em>"Bloqueado"</em> para <strong>"Permitir"</strong>.</li>
+                  </ol>
+                </div>
+
+                {/* Safari / iOS */}
+                <div className="space-y-1.5 border-l-2 border-cyan-500 pl-3 py-1">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Settings size={13} className="text-cyan-400" />
+                    2. Safari (iPhone / iPad iOS):
+                  </span>
+                  <ol className="text-[10.5px] text-slate-300 space-y-1 font-medium list-disc list-inside">
+                    <li>Abra as <strong>Definições do iPhone ⚙️</strong> → <strong>Safari</strong> → <strong>Avançado</strong>.</li>
+                    <li>Em <strong>Notificações Web</strong>, selecione <strong>Permitir Notificações</strong> para o TaxiControl.</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && 'Notification' in window) {
+                      Notification.requestPermission().then((res) => {
+                        setNotifPermissionStatus(res);
+                        if (res === 'granted') {
+                          setShowDeniedNotifModal(false);
+                          alert("✓ Notificações Ativadas com Sucesso! Agora receberá todos os alertas de chamadas de táxi.");
+                        } else {
+                          alert("Ainda não foi possível ativar automaticamente. Siga o guia passo a passo acima nas definições do navegador.");
+                        }
+                      }).catch(() => {});
+                    }
+                  }}
+                  className="flex-1 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <RefreshCw size={14} />
+                  Verificar / Tentar Ativar Novamente
+                </button>
+                <button
+                  onClick={() => setShowDeniedNotifModal(false)}
+                  className="px-4 py-3.5 bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                >
+                  Entendi / Ignorar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Passenger Cancellation Alert Popup for Driver */}
       <AnimatePresence>

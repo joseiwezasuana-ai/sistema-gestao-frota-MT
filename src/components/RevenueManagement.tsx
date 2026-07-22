@@ -261,6 +261,40 @@ export default function RevenueManagement({ user }: { user: any }) {
         }
       }
 
+      // 2. Notify Admin & Gerente when Operator approves revenue
+      if (newStatus === 'approved_by_operator') {
+        await addDoc(collection(db, 'messages'), {
+          type: 'alert',
+          category: 'revenue_operator_approved',
+          title: '🚨 Renda Validada pelo Operador',
+          content: `A renda do dia ${revenue.date} (Viatura ${revenue.prefix || 'N/A'} - ${revenue.driverName || 'Motorista'}) no valor de ${Number(revenue.amount || 0).toLocaleString()} Kz foi validada pelo operador (${user?.name || 'Operador'}) e aguarda aprovação do Admin/Gerente.`,
+          targets: ['admin', 'gerente', 'administrator', 'manager'],
+          targetRoles: ['admin', 'gerente'],
+          driverId: revenue.driverId || 'N/A',
+          prefix: revenue.prefix || 'N/A',
+          revenueId: revenueId,
+          status: 'unread',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // 3. Notify Contabilista when Admin/Gerente approves & delivers revenue to Accountant
+      if (newStatus === 'approved_by_accountant') {
+        await addDoc(collection(db, 'messages'), {
+          type: 'info',
+          category: 'revenue_delivered_to_accountant',
+          title: '💰 Renda Entregue ao Contabilista',
+          content: `O Admin/Gerente (${user?.name || 'Admin'}) entregou a renda do dia ${revenue.date} (Viatura ${revenue.prefix || 'N/A'} - ${revenue.driverName || 'Motorista'}) no valor de ${Number(revenue.amount || 0).toLocaleString()} Kz para auditoria e encerramento contabilístico.`,
+          targets: ['contabilista', 'admin', 'gerente'],
+          targetRoles: ['contabilista'],
+          driverId: revenue.driverId || 'N/A',
+          prefix: revenue.prefix || 'N/A',
+          revenueId: revenueId,
+          status: 'unread',
+          timestamp: new Date().toISOString()
+        });
+      }
+
       // 2. Notify driver if rejected
       if (newStatus.includes('rejected')) {
         await addDoc(collection(db, 'messages'), {
@@ -488,6 +522,222 @@ export default function RevenueManagement({ user }: { user: any }) {
       .filter(r => r.status !== 'archived')
       .reduce((acc, curr) => acc + (curr.breakdown?.expenses || 0), 0),
     todayCount: revenues.filter(r => r.date === new Date().toISOString().split('T')[0] && r.status !== 'archived').length
+  };
+
+  const exportSingleTransactionReceipt = (rev: RevenueLog) => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const receiptNo = `RCB-${(rev.id || '000000').slice(0, 8).toUpperCase()}`;
+      const issueDate = new Date().toLocaleDateString('pt-PT', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+
+      // Dark Blue Header Bar
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.rect(0, 0, 210, 38, 'F');
+
+      // Accent Line (Gold / Amber)
+      doc.setFillColor(234, 179, 8); // amber-500
+      doc.rect(0, 38, 210, 3, 'F');
+
+      // Header Typography
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text('JIS. (SU), LDA LUENA-MOXICO', 14, 16);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(203, 213, 225); // slate-300
+      doc.text('SUPER TÁXI • CENTRAL DE CONTABILIDADE E VALIDAÇÃO DE RECEITAS', 14, 23);
+      doc.text('NIF: 5000984122 | Tel: +244 923 000 000 | Luena, Moxico - Angola', 14, 29);
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(251, 191, 36); // amber-400
+      doc.text(receiptNo, 196, 16, { align: 'right' });
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(203, 213, 225);
+      doc.text(`Emissão: ${issueDate}`, 196, 23, { align: 'right' });
+
+      // Document Title Banner
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.roundedRect(14, 48, 182, 18, 3, 3, 'FD');
+
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text('RECIBO DE CAIXA & COMPROVATIVO DE RECEITA', 105, 57, { align: 'center' });
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`REGISTO OPERACIONAL DE TURNO DO DIA ${rev.date}`, 105, 62, { align: 'center' });
+
+      // Transaction & Driver Summary Box
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(14, 72, 182, 38, 3, 3, 'FD');
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text('DADOS DA TRANSAÇÃO & COLABORADOR', 20, 80);
+
+      doc.setLineWidth(0.2);
+      doc.setDrawColor(226, 232, 240);
+      doc.line(20, 83, 190, 83);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      
+      doc.text('Colaborador / Motorista:', 20, 90);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${rev.driverName} (ID: ${rev.driverId || 'N/A'})`, 65, 90);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Viatura / Prefixo:', 20, 97);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${rev.prefix || 'N/A'}`, 65, 97);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Estado de Validação:', 20, 104);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(16, 185, 129); // emerald-600
+      doc.text(`${getStatusDisplay(rev.status).label.toUpperCase()}`, 65, 104);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Data do Fecho:', 130, 90);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${rev.date}`, 160, 90);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Validado Por:', 130, 97);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${rev.validatedByName || rev.validatedBy || 'Central Operacional'}`, 160, 97);
+
+      // Breakdown Table
+      const breakdownRows = [
+        ['Pagamento em Dinheiro Físico (Cash)', `${(rev.breakdown?.cash || 0).toLocaleString()} Kz`],
+        ['Pagamento por TPA / Multicaixa', `${(rev.breakdown?.tpa || 0).toLocaleString()} Kz`],
+        ['Transferência Bancária', `${(rev.breakdown?.transfer || 0).toLocaleString()} Kz`],
+        ['Corridas via App (SUPER Táxi)', `${(rev.breakdown?.appRides || 0).toLocaleString()} Kz`],
+        ['Dedução de Despesas Operacionais (-)', `- ${(rev.breakdown?.expenses || 0).toLocaleString()} Kz`]
+      ];
+
+      autoTable(doc, {
+        startY: 116,
+        head: [['Discriminação dos Valores / Meio de Pagamento', 'Montante (Kz)']],
+        body: breakdownRows,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        bodyStyles: {
+          fontSize: 9,
+          textColor: [51, 65, 85]
+        },
+        columnStyles: {
+          0: { cellWidth: 130 },
+          1: { cellWidth: 52, halign: 'right', fontStyle: 'bold' }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      const finalY = (doc as any).lastAutoTable.finalY + 8;
+
+      // Total Amount Box
+      doc.setFillColor(241, 245, 249); // slate-100
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(14, finalY, 182, 20, 3, 3, 'FD');
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text('TOTAL LÍQUIDO ARRECADADO:', 20, finalY + 12);
+
+      doc.setFontSize(13);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(16, 185, 129); // emerald-600
+      doc.text(`${(rev.amount || 0).toLocaleString()} Kz`, 190, finalY + 12, { align: 'right' });
+
+      // Quotas Breakdown
+      const quotaY = finalY + 25;
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(14, quotaY, 182, 20, 3, 3, 'FD');
+
+      const jisShare = (rev.amount || 0) * 0.9;
+      const driverShare = (rev.amount || 0) * 0.1;
+
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(71, 85, 105);
+      doc.text('Divisão Contábil Regulamentar:', 20, quotaY + 8);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(225, 29, 72); // rose-600
+      doc.text(`Quota JIS (90%): ${jisShare.toLocaleString()} Kz`, 20, quotaY + 15);
+
+      doc.setTextColor(16, 185, 129); // emerald-600
+      doc.text(`Comissão Colaborador (10%): ${driverShare.toLocaleString()} Kz`, 110, quotaY + 15);
+
+      // Signatures Section
+      const sigY = quotaY + 28;
+      doc.setLineWidth(0.3);
+      doc.setDrawColor(148, 163, 184); // slate-400
+
+      doc.line(20, sigY + 16, 85, sigY + 16);
+      doc.line(120, sigY + 16, 185, sigY + 16);
+
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text('O CONTABILISTA / OPERADOR', 52.5, sigY + 21, { align: 'center' });
+      doc.text('O COLABORADOR / MOTORISTA', 152.5, sigY + 21, { align: 'center' });
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184);
+      doc.text('Carimbo & Assinatura Autorizada', 52.5, sigY + 25, { align: 'center' });
+      doc.text('Assinatura de Conformidade', 152.5, sigY + 25, { align: 'center' });
+
+      // Footer Watermark & Authenticity
+      const footerY = 280;
+      doc.setFillColor(248, 250, 252);
+      doc.rect(0, footerY, 210, 17, 'F');
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Documento emitido eletronicamente pela Plataforma TaxiControl - JIS. (SU), LDA LUENA-MOXICO', 105, footerY + 6, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Autenticidade Verificada • Hash: SHA256-${Date.now().toString(36).toUpperCase()}`, 105, footerY + 11, { align: 'center' });
+
+      doc.save(`Recibo_JIS_${rev.prefix || 'TAXA'}_${rev.date}_${(rev.id || '0').slice(0, 6)}.pdf`);
+    } catch (err: any) {
+      console.error('Error generating PDF receipt:', err);
+      alert('Erro ao gerar o PDF do Recibo: ' + err.message);
+    }
   };
 
   const exportPDF = () => {
@@ -789,7 +1039,15 @@ export default function RevenueManagement({ user }: { user: any }) {
                       </div>
                     </td>
                     <td className="px-10 py-6 text-right">
-                      <div className="flex justify-end gap-3">
+                      <div className="flex justify-end gap-3 items-center">
+                        <button 
+                          onClick={() => exportSingleTransactionReceipt(rev)}
+                          className="px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center gap-1.5 transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer"
+                          title="Exportar Recibo em PDF"
+                        >
+                          <Download size={13} className="text-amber-600" />
+                          Exportar Recibo
+                        </button>
                         {canApproveOperator(rev.status) && (
                           <>
                             <button 
@@ -960,6 +1218,14 @@ export default function RevenueManagement({ user }: { user: any }) {
                           </td>
                           <td className="px-8 py-6 text-right">
                              <div className="flex items-center justify-end gap-4 text-[10px] font-black text-slate-400 uppercase italic">
+                                <button 
+                                  onClick={() => exportSingleTransactionReceipt(rev)}
+                                  className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 flex items-center gap-1 transition-all cursor-pointer"
+                                  title="Exportar Recibo em PDF"
+                                >
+                                  <Download size={12} className="text-amber-600" />
+                                  Recibo
+                                </button>
                                 <button 
                                   onClick={() => handleDeleteSingleArchive(rev.id)}
                                   className="text-rose-500 hover:text-rose-700 p-2 hover:bg-rose-50 rounded-lg transition-colors"

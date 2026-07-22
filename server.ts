@@ -72,6 +72,83 @@ async function startServer() {
     });
   });
 
+  // Endpoint to send Firebase Cloud Messaging (FCM) Push Notifications to Passengers
+  app.post("/api/fcm/send-passenger-push", async (req, res) => {
+    try {
+      const { fcmToken, title, body, callId, notificationType } = req.body;
+      
+      if (!title || !body) {
+        return res.status(400).json({ error: "Title and body are required" });
+      }
+
+      console.log(`[FCM Push] Processing push notification '${title}' (type: ${notificationType}) for call: ${callId}`);
+
+      let fcmMessageId: string | null = null;
+
+      // 1. Send via Firebase Admin Messaging if FCM Token is present
+      if (fcmToken && typeof fcmToken === "string" && fcmToken.length > 10) {
+        try {
+          fcmMessageId = await admin.messaging().send({
+            token: fcmToken,
+            notification: {
+              title: title,
+              body: body,
+            },
+            data: {
+              callId: callId || "",
+              type: notificationType || "ride_update",
+              title: title,
+              body: body,
+            },
+            webpush: {
+              notification: {
+                title: title,
+                body: body,
+                icon: "/icon-192.png",
+                badge: "/icon-192.png",
+                vibrate: [300, 100, 300, 100, 300],
+                requireInteraction: true,
+              },
+              fcmOptions: {
+                link: "/?app=passenger"
+              }
+            }
+          });
+          console.log(`[FCM Push] FCM Message sent successfully. ID: ${fcmMessageId}`);
+        } catch (fcmErr: any) {
+          console.warn("[FCM Push] Firebase Admin Messaging send warning:", fcmErr?.message || fcmErr);
+        }
+      }
+
+      // 2. Log last notification on the call document for real-time backup sync
+      if (callId) {
+        try {
+          const tenantId = (req.headers['x-tenant-id'] as string) || 'psm';
+          const callRef = db.collection('tenants').doc(tenantId).collection('calls').doc(String(callId));
+          await callRef.update({
+            lastNotification: {
+              title,
+              body,
+              type: notificationType || "ride_update",
+              sentAt: new Date().toISOString()
+            }
+          });
+        } catch (dbErr: any) {
+          console.warn("[FCM Push] Firestore call update warning:", dbErr?.message);
+        }
+      }
+
+      return res.json({ 
+        success: true, 
+        fcmMessageId,
+        message: "Notificação push do passageiro enviada com sucesso!"
+      });
+    } catch (err: any) {
+      console.error("[FCM Push] Error in send-passenger-push route:", err);
+      return res.status(500).json({ error: err?.message || "Internal server error" });
+    }
+  });
+
   // Create User Route (Admin only)
   app.post("/api/admin/create-user", async (req, res) => {
     console.log("[Admin] >>> Starting Create User sequence");
