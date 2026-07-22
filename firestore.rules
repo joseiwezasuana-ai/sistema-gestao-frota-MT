@@ -7,7 +7,18 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // 2. Tenants & all tenant-scoped subcollections (Dynamic Multi-tenant)
+    // 2. Global Passengers & Profiles collection (Ecosystem wide, not tied to a single tenant)
+    match /passengers/{passengerId} {
+      allow read, write: if true;
+    }
+    match /passenger_profiles/{profileId} {
+      allow read, write: if true;
+    }
+    match /passenger_ratings/{ratingId} {
+      allow read, write: if true;
+    }
+
+    // 3. Tenants & all tenant-scoped subcollections (Dynamic Multi-tenant)
     match /tenants/{tenantId} {
       allow read, write: if true;
 

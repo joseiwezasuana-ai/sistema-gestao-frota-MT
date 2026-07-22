@@ -57,7 +57,7 @@ export const db = app ? initializeFirestore(app, {
 
 // --- MULTI-TENANT CONFIGURATION AND WRAPPERS ---
 let activeTenantId: string | null = null;
-const GLOBAL_COLLECTIONS = ['users', 'tenants'];
+const GLOBAL_COLLECTIONS = ['users', 'tenants', 'passengers', 'passenger_profiles', 'passenger_ratings'];
 
 export function getActiveTenantId(): string {
   if (activeTenantId) return activeTenantId;

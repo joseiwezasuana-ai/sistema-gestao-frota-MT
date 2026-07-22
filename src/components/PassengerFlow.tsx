@@ -1601,6 +1601,32 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
         });
       }
 
+      if (!profile) {
+        // Fallback for passengers registered under old tenant-scoped paths
+        const legacyTenants = ['psm', 'jis', 'sps', 'moxico'];
+        for (const tId of legacyTenants) {
+          try {
+            const legacySnap = await getDocs(collection(db, 'tenants', tId, 'passengers'));
+            legacySnap.forEach((docSnap) => {
+              const data = docSnap.data();
+              if (data.password && String(data.password).trim() === pwd) {
+                const savedName = data.name ? String(data.name).trim().toLowerCase().replace(/\s+/g, '') : '';
+                const savedPhone = data.backupPhone || data.phone ? String(data.backupPhone || data.phone).replace(/[\s\-\+]/g, '') : '';
+                const normalizedInputName = trimmedLogin.toLowerCase().replace(/\s+/g, '');
+                const cleanedInputPhone = trimmedLogin.replace(/[\s\-\+]/g, '');
+
+                if (savedName === normalizedInputName || (savedPhone && cleanedInputPhone && (savedPhone.endsWith(cleanedInputPhone) || cleanedInputPhone.endsWith(savedPhone)))) {
+                  profile = { id: docSnap.id, ...data };
+                  // Auto-migrate to global ecosystem
+                  addDoc(collection(db, 'passengers'), data).catch(() => {});
+                }
+              }
+            });
+            if (profile) break;
+          } catch {}
+        }
+      }
+
       if (profile) {
         localStorage.setItem('psm-passenger-profile', JSON.stringify(profile));
         setPassengerProfile(profile);
