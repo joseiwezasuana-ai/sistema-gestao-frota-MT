@@ -6,8 +6,9 @@ import {
   Car, MapPin, Phone, User, Camera, Sun, Moon, Sparkles, ShieldCheck, 
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
-  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload
+  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download
 } from 'lucide-react';
+import { PWAInstallModal } from './PWAInstallBanner';
 import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion } from '../lib/firebase';
 import { requestPassengerFcmToken, listenToFcmForegroundMessages } from '../lib/fcmService';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -557,6 +558,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   // Terms & Conditions and Safety Policies for Registration (JIS)
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showInstallPwaModal, setShowInstallPwaModal] = useState(false);
 
   // Observer Pattern state & ref for Registration Form Scroll End Detection
   const [isFormEndVisible, setIsFormEndVisible] = useState(false);
@@ -2076,6 +2078,18 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                         Minha Conta
                       </button>
 
+                      {/* INSTALAR APLICAÇÃO (PWA) */}
+                      <button
+                        onClick={() => {
+                          setShowInstallPwaModal(true);
+                          setIsNavMenuOpen(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-amber-400 hover:bg-amber-500/10 border-t border-white/10 mt-1 cursor-pointer"
+                      >
+                        <Download size={13} className="text-amber-400" />
+                        Instalar SUPER Táxi
+                      </button>
+
                       {/* No collaborator buttons inside passenger app */}
                     </div>
                   )}
@@ -2919,6 +2933,30 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                   {passengerTab === 'perfil' && (
                     <div className="space-y-4 animate-in fade-in duration-300">
                       
+                      {/* INSTALAR APLICAÇÃO SUPER TÁXI (PWA) BUTTON */}
+                      <button
+                        onClick={() => setShowInstallPwaModal(true)}
+                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group cursor-pointer ${
+                          isDark 
+                            ? 'bg-slate-900 border-amber-500/35 hover:border-amber-400 hover:bg-slate-800/80 shadow-lg shadow-amber-500/5' 
+                            : 'bg-white border-amber-500/35 hover:border-amber-500 hover:bg-amber-50/50 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center text-amber-500 shrink-0 group-hover:scale-110 transition-transform">
+                            <Download size={16} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Instalar SUPER Táxi</p>
+                              <span className="text-[7.5px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">PWA</span>
+                            </div>
+                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Adicionar ícone oficial ao telemóvel</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-black text-amber-400 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
+                      </button>
+
                       {/* SUGERIR APP (CÓDIGO QR) BUTTON */}
                       <button
                         onClick={() => setShowQrModal(true)}
@@ -4124,6 +4162,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                 </div>
               </div>
             )}
+
+            {/* PWA INSTALLATION MODAL */}
+            <PWAInstallModal isOpen={showInstallPwaModal} onClose={() => setShowInstallPwaModal(false)} />
 
           </div>
           

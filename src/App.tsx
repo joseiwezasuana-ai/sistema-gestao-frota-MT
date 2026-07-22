@@ -66,7 +66,6 @@ import { motion } from 'motion/react';
 import InvoiceDrafting from './components/InvoiceDrafting';
 import { ThemeProvider } from './context/ThemeContext';
 import { ConnectivityBanner } from './components/ConnectivityBanner';
-import { PWAInstallBanner } from './components/PWAInstallBanner';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -457,7 +456,6 @@ export default function App() {
     return (
       <ThemeProvider>
          <ConnectivityBanner />
-         <PWAInstallBanner />
          <div className="h-screen h-[100dvh] relative w-full overflow-hidden bg-slate-950 flex flex-col items-center justify-center">
             <PassengerFlow isPublicApp={true} />
          </div>
@@ -473,7 +471,6 @@ export default function App() {
     return (
       <ThemeProvider>
         <ConnectivityBanner />
-        <PWAInstallBanner />
         <Login 
           key="login-view" 
           onGoogleLogin={handleGoogleLogin} 
@@ -490,7 +487,6 @@ export default function App() {
     return (
       <ThemeProvider>
         <ConnectivityBanner />
-        <PWAInstallBanner />
         <ProfileSetup key="setup-view" user={user} onComplete={setUserProfile} />
       </ThemeProvider>
     );
@@ -513,7 +509,6 @@ export default function App() {
     return (
       <ThemeProvider>
         <ConnectivityBanner />
-        <PWAInstallBanner />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <StaffMobileView 
@@ -531,7 +526,6 @@ export default function App() {
     return (
       <ThemeProvider>
         <ConnectivityBanner />
-        <PWAInstallBanner />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <MechanicView user={userProfile} />
@@ -544,7 +538,6 @@ export default function App() {
     return (
       <ThemeProvider>
         <ConnectivityBanner />
-        <PWAInstallBanner />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <DriverView user={userProfile} />
@@ -556,7 +549,6 @@ export default function App() {
   return (
     <ThemeProvider>
       <ConnectivityBanner />
-      <PWAInstallBanner />
       <KeyboardShortcutManager user={userProfile} activeTab={activeTab} onTabChange={setActiveTab} />
       <div key="authed-layout" className="min-h-screen">
         <Layout 
