@@ -13,7 +13,9 @@ import {
   addDoc as originalAddDoc,
   setDoc as originalSetDoc,
   updateDoc as originalUpdateDoc,
-  deleteDoc as originalDeleteDoc
+  deleteDoc as originalDeleteDoc,
+  onSnapshot as originalOnSnapshot,
+  getDocFromServer
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -120,6 +122,61 @@ export function doc(firestoreOrRef: any, path?: string, ...pathSegments: string[
 
   return originalDoc(firestoreOrRef) as any;
 }
+
+// Wrapped onSnapshot to catch transient connection/offline errors gracefully
+export function onSnapshot(...args: any[]): () => void {
+  let ref = args[0];
+  let onNext: any;
+  let onError: any;
+  let onCompletion: any;
+
+  if (typeof args[1] === 'function') {
+    onNext = args[1];
+    onError = args[2];
+    onCompletion = args[3];
+  } else if (typeof args[1] === 'object' && args[1] !== null && typeof args[2] === 'function') {
+    onNext = args[2];
+    onError = args[3];
+    onCompletion = args[4];
+  } else {
+    return (originalOnSnapshot as any)(...args);
+  }
+
+  const safeOnError = (error: any) => {
+    if (error?.code === 'unavailable' || error?.message?.includes('Could not reach Cloud Firestore backend') || error?.message?.includes('offline')) {
+      console.warn('[Firestore Offline / LongPolling Reconnecting]', error?.message || error);
+    } else {
+      console.error('[Firestore Snapshot Error]', error);
+    }
+    if (typeof onError === 'function') {
+      try {
+        onError(error);
+      } catch (err) {
+        console.warn('Error in snapshot onError callback:', err);
+      }
+    }
+  };
+
+  if (typeof args[1] === 'function') {
+    return originalOnSnapshot(ref, onNext, safeOnError, onCompletion);
+  } else {
+    return originalOnSnapshot(ref, args[1], onNext, safeOnError, onCompletion);
+  }
+}
+
+// Test initial connection to Cloud Firestore
+async function testConnection() {
+  try {
+    if (app && db) {
+      await getDocFromServer(originalDoc(db, 'settings', 'global'));
+    }
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes('offline') || error.message.includes('unavailable'))) {
+      console.warn("[Firebase] Client operating in offline cache mode until Cloud Firestore backend is reached.");
+    }
+  }
+}
+testConnection();
 // -----------------------------------------------
 
 

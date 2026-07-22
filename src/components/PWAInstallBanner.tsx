@@ -122,10 +122,8 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 via-blue-500 to-amber-500 p-0.5 shadow-lg shadow-amber-500/20 flex items-center justify-center shrink-0">
-                <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-                  <Car className="text-amber-400" size={20} />
-                </div>
+              <div className="w-11 h-11 rounded-2xl bg-slate-950 p-0.5 border border-amber-500/40 shadow-lg shadow-amber-500/20 flex items-center justify-center shrink-0 overflow-hidden">
+                <img src="/icon-192.png" alt="SUPER Táxi" className="w-full h-full object-cover rounded-[14px]" referrerPolicy="no-referrer" />
               </div>
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-white">Instalar SUPER Táxi</h3>
