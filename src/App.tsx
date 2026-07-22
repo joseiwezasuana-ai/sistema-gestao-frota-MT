@@ -398,8 +398,8 @@ export default function App() {
               transition={{ duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }}
               className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-blue-600 via-blue-500 to-amber-500 p-0.5 shadow-2xl shadow-blue-500/30"
             >
-              <div className="w-full h-full bg-slate-950 rounded-[22px] flex items-center justify-center">
-                <Car className="text-amber-400 animate-pulse" size={38} />
+              <div className="w-full h-full bg-slate-950 rounded-[22px] flex items-center justify-center p-1 overflow-hidden">
+                <img src="/logo.svg" alt="TaxiControl" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
               </div>
             </motion.div>
 
