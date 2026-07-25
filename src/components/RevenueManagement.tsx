@@ -23,15 +23,20 @@ import {
   FileText,
   Loader2,
   Printer,
-  Trash2
+  Trash2,
+  BarChart3,
+  Bell,
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { InvoiceViewerModal } from './InvoiceViewerModal';
+import { DriverRevenueAnalysisModal } from './DriverRevenueAnalysisModal';
 import autoTable from 'jspdf-autotable';
+import { format } from 'date-fns';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, where, addDoc, getDocs, deleteDoc } from '@/src/lib/firebase';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, where, addDoc, getDocs, deleteDoc, limit } from '@/src/lib/firebase';
 import { cn } from '../lib/utils';
 
 interface RevenueLog {
@@ -65,7 +70,35 @@ export default function RevenueManagement({ user }: { user: any }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [isRevenueAlertsModalOpen, setIsRevenueAlertsModalOpen] = useState(false);
+  const [revenueMessages, setRevenueMessages] = useState<any[]>([]);
+  const [analysisDriverId, setAnalysisDriverId] = useState<string | null>('all');
   const [archivedRevenues, setArchivedRevenues] = useState<RevenueLog[]>([]);
+
+  const handleDeleteRevenueMessage = async (msgId: string) => {
+    try {
+      await deleteDoc(doc(db, 'messages', msgId));
+    } catch (err) {
+      console.error("Erro ao eliminar mensagem de tesouraria:", err);
+    }
+  };
+
+  const handleDeleteAllRevenueMessages = async () => {
+    if (!window.confirm("Tem a certeza que deseja ELIMINAR PERMANENTEMENTE todos os alertas críticos da tesouraria?")) return;
+    try {
+      for (const msg of revenueMessages) {
+        await deleteDoc(doc(db, 'messages', msg.id));
+      }
+    } catch (err) {
+      console.error("Erro ao eliminar todas as mensagens de tesouraria:", err);
+    }
+  };
+
+  const handleOpenAnalysis = (driverId?: string) => {
+    setAnalysisDriverId(driverId || 'all');
+    setIsAnalysisModalOpen(true);
+  };
   const [calls, setCalls] = useState<any[]>([]);
   const [smsLogs, setSmsLogs] = useState<any[]>([]);
 
@@ -146,8 +179,18 @@ export default function RevenueManagement({ user }: { user: any }) {
       setSmsLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    const qRevenueMsgs = query(collection(db, 'messages'), orderBy('timestamp', 'desc'), limit(50));
     const unsubscribeActiveFleet = onSnapshot(qActiveFleet, (snapshot) => {
       setActiveFleetDrivers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const unsubscribeRevenueMsgs = onSnapshot(qRevenueMsgs, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const filtered = msgs.filter((m: any) => 
+        ['revenue_operator_approved', 'revenue_delivered_to_accountant', 'revenue_approval', 'revenue_rejection'].includes(m.category) ||
+        (m.title && (m.title.toLowerCase().includes('renda') || m.title.toLowerCase().includes('tesouraria')))
+      );
+      setRevenueMessages(filtered);
     });
 
     return () => {
@@ -156,6 +199,7 @@ export default function RevenueManagement({ user }: { user: any }) {
       unsubscribeCalls();
       unsubscribeSms();
       unsubscribeActiveFleet();
+      unsubscribeRevenueMsgs();
     };
   }, [isContabilista, isAdmin]);
 
@@ -549,7 +593,7 @@ export default function RevenueManagement({ user }: { user: any }) {
       doc.setFontSize(15);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(255, 255, 255);
-      doc.text('JIS. (SU), LDA LUENA-MOXICO', 14, 16);
+      doc.text('JIS ANGOLA', 14, 16);
 
       doc.setFontSize(8.5);
       doc.setFont('helvetica', 'normal');
@@ -729,7 +773,7 @@ export default function RevenueManagement({ user }: { user: any }) {
       doc.setFontSize(7);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(100, 116, 139);
-      doc.text('Documento emitido eletronicamente pela Plataforma TaxiControl - JIS. (SU), LDA LUENA-MOXICO', 105, footerY + 6, { align: 'center' });
+      doc.text('Documento emitido eletronicamente pela Plataforma TaxiControl - JIS ANGOLA', 105, footerY + 6, { align: 'center' });
       doc.setFont('helvetica', 'normal');
       doc.text(`Autenticidade Verificada • Hash: SHA256-${Date.now().toString(36).toUpperCase()}`, 105, footerY + 11, { align: 'center' });
 
@@ -811,6 +855,26 @@ export default function RevenueManagement({ user }: { user: any }) {
 
           {/* Action Buttons in the Header Card */}
           <div className="relative z-10 flex flex-wrap items-center gap-3">
+            <button 
+              onClick={() => setIsRevenueAlertsModalOpen(true)}
+              className="px-5 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-rose-600/20 cursor-pointer relative"
+              title="Gestão de Alertas Críticos da Tesouraria"
+            >
+              <Bell size={16} />
+              Alertas da Tesouraria
+              {revenueMessages.length > 0 && (
+                <span className="px-2 py-0.5 bg-white text-rose-600 font-black rounded-full text-[9px] animate-pulse">
+                  {revenueMessages.length}
+                </span>
+              )}
+            </button>
+            <button 
+              onClick={() => handleOpenAnalysis('all')}
+              className="px-5 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-amber-500/20 cursor-pointer"
+            >
+              <BarChart3 size={16} />
+              Análise de Receitas & Custos
+            </button>
             <button 
               onClick={() => setIsManualDeclareOpen(true)}
               className="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-emerald-600/20 cursor-pointer"
@@ -984,6 +1048,13 @@ export default function RevenueManagement({ user }: { user: any }) {
                         <div>
                           <p className="text-sm font-black text-slate-900 uppercase tracking-tight">{rev.driverName}</p>
                           <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">{rev.prefix} • <span className="italic">{rev.date}</span></p>
+                          <button
+                            onClick={() => handleOpenAnalysis(rev.driverId)}
+                            className="mt-1.5 px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-all border border-amber-500/20 cursor-pointer"
+                          >
+                            <BarChart3 size={12} />
+                            Análise de Receitas & Custos
+                          </button>
                         </div>
                       </div>
                     </td>
@@ -1306,7 +1377,7 @@ export default function RevenueManagement({ user }: { user: any }) {
                   </div>
                   <div>
                     <h3 className="text-2xl font-black uppercase italic tracking-tight">Declaração Manual de Renda</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Lançamento Administrativo Directo (JIS. SU)</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Lançamento Administrativo Directo (JIS ANGOLA)</p>
                   </div>
                 </div>
                 <button 
@@ -1502,6 +1573,120 @@ export default function RevenueManagement({ user }: { user: any }) {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Driver Revenue & Cost Analysis Modal */}
+      <DriverRevenueAnalysisModal
+        isOpen={isAnalysisModalOpen}
+        onClose={() => setIsAnalysisModalOpen(false)}
+        driverId={analysisDriverId}
+        drivers={drivers}
+        revenues={revenues}
+      />
+
+      {/* Treasury Critical Alerts Management Modal */}
+      <AnimatePresence>
+        {isRevenueAlertsModalOpen && (
+          <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[2.5rem] p-8 max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-6 border-b border-slate-100">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-rose-100 text-rose-600 rounded-2xl shadow-sm">
+                    <ShieldAlert size={28} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tight">
+                      Alertas Críticos da Tesouraria
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">
+                      Notificações de validação e entrega de rendas na base de dados
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsRevenueAlertsModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                >
+                  <XCircle size={24} />
+                </button>
+              </div>
+
+              {revenueMessages.length > 0 && (
+                <div className="pt-4 flex justify-end">
+                  <button
+                    onClick={handleDeleteAllRevenueMessages}
+                    className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Trash2 size={14} />
+                    Eliminar Todos os Alertas da BD ({revenueMessages.length})
+                  </button>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto py-6 space-y-4 no-scrollbar">
+                {revenueMessages.length === 0 ? (
+                  <div className="text-center py-16 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                    <CheckCircle2 size={40} className="mx-auto text-emerald-500 mb-3" />
+                    <p className="text-sm font-black text-slate-700 uppercase tracking-tight">Sem Alertas Críticos Pendentes</p>
+                    <p className="text-xs text-slate-400 mt-1 font-bold">Todas as notificações da tesouraria foram liquidadas e limpas.</p>
+                  </div>
+                ) : (
+                  revenueMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className="p-5 bg-slate-50 border border-slate-200 rounded-2xl flex items-start justify-between gap-4 hover:border-slate-300 transition-all shadow-sm"
+                    >
+                      <div className="flex items-start gap-4 flex-1">
+                        <div className="p-2.5 bg-rose-600 text-white rounded-xl shadow-md mt-0.5">
+                          <Wallet size={20} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-slate-900 uppercase italic">{msg.title || 'Alerta de Tesouraria'}</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                              {msg.timestamp?.toDate ? format(msg.timestamp.toDate(), 'dd/MM/yyyy HH:mm') : (msg.timestamp || 'Agora')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 font-medium leading-relaxed mt-1">
+                            {msg.content}
+                          </p>
+                          {msg.prefix && (
+                            <span className="inline-block mt-2 px-2.5 py-0.5 bg-slate-200 text-slate-800 rounded-md text-[9px] font-black uppercase tracking-wider">
+                              Viatura: {msg.prefix}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleDeleteRevenueMessage(msg.id)}
+                        className="px-3 py-2 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all border border-rose-200 cursor-pointer shadow-sm"
+                        title="Eliminar este alerta permanentemente da base de dados"
+                      >
+                        <Trash2 size={14} />
+                        Eliminar
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setIsRevenueAlertsModalOpen(false)}
+                  className="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-black transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

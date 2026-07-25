@@ -49,15 +49,17 @@ import WaitingTimer from './WaitingTimer';
 import { cn } from '../lib/utils';
 import RealTimeMap from './RealTimeMap';
 import GPSTimeline from './GPSTimeline';
+import ShiftMonitor from './ShiftMonitor';
 
-type MonitorTab = 'psm' | 'unitel' | 'map' | 'gps_timeline' | 'sos';
+type MonitorTab = 'psm' | 'unitel' | 'shifts' | 'map' | 'gps_timeline' | 'sos';
 
 interface RealTimeMonitorProps {
   user?: any;
+  initialSubTab?: MonitorTab;
 }
 
-export default function RealTimeMonitor({ user }: RealTimeMonitorProps) {
-  const [activeSubTab, setActiveSubTab] = useState<MonitorTab>('psm');
+export default function RealTimeMonitor({ user, initialSubTab }: RealTimeMonitorProps) {
+  const [activeSubTab, setActiveSubTab] = useState<MonitorTab>(initialSubTab || 'psm');
   const [calls, setCalls] = useState<any[]>([]);
   const [smsLogs, setSmsLogs] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
@@ -88,6 +90,7 @@ export default function RealTimeMonitor({ user }: RealTimeMonitorProps) {
     const tabsList = [
       { id: 'psm', roles: ['admin', 'operator', 'mecanico'] },
       { id: 'unitel', roles: ['admin', 'operator', 'mecanico'] },
+      { id: 'shifts', roles: ['admin', 'operator', 'mecanico'] },
       { id: 'map', roles: ['admin', 'operator', 'mecanico', 'contabilista'] },
       { id: 'gps_timeline', roles: ['admin', 'operator'] },
       { id: 'sos', roles: ['admin', 'operator'] },
@@ -408,6 +411,7 @@ export default function RealTimeMonitor({ user }: RealTimeMonitorProps) {
              {[
                { id: 'psm', label: 'Histórico PSM COMERCIAL', icon: Phone, color: 'bg-brand-primary', roles: ['admin', 'operator', 'mecanico'] },
                { id: 'unitel', label: 'Monitoria Taxicontrol', icon: Wifi, color: 'bg-amber-500', roles: ['admin', 'operator', 'mecanico'] },
+               { id: 'shifts', label: 'Monitoria de Turnos', icon: Clock, color: 'bg-blue-600', roles: ['admin', 'operator', 'mecanico'] },
                { id: 'map', label: 'Geolocalização Live', icon: MapIcon, color: 'bg-indigo-600', roles: ['admin', 'operator', 'mecanico', 'contabilista'] },
                { id: 'gps_timeline', label: 'Auditoria GPS', icon: HistoryIcon, color: 'bg-teal-600', roles: ['admin', 'operator'] },
                { id: 'sos', label: 'Gestão de S.O.S 🚨', icon: ShieldAlert, color: 'bg-rose-700', roles: ['admin', 'operator'] },
@@ -640,6 +644,18 @@ export default function RealTimeMonitor({ user }: RealTimeMonitorProps) {
                    </div>
                 )}
               </div>
+            </motion.div>
+          )}
+
+          {activeSubTab === 'shifts' && (
+            <motion.div 
+              key="shifts"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-full flex flex-col"
+            >
+              <ShiftMonitor user={user} />
             </motion.div>
           )}
 

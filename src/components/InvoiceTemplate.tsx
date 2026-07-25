@@ -38,7 +38,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({ data, document
       } else {
         setActiveTenantData({
           id: tenantId,
-          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS. (SU), LDA LUENA-MOXICO',
+          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS ANGOLA',
           phone: '+244 921 277 223',
           address: 'Bairro Social Da Juventude, Luena-Moxico',
         });

@@ -648,7 +648,7 @@ export default function DriverAppConfig({ tenantId, tenantName = "SUPER Taxi" }:
                   </div>
                   <div>
                     <h5 className="text-[9px] font-black uppercase tracking-wider text-slate-500">Olá João Driver</h5>
-                    <p className="text-[8px] font-bold text-slate-400">JIS. (SU), LDA • Luena</p>
+                    <p className="text-[8px] font-bold text-slate-400">JIS ANGOLA</p>
                   </div>
                 </div>
                 <p className="text-[9px] font-black italic text-slate-650 dark:text-slate-350 leading-normal mt-1 border-t border-white/5 pt-1.5">

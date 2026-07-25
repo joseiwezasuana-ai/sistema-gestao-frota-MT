@@ -226,7 +226,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       } else {
         setActiveTenantData({
           id: tenantId,
-          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS. (SU), LDA LUENA-MOXICO',
+          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS ANGOLA',
           phone: '+244 921 277 223',
           address: 'Bairro Social Da Juventude, Luena-Moxico',
         });
@@ -512,7 +512,7 @@ export default function AccountingManager({ user }: { user?: any }) {
       cleanPhone = '244' + cleanPhone;
     }
     
-    const companyTitle = activeTenantData?.name.toUpperCase() || "JIS. (SU), LDA";
+    const companyTitle = activeTenantData?.name.toUpperCase() || "JIS ANGOLA";
     const message = `*BILHETE DE SALÁRIO - ${companyTitle}*\n\n` +
       `Olá *${data.name}*,\n` +
       `O seu bilhete de salário referente a *${month}* já está disponível.\n\n` +

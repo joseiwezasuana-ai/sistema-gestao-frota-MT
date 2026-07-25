@@ -37,9 +37,10 @@ import { cn } from '../lib/utils';
 
 import { geminiService } from '../services/geminiService';
 import ShiftScheduler from './ShiftScheduler';
+import ShiftMonitor from './ShiftMonitor';
 
 export default function FleetManagement({ user }: { user?: any }) {
-  const [activeSubTab, setActiveSubTab] = useState<'fleet' | 'scheduler'>('fleet');
+  const [activeSubTab, setActiveSubTab] = useState<'fleet' | 'scheduler' | 'shift_monitor'>('fleet');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -514,6 +515,18 @@ export default function FleetManagement({ user }: { user?: any }) {
         >
           <Calendar size={14} />
           Escalas & Planeamento
+        </button>
+        <button
+          onClick={() => setActiveSubTab('shift_monitor')}
+          className={cn(
+            "flex items-center gap-2 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all",
+            activeSubTab === 'shift_monitor' 
+              ? "bg-amber-500 text-slate-950 shadow-sm" 
+              : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+          )}
+        >
+          <Clock size={14} />
+          Monitoria de Turnos
         </button>
       </div>
 
@@ -1403,7 +1416,7 @@ export default function FleetManagement({ user }: { user?: any }) {
         </div>
       </div>
     </motion.div>
-    ) : (
+    ) : activeSubTab === 'scheduler' ? (
       <motion.div
         key="scheduler"
         initial={{ opacity: 0, y: 10 }}
@@ -1412,6 +1425,16 @@ export default function FleetManagement({ user }: { user?: any }) {
         className="animate-in fade-in duration-500"
       >
         <ShiftScheduler user={user} />
+      </motion.div>
+    ) : (
+      <motion.div
+        key="shift_monitor"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className="animate-in fade-in duration-500"
+      >
+        <ShiftMonitor user={user} />
       </motion.div>
     )}
   </AnimatePresence>

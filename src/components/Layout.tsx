@@ -28,6 +28,10 @@ import {
   Sun,
   Moon,
   AlertTriangle,
+  Clock,
+  ShieldAlert,
+  Terminal,
+  CheckCircle2,
   X,
   Building,
   MoreHorizontal,
@@ -145,6 +149,7 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
   const adminMenuItems = [
     { id: 'baileys_gateway', label: 'Gateway Baileys', icon: MessageCircle, roles: ['admin', 'operator'] },
     { id: 'call_sms_dossier', label: 'Dossiê Comunicações', icon: FileText, roles: ['admin', 'operator'] },
+    { id: 'system_logs', label: 'Logs de Erros (Admin)', icon: ShieldAlert, roles: ['admin'] },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon, roles: ['admin'] },
     { id: 'manual', label: 'Manual & Guia', icon: BookOpen, roles: ['admin', 'operator', 'contabilista', 'mecanico'] },
   ];

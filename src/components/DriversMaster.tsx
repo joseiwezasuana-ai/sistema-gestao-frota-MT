@@ -305,7 +305,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
         </head>
         <body>
           <div class="header">
-            <h1>${activeTenantData?.name.toUpperCase() || "JIS. (SU), LDA LUENA-MOXICO"}</h1>
+            <h1>${activeTenantData?.name.toUpperCase() || "JIS ANGOLA"}</h1>
             <p>RELATÓRIO CONSOLIDADO DE PERFORMANCE OPERACIONAL</p>
           </div>
           
@@ -382,7 +382,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
 
           <div class="footer">
             <p>Este relatório foi gerado automaticamente pelo Sistema de Gestão de Frota TaxiControl em ${new Date().toLocaleString('pt-PT')}.</p>
-            <p>${activeTenantData?.name || "JIS. (SU), LDA LUENA-MOXICO"} - Todos os direitos reservados.</p>
+            <p>${activeTenantData?.name || "JIS ANGOLA"} - Todos os direitos reservados.</p>
           </div>
 
           <script>
@@ -406,7 +406,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
     
     doc.setFontSize(20);
     doc.setTextColor(15, 23, 42); 
-    doc.text(activeTenantData?.name.toUpperCase() || "JIS. (SU), LDA LUENA-MOXICO", 14, 20);
+    doc.text(activeTenantData?.name.toUpperCase() || "JIS ANGOLA", 14, 20);
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139); 
     doc.text("SISTEMA DE GESTÃO DE FROTA TAXICONTROL • RELATÓRIO DO MOTORISTA", 14, 25);
@@ -513,7 +513,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
       } else {
         setActiveTenantData({
           id: tenantId,
-          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS. (SU), LDA LUENA-MOXICO',
+          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS ANGOLA',
           phone: '+244 921 277 223',
           address: 'Bairro Social Da Juventude, Luena-Moxico',
         });
@@ -1074,7 +1074,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
 
       <AnimatePresence>
         {isAccidentModalOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1211,7 +1211,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
 
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1320,7 +1320,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
         )}
 
         {selectedDriverForReport && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1445,7 +1445,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
                 </div>
                 
                 <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest hidden md:block">
-                  {activeTenantData?.name || "JIS. (SU), LDA LUENA-MOXICO"}
+                  {activeTenantData?.name || "JIS ANGOLA"}
                 </div>
               </div>
 

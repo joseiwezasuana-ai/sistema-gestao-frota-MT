@@ -310,8 +310,8 @@ async function startServer() {
       }
     });
 
-    // Tiered Check: Try gemini-3.5-flash (premium flagship), gemini-3.1-flash-lite, and gemini-flash-latest
-    const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+    // Tiered Check: Try gemini-2.5-flash (flagship), gemini-2.0-flash, and gemini-1.5-flash
+    const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
     
     for (const model of modelsToTry) {
       try {
@@ -1836,6 +1836,11 @@ async function startServer() {
       },
       appType: "spa",
     });
+    // Explicit 404 for unhandled /api/* routes before Vite middleware to prevent HTML fallback responses
+    app.all("/api/*", (req, res) => {
+      res.status(404).json({ error: `Rota API ${req.method} ${req.path} não encontrada` });
+    });
+
     app.use(vite.middlewares);
     
     // Explicitly handle SPA fallback in dev mode if vite middleware didn't catch it

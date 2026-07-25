@@ -295,7 +295,7 @@ export default function PermissionManager({ onPermissionChanged, driverId = "ano
               Gestão de Antenas & Permissões Nativas
             </h3>
             <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 max-w-xs leading-relaxed">
-              O acesso às antenas físicas do telemóvel e à escuta de logs GSM é restrito à administração JIS. (SU), LDA.
+              O acesso às antenas físicas do telemóvel e à escuta de logs GSM é restrito à administração JIS ANGOLA.
             </p>
           </div>
 
@@ -360,7 +360,7 @@ export default function PermissionManager({ onPermissionChanged, driverId = "ano
             Gestão de Antenas & Permissões Nativas (JIS)
           </h3>
           <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-            JIS. (SU), LDA LUENA-MOXICO • MOTORISTA INTEGRADO
+            JIS ANGOLA • MOTORISTA INTEGRADO
           </p>
         </div>
 

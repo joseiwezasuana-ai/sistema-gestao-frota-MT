@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
+import { logSystemError } from '../lib/errorLogger';
 
 interface Props {
   children?: ReactNode;
@@ -24,6 +25,12 @@ export default class SystemErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error caught by SystemErrorBoundary:", error, errorInfo);
+    logSystemError({
+      message: error?.message || "Erro no Renderizador de Componentes React",
+      stack: error?.stack || "",
+      componentStack: errorInfo?.componentStack || "",
+      severity: "critical"
+    }).catch(() => {});
   }
 
   private handleReset = () => {

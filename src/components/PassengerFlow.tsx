@@ -6,10 +6,12 @@ import {
   Car, MapPin, Phone, User, Camera, Sun, Moon, Sparkles, ShieldCheck, 
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
-  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download
+  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
+  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle
 } from 'lucide-react';
 import { PWAInstallModal } from './PWAInstallBanner';
-import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion } from '../lib/firebase';
+import { WebRTCAudioCall } from './WebRTCAudioCall';
+import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion, limit, deleteDoc } from '../lib/firebase';
 import { requestPassengerFcmToken, listenToFcmForegroundMessages } from '../lib/fcmService';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -602,12 +604,17 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [showQrModal, setShowQrModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   
-  // Custom states for complaint submission
+  // Custom states for complaint submission and tracking
   const [complaintType, setComplaintType] = useState('excesso_velocidade');
   const [complaintText, setComplaintText] = useState('');
   const [complaintVehicle, setComplaintVehicle] = useState('');
   const [isSubmittingComplaint, setIsSubmittingComplaint] = useState(false);
   const [complaintSuccessMsg, setComplaintSuccessMsg] = useState('');
+  const [complaintModalTab, setComplaintModalTab] = useState<'my_complaints' | 'new_complaint'>('my_complaints');
+  const [passengerComplaints, setPassengerComplaints] = useState<any[]>([]);
+  const [satisfactionComments, setSatisfactionComments] = useState<Record<string, string>>({});
+  const [submittingSatisfactionId, setSubmittingSatisfactionId] = useState<string | null>(null);
+  const [editingSatisfactionId, setEditingSatisfactionId] = useState<string | null>(null);
 
   const [pickup, setPickup] = useState('');
   const [destination, setDestination] = useState('');
@@ -1252,6 +1259,80 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
     });
     return () => unsub();
   }, [passengerProfile]);
+
+  // Sync passenger complaints in real-time
+  useEffect(() => {
+    if (!passengerProfile?.name && !passengerProfile?.backupPhone) return;
+    const qComplaints = query(collection(db, 'complaints'), limit(100));
+    const unsub = onSnapshot(qComplaints, (snap) => {
+      const pName = (passengerProfile?.name || '').toLowerCase().trim();
+      const pPhone = (passengerProfile?.backupPhone || passengerProfile?.phone || '').replace(/[^0-9]/g, '');
+
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((c: any) => {
+          const cName = (c.passengerName || '').toLowerCase().trim();
+          const cPhone = (c.passengerPhone || '').replace(/[^0-9]/g, '');
+          
+          const isMyComplaint = (pName && cName && cName === pName) || (pPhone && cPhone && pPhone === cPhone);
+          if (!isMyComplaint) return false;
+
+          // REGRA 1: Avaliações com satisfação "satisfeito" desaparecem na mesma hora (imediatamente)
+          if (c.satisfaction === 'satisfied') {
+            return false;
+          }
+
+          // REGRA 2: Reclamações resolvidas desaparecem para o passageiro após 48 horas
+          if (c.status === 'resolved') {
+            const resolvedTime = c.resolvedAt?.seconds 
+              ? c.resolvedAt.seconds * 1000 
+              : (c.updatedAt?.seconds 
+                ? c.updatedAt.seconds * 1000 
+                : (c.satisfactionTimestamp?.seconds
+                  ? c.satisfactionTimestamp.seconds * 1000
+                  : (c.timestamp ? new Date(c.timestamp).getTime() : 0)));
+
+            if (resolvedTime > 0) {
+              const hoursPassed = (Date.now() - resolvedTime) / (1000 * 60 * 60);
+              if (hoursPassed >= 48) {
+                return false;
+              }
+            }
+          }
+
+          return true;
+        });
+
+      list.sort((a: any, b: any) => {
+        const tA = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+        const tB = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+        return tB - tA;
+      });
+
+      setPassengerComplaints(list);
+    }, (err) => console.error("Error fetching passenger complaints:", err));
+
+    return () => unsub();
+  }, [passengerProfile]);
+
+  const handleSatisfactionSubmit = async (complaintId: string, satisfaction: 'satisfied' | 'unsatisfied') => {
+    setSubmittingSatisfactionId(complaintId);
+    try {
+      const comment = satisfactionComments[complaintId] || '';
+      await updateDoc(doc(db, 'complaints', complaintId), {
+        satisfaction,
+        satisfactionComment: comment,
+        satisfactionTimestamp: new Date(),
+        updatedByPassengerAt: new Date()
+      });
+      setEditingSatisfactionId(null);
+    } catch (err) {
+      console.error("Error submitting satisfaction:", err);
+      alert("Ocorreu um erro ao registar a sua avaliação. Tente novamente.");
+    } finally {
+      setSubmittingSatisfactionId(null);
+    }
+  };
 
   // Synchronize activeRideRecord in real-time from Firestore if set
   useEffect(() => {
@@ -3456,23 +3537,15 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                     </div>
 
                     {/* Canal de Voz Ativa Dedicada Sincronizado (JIS) */}
-                    {(callState === 'connected' || callState === 'pricing' || activeRideRecord?.status === 'connected' || activeRideRecord?.status === 'pricing') && (
-                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-2xl mx-2 shrink-0 space-y-1.5 animate-pulse">
-                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest block">🎙️ Comunicação de Voz Ativa Dedicada</span>
-                        <div className="flex items-center justify-center gap-1 h-5">
-                          {[1, 2, 3, 4, 5, 4, 3, 2, 1].map((h, i) => (
-                            <div 
-                              key={i} 
-                              className="w-1 bg-emerald-400 rounded-full animate-bounce" 
-                              style={{ 
-                                height: `${h * 4}px`, 
-                                animationDelay: `${i * 100}ms`,
-                                animationDuration: '0.8s'
-                              }} 
-                            />
-                          ))}
-                        </div>
-                        <span className="text-[7.5px] text-slate-400 uppercase tracking-wider block font-bold">Canal seguro de telefonema ativado com {activeRideRecord?.driverName}</span>
+                    {(callState === 'connected' || callState === 'pricing' || activeRideRecord?.status === 'connected' || activeRideRecord?.status === 'pricing') && activeRideRecord?.id && (
+                      <div className="mx-2 shrink-0">
+                        <WebRTCAudioCall
+                          callId={activeRideRecord.id}
+                          role="passenger"
+                          callStatus={activeRideRecord.status || callState}
+                          partnerName={activeRideRecord.driverName || "Motorista SUPER TÁXI"}
+                          partnerPhone={activeRideRecord.driverPhone}
+                        />
                       </div>
                     )}
 
@@ -3915,7 +3988,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             {/* MODAL 3: RECLAMAÇÕES & PROTEÇÃO (JIS) */}
             {showComplaintsModal && (
               <div className="absolute inset-0 bg-black/85 z-[2000] flex flex-col justify-end">
-                <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[90%] overflow-y-auto no-scrollbar">
+                <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[92%] overflow-y-auto no-scrollbar">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
                       <AlertCircle size={14} className="text-rose-500" />
@@ -3933,130 +4006,403 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                     </button>
                   </div>
 
-                  {complaintSuccessMsg ? (
-                    <div className="space-y-4 py-6 text-center">
-                      <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto">
-                        <Check size={24} />
-                      </div>
-                      <h4 className="text-xs font-black uppercase tracking-wider text-emerald-400">Reclamação Submetida</h4>
-                      <p className="text-[10px] text-slate-300 leading-relaxed uppercase font-bold max-w-sm mx-auto">
-                        {complaintSuccessMsg}
-                      </p>
-                      <button
-                        onClick={() => {
-                          setShowComplaintsModal(false);
-                          setComplaintText('');
-                          setComplaintSuccessMsg('');
-                        }}
-                        className={`w-full py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest ${currentTheme.btnClass}`}
-                      >
-                        Entendido
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-4 text-xs">
-                      <p className="text-[9.5px] text-slate-400 font-bold uppercase tracking-tight">
-                        José Iweza Suana (**JIS**), utilize esta área para reportar qualquer má conduta ou infração operacional imediata.
-                      </p>
+                  {/* SUB-TABS: MINHAS RECLAMAÇÕES vs NOVA RECLAMAÇÃO */}
+                  <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-white/10">
+                    <button
+                      onClick={() => setComplaintModalTab('my_complaints')}
+                      className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                        complaintModalTab === 'my_complaints'
+                          ? 'bg-brand-primary text-white shadow-md'
+                          : 'text-slate-400 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <span>Minhas Reclamações</span>
+                      {passengerComplaints.length > 0 && (
+                        <span className={`px-1.5 py-0.2 rounded-full text-[8.5px] font-black ${
+                          complaintModalTab === 'my_complaints' ? 'bg-white/20 text-white' : 'bg-rose-500/20 text-rose-400'
+                        }`}>
+                          {passengerComplaints.length}
+                        </span>
+                      )}
+                    </button>
 
-                      <div className="space-y-1.5">
-                        <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Tipo de Ocorrência</label>
-                        <select
-                          className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold"
-                          value={complaintType}
-                          onChange={e => setComplaintType(e.target.value)}
-                        >
-                          <option value="excesso_velocidade">Excesso de Velocidade (&gt;80km/h)</option>
-                          <option value="mau_atendimento">Conduta Inadequada / Mau Atendimento</option>
-                          <option value="perda_objeto">Perda / Esquecimento de Objeto Pessoal</option>
-                          <option value="falta_troco">Problema com Ajuste de Preços / Falta de Troco</option>
-                          <option value="pane_viatura">Avaria / Falha Técnica do Táxi</option>
-                          <option value="eliminar_conta">Pedido de Eliminação de Conta (Proteção de Dados)</option>
-                        </select>
-                      </div>
+                    <button
+                      onClick={() => {
+                        setComplaintModalTab('new_complaint');
+                        setComplaintSuccessMsg('');
+                      }}
+                      className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                        complaintModalTab === 'new_complaint'
+                          ? 'bg-brand-primary text-white shadow-md'
+                          : 'text-slate-400 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <span>+ Nova Reclamação</span>
+                    </button>
+                  </div>
 
-                      <div className="space-y-1.5">
-                        <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Matrícula ou Viatura (Opcional)</label>
-                        <input
-                          type="text"
-                          className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold"
-                          placeholder="Ex: LD-82-41-MZ ou Viatura Prefix 12"
-                          value={complaintVehicle}
-                          onChange={e => setComplaintVehicle(e.target.value)}
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Descrição dos Factos</label>
-                        <textarea
-                          rows={3}
-                          className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold resize-none"
-                          placeholder="Fale brevemente do ocorrido. O relatório será enviado com a sua identificação (+244) e enviado ao operador JIS."
-                          value={complaintText}
-                          onChange={e => setComplaintText(e.target.value)}
-                        />
-                      </div>
-
-                      <button
-                        onClick={async () => {
-                          if (!complaintText.trim()) {
-                            alert("Por favor, descreva os factos da sua reclamação.");
-                            return;
-                          }
-                          setIsSubmittingComplaint(true);
-                          try {
-                            await addDoc(collection(db, 'complaints'), {
-                              type: complaintType,
-                              vehicle: complaintVehicle || 'Não Especificado',
-                              description: complaintText,
-                              passengerName: passengerProfile?.name || 'Anónimo',
-                              passengerPhone: passengerProfile?.backupPhone || 'N/A',
-                              timestamp: new Date(),
-                              status: 'pending'
-                            });
-                            if (complaintType === 'eliminar_conta') {
-                              setComplaintSuccessMsg("O seu pedido de eliminação de conta foi registado com sucesso. De acordo com as diretivas de privacidade, a administração de José Iweza Suana (JIS) processará a eliminação definitiva dos seus dados em até 48 horas operacionais.");
-                            } else {
-                              setComplaintSuccessMsg("A sua reclamação foi anexada com carimbo de data. A fiscalização em Luena-Moxico iniciará uma auditoria.");
-                            }
-                          } catch (err) {
-                            console.error("Error submitting complaint:", err);
-                            alert("Ocorreu um erro ao submeter. Tente novamente.");
-                          } finally {
-                            setIsSubmittingComplaint(false);
-                          }
-                        }}
-                        disabled={isSubmittingComplaint}
-                        className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 ${currentTheme.btnClass} ${isSubmittingComplaint ? 'opacity-50' : ''}`}
-                      >
-                        {isSubmittingComplaint ? <RefreshCw className="animate-spin" size={14} /> : 'Enviar Reclamação à Central'}
-                      </button>
-
-                      <div className="pt-2 border-t border-white/15 space-y-2 text-center">
-                        <p className="text-[8.5px] text-slate-500 uppercase font-black">Precisa de ajuda imediata?</p>
-                        <div className="flex flex-col gap-2">
-                          <a 
-                            href={activeWhatsappLink} 
-                            target="_blank" 
-                            referrerPolicy="no-referrer"
-                            className="w-full py-2.5 bg-[#25D366]/10 border border-[#25D366]/30 rounded-xl text-[10px] font-extrabold uppercase text-[#25D366] tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-[#25D366]/20 transition-all"
+                  {/* TAB 1: MINHAS RECLAMAÇÕES */}
+                  {complaintModalTab === 'my_complaints' && (
+                    <div className="space-y-4">
+                      {passengerComplaints.length === 0 ? (
+                        <div className="py-8 px-4 text-center space-y-3 bg-slate-950/60 rounded-2xl border border-white/5">
+                          <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
+                            <ShieldAlert size={22} />
+                          </div>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-slate-200">Sem Reclamações Registadas</h4>
+                          <p className="text-[10px] text-slate-400 leading-relaxed font-bold max-w-xs mx-auto">
+                            Se tiver alguma ocorrência (excesso de velocidade, perda de objeto, mau atendimento), registe aqui para a central de fiscalização auditá-la.
+                          </p>
+                          <button
+                            onClick={() => setComplaintModalTab('new_complaint')}
+                            className={`px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest ${currentTheme.btnClass}`}
                           >
-                            <MessageSquare size={11} /> {(activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink) ? 'Entrar no Grupo de Clientes (WhatsApp)' : 'Contactar Central Directo (WhatsApp)'}
-                          </a>
-                          {activeWhatsappGroupLink && activeWhatsappLink !== activeWhatsappGroupLink && (
-                            <a 
-                              href={activeWhatsappGroupLink} 
-                              target="_blank" 
-                              referrerPolicy="no-referrer"
-                              className="w-full py-2.5 bg-teal-500/10 border border-teal-500/30 rounded-xl text-[10px] font-extrabold uppercase text-teal-400 tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-teal-500/20 transition-all"
-                            >
-                              <MessageSquare size={11} /> Entrar no Grupo da Filial (WhatsApp)
-                            </a>
-                          )}
+                            Submeter Reclamação
+                          </button>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-wider text-slate-400 px-1">
+                            <span>Total ({passengerComplaints.length})</span>
+                            <div className="flex gap-2">
+                              <span className="text-amber-400">
+                                {passengerComplaints.filter(c => c.status !== 'resolved').length} Pendentes
+                              </span>
+                              <span className="text-emerald-400">
+                                {passengerComplaints.filter(c => c.status === 'resolved').length} Resolvidas
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3 max-h-[380px] overflow-y-auto no-scrollbar pr-0.5">
+                            {passengerComplaints.map((item) => {
+                              const isResolved = item.status === 'resolved';
+                              const dateStr = item.createdAt?.seconds 
+                                ? new Date(item.createdAt.seconds * 1000).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                : (item.timestamp ? new Date(item.timestamp).toLocaleString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recente');
+
+                              const getTypeLabel = (t: string) => {
+                                switch(t) {
+                                  case 'excesso_velocidade': return 'Excesso de Velocidade (>80km/h)';
+                                  case 'mau_atendimento': return 'Conduta Inadequada / Mau Atendimento';
+                                  case 'perda_objeto': return 'Perda de Objeto Pessoal';
+                                  case 'falta_troco': return 'Problema de Preço / Troco';
+                                  case 'pane_viatura': return 'Avaria / Falha Técnica';
+                                  case 'eliminar_conta': return 'Eliminar Conta / Dados';
+                                  default: return t ? t.replace('_', ' ').toUpperCase() : 'Reclamação Operacional';
+                                }
+                              };
+
+                              return (
+                                <div 
+                                  key={item.id}
+                                  className={`p-3.5 rounded-2xl border space-y-3 transition-all ${
+                                    isResolved
+                                      ? 'bg-slate-950/80 border-emerald-500/30'
+                                      : 'bg-slate-950/80 border-amber-500/30'
+                                  }`}
+                                >
+                                  {/* Header Item */}
+                                  <div className="flex items-start justify-between gap-2 border-b border-white/5 pb-2">
+                                    <div className="space-y-1">
+                                      <span className="px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider bg-slate-800 text-slate-200 border border-white/10 inline-block">
+                                        {getTypeLabel(item.type)}
+                                      </span>
+                                      <p className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-tight">
+                                        Viatura: <span className="text-white">{item.vehicle || 'Não especificada'}</span>
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <span className="text-[8.5px] font-bold text-slate-400">
+                                        {dateStr}
+                                      </span>
+                                      <button
+                                        onClick={async () => {
+                                          if (confirm("Tem certeza de que deseja eliminar esta reclamação do seu histórico?")) {
+                                            try {
+                                              await deleteDoc(doc(db, 'complaints', item.id));
+                                              setPassengerComplaints(prev => prev.filter(c => c.id !== item.id));
+                                            } catch (err) {
+                                              console.error("Erro ao eliminar reclamação:", err);
+                                              alert("Não foi possível eliminar a reclamação.");
+                                            }
+                                          }
+                                        }}
+                                        className="w-6 h-6 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/20 flex items-center justify-center transition-all shrink-0 ml-1 active:scale-90"
+                                        title="Eliminar reclamação do histórico"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Description */}
+                                  <p className="text-[10.5px] font-medium text-slate-300 leading-relaxed bg-slate-900/60 p-2.5 rounded-xl border border-white/5 whitespace-pre-wrap">
+                                    "{item.description}"
+                                  </p>
+
+                                  {/* Status Banner */}
+                                  <div className="pt-0.5">
+                                    {!isResolved ? (
+                                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2 text-amber-400">
+                                        <Clock size={14} className="shrink-0 mt-0.5 animate-pulse" />
+                                        <div className="space-y-0.5">
+                                          <p className="text-[9.5px] font-black uppercase tracking-wider m-0">
+                                            PENDENTE • Em Análise na Central JIS
+                                          </p>
+                                          <p className="text-[8.5px] text-amber-300/80 font-bold leading-tight m-0">
+                                            A fiscalização em Luena-Moxico está a auditar este caso. Receberá atualizações aqui.
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2.5">
+                                        <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-start gap-2 text-emerald-400">
+                                          <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
+                                          <div className="space-y-0.5">
+                                            <p className="text-[9.5px] font-black uppercase tracking-wider m-0">
+                                              RESOLVIDO • Concluído pela Central JIS
+                                            </p>
+                                            <p className="text-[8.5px] text-emerald-300/80 font-bold leading-tight m-0">
+                                              {item.resolvedBy ? `Tratado por: ${item.resolvedBy}` : 'Atendido e resolvido pelo departamento de operações.'}
+                                            </p>
+                                          </div>
+                                        </div>
+
+                                        {/* SATISFACTION FEEDBACK SECTION */}
+                                        {item.satisfaction && editingSatisfactionId !== item.id ? (
+                                          <div className="space-y-2">
+                                            <div className="p-2.5 rounded-xl bg-slate-900 border border-white/10 flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                              {item.satisfaction === 'satisfied' ? (
+                                                <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                                                  <ThumbsUp size={12} />
+                                                </div>
+                                              ) : (
+                                                <div className="w-6 h-6 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                                                  <ThumbsDown size={12} />
+                                                </div>
+                                              )}
+                                              <div>
+                                                <p className="text-[9px] font-black uppercase tracking-wider text-white m-0">
+                                                  Satisfação: {item.satisfaction === 'satisfied' ? '😊 Satisfeito com o atendimento' : '🙁 Insatisfeito com a resolução'}
+                                                </p>
+                                                {item.satisfactionComment && (
+                                                  <p className="text-[8.5px] text-slate-400 font-bold m-0 italic">
+                                                    "{item.satisfactionComment}"
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <button
+                                              onClick={() => {
+                                                setEditingSatisfactionId(item.id);
+                                                setSatisfactionComments({ ...satisfactionComments, [item.id]: item.satisfactionComment || '' });
+                                              }}
+                                              className="text-[8px] font-black uppercase text-slate-400 hover:text-white underline shrink-0"
+                                            >
+                                              Alterar
+                                            </button>
+                                          </div>
+
+                                          {item.satisfaction === 'unsatisfied' && (
+                                            <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 space-y-2 text-rose-200 mt-2">
+                                              <div className="flex items-center gap-2">
+                                                <AlertCircle size={15} className="text-rose-400 shrink-0 animate-pulse" />
+                                                <p className="text-[9.5px] font-black uppercase tracking-wider text-rose-300 m-0">
+                                                  Contacte a Central JIS Improrrogavelmente
+                                                </p>
+                                              </div>
+                                              <p className="text-[8.5px] font-bold text-slate-300 leading-tight m-0">
+                                                Lamentamos que a solução não tenha atendido às suas expectativas. Entre em contacto imediato com a fiscalização da Central no WhatsApp para suporte e revisão do processo.
+                                              </p>
+                                              <a
+                                                href={activeWhatsappLink}
+                                                target="_blank"
+                                                referrerPolicy="no-referrer"
+                                                className="w-full py-2 bg-[#25D366] hover:bg-[#20ba5a] text-slate-950 font-black text-[9.5px] uppercase tracking-wider rounded-lg flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95"
+                                              >
+                                                <MessageSquare size={13} /> Contactar Central no WhatsApp Agora
+                                              </a>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                          <div className="p-3 bg-slate-900 rounded-xl border border-white/10 space-y-2">
+                                            <p className="text-[9px] font-black uppercase tracking-wider text-slate-200">
+                                              Ficou satisfeito com a resolução desta reclamação?
+                                            </p>
+
+                                            <input
+                                              type="text"
+                                              className="w-full p-2 bg-slate-950 border border-white/10 rounded-lg text-[9px] text-white placeholder-slate-500 outline-none focus:border-emerald-500 font-bold"
+                                              placeholder="Deixe um comentário curto (opcional)..."
+                                              value={satisfactionComments[item.id] || ''}
+                                              onChange={e => setSatisfactionComments({ ...satisfactionComments, [item.id]: e.target.value })}
+                                            />
+
+                                            <div className="flex items-center gap-2 pt-1">
+                                              <button
+                                                onClick={() => handleSatisfactionSubmit(item.id, 'satisfied')}
+                                                disabled={submittingSatisfactionId === item.id}
+                                                className="flex-1 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-400 rounded-lg font-black text-[9px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all"
+                                              >
+                                                <ThumbsUp size={11} /> Satisfeito 😊
+                                              </button>
+
+                                              <button
+                                                onClick={() => handleSatisfactionSubmit(item.id, 'unsatisfied')}
+                                                disabled={submittingSatisfactionId === item.id}
+                                                className="flex-1 py-2 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-400 rounded-lg font-black text-[9px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all"
+                                              >
+                                                <ThumbsDown size={11} /> Insatisfeito 🙁
+                                              </button>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {/* TAB 2: NOVA RECLAMAÇÃO */}
+                  {complaintModalTab === 'new_complaint' && (
+                    <div>
+                      {complaintSuccessMsg ? (
+                        <div className="space-y-4 py-6 text-center">
+                          <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto">
+                            <Check size={24} />
+                          </div>
+                          <h4 className="text-xs font-black uppercase tracking-wider text-emerald-400">Reclamação Submetida</h4>
+                          <p className="text-[10px] text-slate-300 leading-relaxed uppercase font-bold max-w-sm mx-auto">
+                            {complaintSuccessMsg}
+                          </p>
+                          <button
+                            onClick={() => {
+                              setComplaintModalTab('my_complaints');
+                              setComplaintText('');
+                              setComplaintSuccessMsg('');
+                            }}
+                            className={`w-full py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest ${currentTheme.btnClass}`}
+                          >
+                            Ver nas Minhas Reclamações
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4 text-xs">
+                          <p className="text-[9.5px] text-slate-400 font-bold uppercase tracking-tight">
+                            {passengerProfile?.name ? <strong className="text-white">{passengerProfile.name}</strong> : 'Estimado(a) Passageiro(a)'}, utilize esta área para reportar qualquer má conduta ou infração operacional à central de fiscalização TaxiControl (JIS ANGOLA).
+                          </p>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Tipo de Ocorrência</label>
+                            <select
+                              className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold"
+                              value={complaintType}
+                              onChange={e => setComplaintType(e.target.value)}
+                            >
+                              <option value="excesso_velocidade">Excesso de Velocidade (&gt;80km/h)</option>
+                              <option value="mau_atendimento">Conduta Inadequada / Mau Atendimento</option>
+                              <option value="perda_objeto">Perda / Esquecimento de Objeto Pessoal</option>
+                              <option value="falta_troco">Problema com Ajuste de Preços / Falta de Troco</option>
+                              <option value="pane_viatura">Avaria / Falha Técnica do Táxi</option>
+                              <option value="eliminar_conta">Pedido de Eliminação de Conta (Proteção de Dados)</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Matrícula ou Viatura (Opcional)</label>
+                            <input
+                              type="text"
+                              className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold"
+                              placeholder="Ex: LD-82-41-MZ ou Viatura Prefix 12"
+                              value={complaintVehicle}
+                              onChange={e => setComplaintVehicle(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Descrição dos Factos</label>
+                            <textarea
+                              rows={3}
+                              className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold resize-none"
+                              placeholder="Fale brevemente do ocorrido. O relatório será enviado com a sua identificação (+244) e enviado ao operador JIS."
+                              value={complaintText}
+                              onChange={e => setComplaintText(e.target.value)}
+                            />
+                          </div>
+
+                          <button
+                            onClick={async () => {
+                              if (!complaintText.trim()) {
+                                alert("Por favor, descreva os factos da sua reclamação.");
+                                return;
+                              }
+                              setIsSubmittingComplaint(true);
+                              try {
+                                await addDoc(collection(db, 'complaints'), {
+                                  type: complaintType,
+                                  vehicle: complaintVehicle || 'Não Especificado',
+                                  description: complaintText,
+                                  passengerName: passengerProfile?.name || 'Anónimo',
+                                  passengerPhone: passengerProfile?.backupPhone || passengerProfile?.phone || 'N/A',
+                                  source: 'app_passageiro',
+                                  timestamp: new Date(),
+                                  createdAt: new Date(),
+                                  status: 'pending'
+                                });
+                                if (complaintType === 'eliminar_conta') {
+                                  setComplaintSuccessMsg("O seu pedido de eliminação de conta foi registado com sucesso. De acordo com as diretivas de privacidade, a administração de José Iweza Suana (JIS) processará a eliminação definitiva dos seus dados em até 48 horas operacionais.");
+                                } else {
+                                  setComplaintSuccessMsg("A sua reclamação foi registada com sucesso. A fiscalização em Luena-Moxico iniciará uma auditoria.");
+                                }
+                              } catch (err) {
+                                console.error("Error submitting complaint:", err);
+                                alert("Ocorreu um erro ao submeter. Tente novamente.");
+                              } finally {
+                                setIsSubmittingComplaint(false);
+                              }
+                            }}
+                            disabled={isSubmittingComplaint}
+                            className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 ${currentTheme.btnClass} ${isSubmittingComplaint ? 'opacity-50' : ''}`}
+                          >
+                            {isSubmittingComplaint ? <RefreshCw className="animate-spin" size={14} /> : 'Enviar Reclamação à Central'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-white/15 space-y-2 text-center">
+                    <p className="text-[8.5px] text-slate-500 uppercase font-black">Precisa de ajuda imediata?</p>
+                    <div className="flex flex-col gap-2">
+                      <a 
+                        href={activeWhatsappLink} 
+                        target="_blank" 
+                        referrerPolicy="no-referrer"
+                        className="w-full py-2.5 bg-[#25D366]/10 border border-[#25D366]/30 rounded-xl text-[10px] font-extrabold uppercase text-[#25D366] tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-[#25D366]/20 transition-all"
+                      >
+                        <MessageSquare size={11} /> {(activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink) ? 'Entrar no Grupo de Clientes (WhatsApp)' : 'Contactar Central Directo (WhatsApp)'}
+                      </a>
+                      {activeWhatsappGroupLink && activeWhatsappLink !== activeWhatsappGroupLink && (
+                        <a 
+                          href={activeWhatsappGroupLink} 
+                          target="_blank" 
+                          referrerPolicy="no-referrer"
+                          className="w-full py-2.5 bg-teal-500/10 border border-teal-500/30 rounded-xl text-[10px] font-extrabold uppercase text-teal-400 tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-teal-500/20 transition-all"
+                        >
+                          <MessageSquare size={11} /> Entrar no Grupo da Filial (WhatsApp)
+                        </a>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

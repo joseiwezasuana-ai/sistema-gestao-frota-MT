@@ -239,7 +239,7 @@ export default function KeyboardShortcutManager({ user, activeTab, onTabChange }
               </div>
 
               <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex items-center justify-between text-[10px]">
-                <span className="text-slate-400 uppercase font-black tracking-widest opacity-65">JIS LUENA • GESTÃO DE ATALHOS</span>
+                <span className="text-slate-400 uppercase font-black tracking-widest opacity-65">JIS ANGOLA • GESTÃO DE ATALHOS</span>
                 <span className="text-slate-500 font-mono tracking-wider">Pressione <kbd className="bg-slate-200 dark:bg-slate-850 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-800 text-[9px] font-bold">ALT</kbd> + <kbd className="bg-slate-200 dark:bg-slate-850 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-800 text-[9px] font-bold">K</kbd> para fechar</span>
               </div>
             </motion.div>

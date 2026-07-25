@@ -48,6 +48,8 @@ import UserManual from './components/UserManual';
 import CallSmsDossier from './components/CallSmsDossier';
 import PassengerFlow from './components/PassengerFlow';
 import PassengerManagement from './components/PassengerManagement';
+import SystemErrorLogs from './components/SystemErrorLogs';
+import ShiftMonitor from './components/ShiftMonitor';
 import DriverDashboard from './components/DriverDashboard';
 import KeyboardShortcutManager from './components/KeyboardShortcutManager';
 
@@ -352,7 +354,7 @@ export default function App() {
   if (configError) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner />
+        <ConnectivityBanner user={userProfile || user} />
         <div className="flex min-h-screen w-full flex-col items-center justify-center bg-slate-950 p-8 text-center text-white font-sans">
           <div className="w-20 h-20 bg-rose-500 rounded-3xl flex items-center justify-center mb-6 shadow-2xl shadow-rose-500/20">
              <AlertCircle size={40} />
@@ -384,7 +386,7 @@ export default function App() {
     const letters = "TAXICONTROL".split("");
     return (
       <ThemeProvider>
-        <ConnectivityBanner />
+        <ConnectivityBanner user={userProfile || user} />
         <div key="loading-state" className="flex h-screen w-full items-center justify-center bg-slate-950 text-white overflow-hidden relative selection:bg-amber-500 selection:text-slate-950">
           {/* Ambient background glow */}
           <div className="absolute w-96 h-96 bg-blue-600/10 rounded-full blur-3xl -top-20 -left-20 pointer-events-none" />
@@ -455,7 +457,7 @@ export default function App() {
   if (showPublicPassengerFlow) {
     return (
       <ThemeProvider>
-         <ConnectivityBanner />
+         <ConnectivityBanner user={userProfile || user} />
          <div className="h-screen h-[100dvh] relative w-full overflow-hidden bg-slate-950 flex flex-col items-center justify-center">
             <PassengerFlow isPublicApp={true} />
          </div>
@@ -470,7 +472,7 @@ export default function App() {
     };
     return (
       <ThemeProvider>
-        <ConnectivityBanner />
+        <ConnectivityBanner user={userProfile || user} />
         <Login 
           key="login-view" 
           onGoogleLogin={handleGoogleLogin} 
@@ -486,7 +488,7 @@ export default function App() {
   if (!userProfile) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner />
+        <ConnectivityBanner user={userProfile || user} />
         <ProfileSetup key="setup-view" user={user} onComplete={setUserProfile} />
       </ThemeProvider>
     );
@@ -508,7 +510,7 @@ export default function App() {
   if (shouldShowMobile && isAdminOrStaff) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner />
+        <ConnectivityBanner user={userProfile || user} />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <StaffMobileView 
@@ -525,7 +527,7 @@ export default function App() {
   if (isMecanico) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner />
+        <ConnectivityBanner user={userProfile || user} />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <MechanicView user={userProfile} />
@@ -537,7 +539,7 @@ export default function App() {
   if (isDriver) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner />
+        <ConnectivityBanner user={userProfile || user} />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
           <DriverView user={userProfile} />
@@ -548,7 +550,7 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <ConnectivityBanner />
+      <ConnectivityBanner user={userProfile || user} />
       <KeyboardShortcutManager user={userProfile} activeTab={activeTab} onTabChange={setActiveTab} />
       <div key="authed-layout" className="min-h-screen">
         <Layout 
@@ -606,6 +608,8 @@ export default function App() {
           {activeTab === 'messages' && (isAdmin || isOperator ? <Messages isAdmin={isAdmin} /> : <Dashboard user={userProfile} />)}
           {activeTab === 'call_sms_dossier' && (isAdmin || isOperator ? <CallSmsDossier /> : <Dashboard user={userProfile} />)}
           {activeTab === 'baileys_gateway' && (isAdmin || isOperator ? <WhatsAppMonitor isAdmin={isAdmin} /> : <Dashboard user={userProfile} />)}
+          {activeTab === 'system_logs' && (isAdmin ? <SystemErrorLogs user={userProfile} /> : <Dashboard user={userProfile} />)}
+          {activeTab === 'shift_monitor' && (isAdmin || isOperator || isMecanico ? <RealTimeMonitor user={userProfile} initialSubTab="shifts" /> : <Dashboard user={userProfile} />)}
         </Layout>
       </div>
     </ThemeProvider>

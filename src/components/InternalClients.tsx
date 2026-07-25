@@ -426,7 +426,7 @@ export default function InternalClients({ user }: { user?: any }) {
 
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -438,19 +438,19 @@ export default function InternalClients({ user }: { user?: any }) {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative bg-white rounded-[3rem] shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden"
+              className="relative bg-white rounded-[2rem] sm:rounded-[3rem] shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden my-auto z-10"
             >
-              <div className="px-10 py-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="px-6 py-5 sm:px-10 sm:py-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
                 <div>
-                  <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter italic">{editingContract ? 'Editar Contrato PSM' : 'Novo Contrato PSM'}</h3>
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-tighter italic">{editingContract ? 'Editar Contrato PSM' : 'Novo Contrato PSM'}</h3>
                   <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{editingContract ? 'Atualização de Rota Fixa Corporativa' : 'Registo de Rota Fixa Corporativa'}</p>
                 </div>
-                <button onClick={() => setIsModalOpen(false)} className="w-12 h-12 flex items-center justify-center bg-white rounded-2xl text-slate-400 hover:text-slate-900 shadow-sm border border-slate-100 transition-all">
+                <button onClick={() => setIsModalOpen(false)} className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center bg-white rounded-2xl text-slate-400 hover:text-slate-900 shadow-sm border border-slate-100 transition-all cursor-pointer">
                   <XCircle size={28} />
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="p-10">
+              <form onSubmit={handleSubmit} className="p-6 sm:p-10 overflow-y-auto custom-scrollbar flex-1">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-6">
                     <div className="space-y-2">

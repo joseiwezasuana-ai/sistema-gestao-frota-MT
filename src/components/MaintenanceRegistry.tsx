@@ -144,8 +144,15 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
         }),
       });
 
-      const data = await response.json();
-      setAnalysisResult(data.text || 'Não foi possível gerar análise técnica.');
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        setAnalysisResult(`ANÁLISE TÉCNICA (MODO LOCAL) • Viatura ${prefix || 'N/A'}
+• Quilometragem Registada: ${currentMileage} KM
+• Recomendação: Realizar verificação periódica aos travões, suspensão e níveis de óleo antes da próxima escala no Moxico.`);
+      } else {
+        const data = await response.json();
+        setAnalysisResult(data.text || 'Não foi possível gerar análise técnica.');
+      }
     } catch (error) {
       console.error('Error running maintenance analysis:', error);
       setAnalysisResult('Ocorreu um erro ao ligar ao motor de IA. Tente novamente.');

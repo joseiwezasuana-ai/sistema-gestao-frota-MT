@@ -16,7 +16,36 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-export const ConnectivityBanner: React.FC = () => {
+interface ConnectivityBannerProps {
+  user?: any;
+}
+
+export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ user }) => {
+  // Determine if user is authorized to view the Sync Console
+  let currentUser = user;
+  if (!currentUser && typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem('local_user_session');
+      if (stored) {
+        currentUser = JSON.parse(stored);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  const userRole = (currentUser?.role || '').toLowerCase();
+  const userEmail = (currentUser?.email || '').toLowerCase();
+
+  const isMasterAdmin = userEmail === 'joseiwezasuana@gmail.com';
+  const isAuthorizedRole = ['admin', 'gerente', 'operator', 'operador', 'central'].includes(userRole);
+
+  const canSeeSyncConsole = isMasterAdmin || isAuthorizedRole;
+
+  if (!canSeeSyncConsole) {
+    return null;
+  }
+
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showStatus, setShowStatus] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);

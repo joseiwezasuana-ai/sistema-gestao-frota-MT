@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
+  ArrowLeft,
+  ChevronRight,
   UserPlus, 
   ShieldCheck, 
   Loader2, 
@@ -61,6 +63,19 @@ const ROLES = [
 
 type SubTab = 'access' | 'drivers_master' | 'admin_staff' | 'rent_a_car' | 'internal_clients' | 'vehicles' | 'psm_phones' | 'warehouse' | 'driver_config' | 'driver_dashboard';
 
+const subTabsList = [
+  { id: 'access', label: 'Gestão de Acessos', icon: Key, roles: ['admin'], desc: 'Gerar chaves e convites de acesso' },
+  { id: 'drivers_master', label: 'Banco de Motoristas', icon: User, roles: ['admin'], desc: 'Registo master e processos de motoristas' },
+  { id: 'driver_dashboard', label: 'Estatísticas de Motoristas', icon: TrendingUp, roles: ['admin', 'operator', 'contabilista'], desc: 'Métricas e relatórios de frota' },
+  { id: 'admin_staff', label: 'Staff Administrativo', icon: Briefcase, roles: ['admin'], desc: 'Quadro e colaboradores administrativos' },
+  { id: 'driver_config', label: 'Configurar App Motorista', icon: Smartphone, roles: ['admin'], desc: 'Parâmetros da app mobile' },
+  { id: 'vehicles', label: 'Master de Viaturas', icon: Car, roles: ['admin'], desc: 'Registo e estado dos táxis' },
+  { id: 'rent_a_car', label: 'Rent-a-Car', icon: CarFront, roles: ['admin'], desc: 'Aluguer e frota de rent-a-car' },
+  { id: 'internal_clients', label: 'Clientes de Contrato', icon: UsersIcon, roles: ['admin'], desc: 'Contratos corporativos' },
+  { id: 'psm_phones', label: 'Canais de Rádio/GSM', icon: Smartphone, roles: ['admin', 'operator'], desc: 'Linhas operacionais e GSM' },
+  { id: 'warehouse', label: 'Stocks & Logística', icon: Package, roles: ['admin', 'operator', 'mecanico'], desc: 'Inventário e almoxarifado' },
+];
+
 export default function RecruitmentHub({ user }: { user?: any }) {
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente' || user?.email === 'joseiwezasuana@gmail.com';
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('access');
@@ -74,6 +89,7 @@ export default function RecruitmentHub({ user }: { user?: any }) {
   const [driversMasterCount, setDriversMasterCount] = useState(0);
   const [driversMaster, setDriversMaster] = useState<any[]>([]);
 
+  const [isSubTabModalOpen, setIsSubTabModalOpen] = useState(false);
   const [isAdminStaffModalOpen, setIsAdminStaffModalOpen] = useState(false);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [selectedUserForReset, setSelectedUserForReset] = useState<any | null>(null);
@@ -126,7 +142,20 @@ export default function RecruitmentHub({ user }: { user?: any }) {
       setDriversMasterCount(snapshot.size);
     });
 
-    return () => {
+    const subTabsList = [
+    { id: 'access', label: 'Gestão de Acessos', icon: Key, roles: ['admin'], desc: 'Gerar chaves e convites de acesso' },
+    { id: 'drivers_master', label: 'Banco de Motoristas', icon: User, roles: ['admin'], desc: 'Registo master e processos de motoristas' },
+    { id: 'driver_dashboard', label: 'Estatísticas de Motoristas', icon: TrendingUp, roles: ['admin', 'operator', 'contabilista'], desc: 'Métricas e relatórios de frota' },
+    { id: 'admin_staff', label: 'Staff Administrativo', icon: Briefcase, roles: ['admin'], desc: 'Quadro e colaboradores administrativos' },
+    { id: 'driver_config', label: 'Configurar App Motorista', icon: Smartphone, roles: ['admin'], desc: 'Parâmetros da app mobile' },
+    { id: 'vehicles', label: 'Master de Viaturas', icon: Car, roles: ['admin'], desc: 'Registo e estado dos táxis' },
+    { id: 'rent_a_car', label: 'Rent-a-Car', icon: CarFront, roles: ['admin'], desc: 'Aluguer e frota de rent-a-car' },
+    { id: 'internal_clients', label: 'Clientes de Contrato', icon: UsersIcon, roles: ['admin'], desc: 'Contratos corporativos' },
+    { id: 'psm_phones', label: 'Canais de Rádio/GSM', icon: Smartphone, roles: ['admin', 'operator'], desc: 'Linhas operacionais e GSM' },
+    { id: 'warehouse', label: 'Stocks & Logística', icon: Package, roles: ['admin', 'operator', 'mecanico'], desc: 'Inventário e almoxarifado' },
+  ];
+
+  return () => {
       unsubCodes();
       unsubUsers();
       unsubAdmin();
@@ -413,40 +442,87 @@ export default function RecruitmentHub({ user }: { user?: any }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 p-1.5 bg-white border border-slate-200 rounded-[1.5rem] w-full max-w-[1400px] shadow-sm">
-        {[
-          { id: 'access', label: 'Gestão de Acessos', icon: Key, roles: ['admin'] },
-          { id: 'drivers_master', label: 'Banco de Motoristas', icon: User, roles: ['admin'] },
-          { id: 'driver_dashboard', label: 'Estatísticas de Motoristas', icon: TrendingUp, roles: ['admin', 'operator', 'contabilista'] },
-          { id: 'admin_staff', label: 'Staff Administrativo', icon: Briefcase, roles: ['admin'] },
-          { id: 'driver_config', label: 'Configurar App Motorista', icon: Smartphone, roles: ['admin'] },
-          { id: 'vehicles', label: 'Master de Viaturas', icon: Car, roles: ['admin'] },
-          { id: 'rent_a_car', label: 'Rent-a-Car', icon: CarFront, roles: ['admin'] },
-          { id: 'internal_clients', label: 'Clientes de Contrato', icon: UsersIcon, roles: ['admin'] },
-          { id: 'psm_phones', label: 'Canais de Rádio/GSM', icon: Smartphone, roles: ['admin', 'operator'] },
-          { id: 'warehouse', label: 'Stocks & Logística', icon: Package, roles: ['admin', 'operator', 'mecanico'] },
-        ]
-        .filter(tab => {
-          if (!tab.roles) return true;
-          const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
-          if (isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente') return true;
-          return tab.roles.includes(user?.role);
-        })
-        .map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveSubTab(tab.id as any)}
-            className={cn(
-              "flex items-center gap-3 px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
-              activeSubTab === tab.id 
-                ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20" 
-                : "text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold"
-            )}
-          >
-            <tab.icon size={16} />
-            {tab.label}
-          </button>
-        ))}
+      {/* SMARTPHONE / MOBILE VIEW: CARDS DE NAVEGAÇÃO DOS MÓDULOS */}
+      <div className="md:hidden space-y-2.5">
+        <div className="flex items-center justify-between px-1">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            Módulos do Portal Staff & Recrutamento
+          </p>
+          <span className="text-[9px] font-bold uppercase text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded-full border border-brand-primary/20">
+            Toque para abrir
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {subTabsList
+            .filter(tab => {
+              if (!tab.roles) return true;
+              const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
+              if (isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente') return true;
+              return tab.roles.includes(user?.role);
+            })
+            .map((tab) => {
+              const TabIcon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveSubTab(tab.id as any);
+                    setIsSubTabModalOpen(true);
+                  }}
+                  className={cn(
+                    "flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left active:scale-[0.98] group",
+                    activeSubTab === tab.id
+                      ? "bg-slate-900 text-white border-brand-primary shadow-lg shadow-brand-primary/10"
+                      : "bg-white dark:bg-slate-900/90 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-white/10 hover:border-brand-primary"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors",
+                      activeSubTab === tab.id 
+                        ? "bg-brand-primary text-white" 
+                        : "bg-slate-100 dark:bg-slate-800 text-brand-primary group-hover:bg-brand-primary group-hover:text-white"
+                    )}>
+                      <TabIcon size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-tight italic">{tab.label}</h4>
+                      <p className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">{tab.desc}</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-slate-400 group-hover:text-brand-primary shrink-0 ml-1" />
+                </button>
+              );
+            })}
+        </div>
+      </div>
+
+      {/* DESKTOP BARRA DE ABAS */}
+      <div className="hidden md:flex flex-wrap gap-3 p-1.5 bg-white border border-slate-200 rounded-[1.5rem] w-full max-w-[1400px] shadow-sm">
+        {subTabsList
+          .filter(tab => {
+            if (!tab.roles) return true;
+            const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
+            if (isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente') return true;
+            return tab.roles.includes(user?.role);
+          })
+          .map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveSubTab(tab.id as any);
+              }}
+              className={cn(
+                "flex items-center gap-3 px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all whitespace-nowrap active:scale-95 cursor-pointer",
+                activeSubTab === tab.id 
+                  ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20 ring-2 ring-brand-primary/40" 
+                  : "text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold"
+              )}
+            >
+              <tab.icon size={16} />
+              {tab.label}
+            </button>
+          ))}
       </div>
 
       <AnimatePresence mode="wait">
@@ -810,14 +886,150 @@ export default function RecruitmentHub({ user }: { user?: any }) {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.2 }}
           >
-            <DriverAppConfig tenantId="default" tenantName="JIS. (SU), LDA LUENA-MOXICO" />
+            <DriverAppConfig tenantId="default" tenantName="JIS ANGOLA" />
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* TELA PARTICULAR / MODAL INDIVIDUAL PARA CADA ABA MÓVEL */}
+      <AnimatePresence>
+        {isSubTabModalOpen && activeSubTab && (
+          <div className="fixed inset-0 z-[150] bg-slate-950 text-slate-100 flex flex-col overflow-hidden animate-in fade-in duration-200">
+            {/* Header da Tela Particular */}
+            <header className="px-4 py-3 bg-slate-900 border-b border-white/10 flex items-center justify-between shrink-0 shadow-2xl">
+              <button
+                onClick={() => setIsSubTabModalOpen(false)}
+                className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95 border border-white/10 shrink-0 cursor-pointer"
+              >
+                <ArrowLeft size={16} className="text-brand-primary" />
+                <span className="hidden sm:inline">Voltar às Abas</span>
+                <span className="sm:hidden">Voltar</span>
+              </button>
+
+              <div className="flex items-center gap-2.5 text-center overflow-hidden px-2">
+                {(() => {
+                  const currentTabObj = subTabsList.find(t => t.id === activeSubTab);
+                  const IconComp = currentTabObj?.icon || Key;
+                  return (
+                    <>
+                      <div className="w-8 h-8 rounded-xl bg-brand-primary/20 text-brand-primary flex items-center justify-center shrink-0 border border-brand-primary/30">
+                        <IconComp size={18} />
+                      </div>
+                      <div className="text-left overflow-hidden">
+                        <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight italic text-white truncate">
+                          {currentTabObj?.label}
+                        </h3>
+                        <p className="text-[8px] font-bold uppercase text-slate-400 tracking-widest truncate hidden sm:block">
+                          Portal Staff & Recrutamento • PSM GATEWAY
+                        </p>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <button
+                onClick={() => setIsSubTabModalOpen(false)}
+                className="w-9 h-9 bg-slate-800 hover:bg-rose-500/30 text-slate-300 hover:text-rose-400 rounded-xl flex items-center justify-center transition-all active:scale-95 border border-white/10 shrink-0 cursor-pointer"
+                title="Fechar Tela"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            {/* Corpo com o Módulo Seleccionado */}
+            <main className="flex-1 overflow-y-auto p-3 sm:p-6 custom-scrollbar bg-slate-950 text-slate-100">
+              <div className="max-w-[1400px] mx-auto">
+                {activeSubTab === 'driver_dashboard' && <DriverDashboard />}
+                {activeSubTab === 'drivers_master' && <DriversMaster embedded />}
+                {activeSubTab === 'vehicles' && <VehicleRegistry user={user} />}
+                {activeSubTab === 'rent_a_car' && <RentACar user={user} />}
+                {activeSubTab === 'internal_clients' && <InternalClients user={user} />}
+                {activeSubTab === 'psm_phones' && <CompanyPhones />}
+                {activeSubTab === 'warehouse' && <WarehouseManager user={user} />}
+                {activeSubTab === 'driver_config' && <DriverAppConfig tenantId="default" tenantName="JIS ANGOLA" />}
+                {activeSubTab === 'access' && (
+                  <div className="p-4 sm:p-6 bg-slate-900 rounded-2xl border border-white/10 text-white space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white">
+                        <Key size={20} />
+                      </div>
+                      <div>
+                        <h2 className="text-sm font-black uppercase tracking-tight italic">Gestão de Acessos</h2>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Gerar chaves e convites de acesso para a equipa</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Aceda ao painel principal de Gestão de Acessos para configurar novos perfis, gerar códigos de convite e gerir a lista de utilizadores ativos na plataforma.
+                    </p>
+                  </div>
+                )}
+                {activeSubTab === 'admin_staff' && (
+                  <div className="bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-6 text-white space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-sm font-black uppercase tracking-tight italic">Staff Administrativo</h2>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Gerentes, Contabilistas, Mecânicos e Serviços Gerais</p>
+                      </div>
+                      <button 
+                        onClick={() => setIsAdminStaffModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-secondary transition-all shadow-lg"
+                      >
+                        <Plus size={14} /> Novo Colaborador
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-950 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-white/10">
+                            <th className="px-4 py-3">Nome / Identificação</th>
+                            <th className="px-4 py-3">Cargo / Função</th>
+                            <th className="px-4 py-3">Contatos</th>
+                            <th className="px-4 py-3 text-right">Acções</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {adminStaff.map(staff => (
+                            <tr key={staff.id} className="hover:bg-white/5 transition-colors">
+                              <td className="px-4 py-3 uppercase font-black text-xs italic tracking-tight text-white">{staff.name}</td>
+                              <td className="px-4 py-3">
+                                <span className="px-2.5 py-1 bg-slate-800 text-slate-300 rounded-md text-[9px] font-black uppercase tracking-widest">
+                                  {staff.role}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <p className="text-[10px] font-black text-slate-200">{staff.phone}</p>
+                                <p className="text-[9px] text-slate-400 font-bold">{staff.email}</p>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button onClick={() => deleteStaff(staff.id)} className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all">
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {adminStaff.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="py-12 text-center text-slate-400">
+                                <Briefcase size={32} className="mx-auto mb-2 text-slate-600" />
+                                <p className="text-xs font-black uppercase tracking-widest">Nenhum staff administrativo cadastrado</p>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {isAdminStaffModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

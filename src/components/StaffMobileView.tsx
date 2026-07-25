@@ -15,6 +15,8 @@ import {
   Map,
   MapPin,
   AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
   TrendingUp,
   Clock,
   ShieldAlert,
@@ -34,7 +36,8 @@ import {
   MoreVertical,
   Check,
   Fingerprint,
-  Lock
+  Lock,
+  UserPlus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -47,6 +50,7 @@ import RealTimeMap from "./RealTimeMap";
 import WaitingTimer from './WaitingTimer';
 import Settings from "./Settings";
 import UserManual from "./UserManual";
+import RecruitmentHub from "./RecruitmentHub";
 
 interface StaffMobileViewProps {
   user: any;
@@ -361,6 +365,10 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
+  const [isRecruitmentOpen, setIsRecruitmentOpen] = useState(false);
+  const [isComplaintsOpen, setIsComplaintsOpen] = useState(false);
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [complaintFilterMobile, setComplaintFilterMobile] = useState<'all' | 'pending' | 'resolved'>('all');
   const [loading, setLoading] = useState(false); // Start false to allow immediate render
   const [dataReady, setDataReady] = useState({
     vehicles: false,
@@ -714,6 +722,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     const qPhones = query(collection(db, 'psm_phones'), orderBy('label', 'asc'));
     const unsubPhones = onSnapshot(qPhones, (snap) => setPsmPhones(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
+    const qComplaints = query(collection(db, 'complaints'), limit(100));
+    const unsubComplaints = onSnapshot(qComplaints, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      list.sort((a: any, b: any) => {
+        const timeA = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+        const timeB = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+        return timeB - timeA;
+      });
+      setComplaints(list);
+    }, (err) => console.error("Error complaints mobile:", err));
+
     return () => {
       unsubVehicles();
       unsubCalls();
@@ -723,6 +742,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       unsubDM();
       unsubVM();
       unsubPhones();
+      unsubComplaints();
     };
   }, []);
 
@@ -791,10 +811,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     { icon: Truck, label: 'Gestão de Frota', group: 'Navegação', onClick: () => { setActiveTab('fleet'); setFleetSubTab('vehicles'); } },
     { icon: CalendarIcon, label: 'Escalas & Turnos', group: 'Navegação', onClick: () => { setActiveTab('fleet'); setFleetSubTab('scales'); } },
     { icon: Wallet, label: 'Contas & Rendas', group: 'Navegação', onClick: () => setActiveTab('wallet') },
+    ...((user?.role === 'admin' || user?.role === 'gerente' || user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com') ? [{ icon: UserPlus, label: 'Portal de Recrutamento', group: 'Navegação', onClick: () => setIsRecruitmentOpen(true) }] : []),
     
     { icon: Activity, label: 'Gateway Console', group: 'Monitores Live', onClick: () => setIsGatewayOpen(true) },
     { icon: MapPin, label: 'Mapa da Frota', group: 'Monitores Live', onClick: () => setIsMapOpen(true) },
     { icon: MessageSquare, label: 'Central WhatsApp', group: 'Monitores Live', onClick: () => setIsWhatsAppOpen(true) },
+    { 
+      icon: AlertTriangle, 
+      label: `Reclamações Passageiros ${complaints.filter(c => c.status !== 'resolved').length > 0 ? `(${complaints.filter(c => c.status !== 'resolved').length})` : ''}`, 
+      group: 'Monitores Live', 
+      onClick: () => setIsComplaintsOpen(true) 
+    },
     
     { 
       icon: Fingerprint, 
@@ -868,7 +895,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
           </div>
           <div className="min-w-0 pr-1">
             <h1 className="text-xs font-black text-white uppercase tracking-tight leading-none truncate">TaxiControl</h1>
-            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none mt-1.5 truncate">JIS. (SU) LUENA</p>
+            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none mt-1.5 truncate">JIS ANGOLA</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -1153,6 +1180,212 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             </div>
           </motion.div>
         )}
+
+        {isRecruitmentOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed inset-0 z-[120] bg-slate-950 flex flex-col"
+          >
+            <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-brand-primary/20 text-brand-primary flex items-center justify-center">
+                  <UserPlus size={18} />
+                </div>
+                <div>
+                  <h2 className="text-xs font-black text-white uppercase tracking-wider leading-none">Portal de Recrutamento</h2>
+                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">JIS ANGOLA Mobile</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsRecruitmentOpen(false)} 
+                className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all active:scale-90"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="flex-1 relative overflow-y-auto bg-slate-950 p-2 sm:p-4 custom-scrollbar">
+              <RecruitmentHub user={user} />
+            </div>
+          </motion.div>
+        )}
+
+        {isComplaintsOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed inset-0 z-[120] bg-slate-950 flex flex-col text-white"
+          >
+            <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-500 flex items-center justify-center">
+                  <AlertCircle size={18} className="animate-pulse" />
+                </div>
+                <div>
+                  <h2 className="text-xs font-black text-white uppercase tracking-wider leading-none flex items-center gap-2">
+                    <span>Reclamações de Passageiros</span>
+                    {complaints.filter(c => c.status !== 'resolved').length > 0 && (
+                      <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">
+                        {complaints.filter(c => c.status !== 'resolved').length} PENDENTES
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">JIS ANGOLA Mobile • Fiscalização</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsComplaintsOpen(false)} 
+                className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all active:scale-90"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="p-3 bg-slate-900 border-b border-slate-800 flex items-center gap-2 overflow-x-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => setComplaintFilterMobile('all')}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${
+                  complaintFilterMobile === 'all' ? 'bg-white text-slate-950 font-black' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                Todas ({complaints.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setComplaintFilterMobile('pending')}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${
+                  complaintFilterMobile === 'pending' ? 'bg-rose-600 text-white font-black' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                Pendentes ({complaints.filter(c => c.status !== 'resolved').length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setComplaintFilterMobile('resolved')}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider ${
+                  complaintFilterMobile === 'resolved' ? 'bg-emerald-600 text-white font-black' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                Resolvidas ({complaints.filter(c => c.status === 'resolved').length})
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar bg-slate-950">
+              {complaints.filter(c => {
+                if (complaintFilterMobile === 'pending' && c.status === 'resolved') return false;
+                if (complaintFilterMobile === 'resolved' && c.status !== 'resolved') return false;
+                return true;
+              }).length === 0 ? (
+                <div className="p-8 text-center bg-slate-900/60 rounded-2xl border border-slate-800">
+                  <AlertCircle size={32} className="mx-auto text-slate-500 mb-2 opacity-40" />
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-400">
+                    Nenhuma reclamação registada nesta categoria.
+                  </p>
+                </div>
+              ) : (
+                complaints.filter(c => {
+                  if (complaintFilterMobile === 'pending' && c.status === 'resolved') return false;
+                  if (complaintFilterMobile === 'resolved' && c.status !== 'resolved') return false;
+                  return true;
+                }).map((c) => {
+                  const isResolved = c.status === 'resolved';
+                  const dateStr = c.createdAt?.seconds 
+                    ? new Date(c.createdAt.seconds * 1000).toLocaleString('pt-PT')
+                    : (c.timestamp ? new Date(c.timestamp).toLocaleString('pt-PT') : 'Recente');
+
+                  return (
+                    <div 
+                      key={c.id}
+                      className={`p-3.5 rounded-2xl border flex flex-col space-y-2.5 ${
+                        isResolved 
+                          ? 'bg-slate-900/50 border-slate-800/80 opacity-70' 
+                          : 'bg-slate-900 border-rose-500/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-md text-[9px] font-black uppercase">
+                          {c.type ? c.type.replace('_', ' ') : 'Reclamação'}
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-400">{dateStr}</span>
+                      </div>
+
+                      <p className="text-xs text-slate-200 bg-slate-950 p-2.5 rounded-xl border border-slate-800 font-medium">
+                        "{c.description || 'Sem descrição.'}"
+                      </p>
+
+                      {c.satisfaction && (
+                        <div className={`p-2 rounded-xl border flex items-center gap-1.5 ${
+                          c.satisfaction === 'satisfied' 
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                            : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                        }`}>
+                          <span className="text-xs">{c.satisfaction === 'satisfied' ? '😊' : '🙁'}</span>
+                          <div className="text-[9px] font-black uppercase">
+                            <span>{c.satisfaction === 'satisfied' ? 'SATISFEITO' : 'INSATISFEITO'}</span>
+                            {c.satisfactionComment && (
+                              <span className="normal-case font-medium italic block text-slate-300">
+                                "{c.satisfactionComment}"
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/60">
+                        <div>
+                          <span className="font-black text-white">{c.passengerName || 'Passageiro'}</span>
+                          <span className="text-slate-500 block">Viatura: {c.vehicle || 'N/A'}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'complaints', c.id), {
+                                  status: isResolved ? 'pending' : 'resolved',
+                                  resolvedBy: user?.name || 'Mobile Operator',
+                                  resolvedAt: isResolved ? null : new Date(),
+                                  updatedAt: new Date()
+                                });
+                              } catch (err) {
+                                console.error("Error toggling status:", err);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase ${
+                              isResolved ? 'bg-slate-800 text-slate-300' : 'bg-emerald-600 text-white'
+                            }`}
+                          >
+                            {isResolved ? 'Reabrir' : 'Marcar Resolvido'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (window.confirm("Eliminar esta reclamação?")) {
+                                try {
+                                  await deleteDoc(doc(db, 'complaints', c.id));
+                                } catch (err) {
+                                  console.error("Error deleting:", err);
+                                }
+                              }
+                            }}
+                            className="p-1 bg-rose-500/10 text-rose-400 rounded-lg border border-rose-500/20"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Content Area */}
@@ -1275,6 +1508,25 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                           <span className="text-[9px] font-black uppercase tracking-wider">Turnos</span>
                        </button>
                     </div>
+
+                    {(user?.role === 'admin' || user?.role === 'gerente' || user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com') && (
+                      <button
+                        type="button"
+                        onClick={() => setIsRecruitmentOpen(true)}
+                        className="w-full mt-3 p-3.5 bg-gradient-to-r from-blue-950 to-slate-900 border border-blue-800/60 hover:border-brand-primary rounded-2xl flex items-center justify-between text-white active:scale-95 transition-all cursor-pointer shadow-lg"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-brand-primary/20 text-brand-primary flex items-center justify-center shrink-0">
+                            <UserPlus size={16} />
+                          </div>
+                          <div className="text-left">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-blue-200">Portal de Recrutamento</p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase">Candidaturas e Admissão de Motoristas</p>
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="text-slate-400" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

@@ -41,6 +41,7 @@ import {
 import RevenueManagement from "./RevenueManagement";
 import PermissionManager from "./PermissionManager";
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
+import { WebRTCAudioCall } from "./WebRTCAudioCall";
 import WaitingTimer from './WaitingTimer';
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "../lib/utils";
@@ -382,6 +383,11 @@ export default function DriverView({ user }: DriverViewProps) {
   const [stars, setStars] = useState(4.8);
   const hiddenCallIdsRef = useRef<string[]>([]);
   const forceDismissService = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
     setActiveInternalTab("dashboard");
     setShowNotification(false);
   };
@@ -1602,8 +1608,23 @@ export default function DriverView({ user }: DriverViewProps) {
     localStorage.removeItem("driver_is_online");
     setCurrentService(null);
     setShowNotification(false);
+    const nowIso = new Date().toISOString();
     if (assignedVehicle?.id) {
-      updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "indisponível" }).catch(e => console.warn(e));
+      updateDoc(doc(db, "drivers", assignedVehicle.id), { 
+        status: "indisponível",
+        shiftActive: false,
+        lastShiftEndedAt: nowIso,
+        lastShiftEndedBy: user?.name || "Motorista"
+      }).catch(e => console.warn(e));
+
+      addDoc(collection(db, "driver_shift_logs"), {
+        driverId: assignedVehicle.id,
+        driverName: user?.name || assignedVehicle.name || "Motorista",
+        prefix: assignedVehicle.prefix || user?.prefix || "N/A",
+        action: "END_SHIFT",
+        timestamp: nowIso,
+        operator: user?.name || user?.email || "Motorista App"
+      }).catch(e => console.warn(e));
     }
     setShowEndShiftModal(false);
   };
@@ -1618,8 +1639,23 @@ export default function DriverView({ user }: DriverViewProps) {
       } catch (err) {
         setIsOnline(true);
         localStorage.setItem("driver_is_online", "true");
+        const nowIso = new Date().toISOString();
         if (assignedVehicle?.id) {
-          updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" }).catch(e => console.warn(e));
+          updateDoc(doc(db, "drivers", assignedVehicle.id), { 
+            status: "disponível",
+            shiftActive: true,
+            lastShiftStartedAt: nowIso,
+            lastShiftStartedBy: user?.name || "Motorista"
+          }).catch(e => console.warn(e));
+
+          addDoc(collection(db, "driver_shift_logs"), {
+            driverId: assignedVehicle.id,
+            driverName: user?.name || assignedVehicle.name || "Motorista",
+            prefix: assignedVehicle.prefix || user?.prefix || "N/A",
+            action: "START_SHIFT",
+            timestamp: nowIso,
+            operator: user?.name || user?.email || "Motorista App"
+          }).catch(e => console.warn(e));
         }
       } finally {
         setAiLoading(false);
@@ -1633,8 +1669,23 @@ export default function DriverView({ user }: DriverViewProps) {
     setIsOnline(true);
     localStorage.setItem("driver_is_online", "true");
     setShowSafetyCheck(false);
+    const nowIso = new Date().toISOString();
     if (assignedVehicle?.id) {
-      updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" }).catch(e => console.warn(e));
+      updateDoc(doc(db, "drivers", assignedVehicle.id), { 
+        status: "disponível",
+        shiftActive: true,
+        lastShiftStartedAt: nowIso,
+        lastShiftStartedBy: user?.name || "Motorista"
+      }).catch(e => console.warn(e));
+
+      addDoc(collection(db, "driver_shift_logs"), {
+        driverId: assignedVehicle.id,
+        driverName: user?.name || assignedVehicle.name || "Motorista",
+        prefix: assignedVehicle.prefix || user?.prefix || "N/A",
+        action: "START_SHIFT",
+        timestamp: nowIso,
+        operator: user?.name || user?.email || "Motorista App"
+      }).catch(e => console.warn(e));
     }
   };
 
@@ -2806,10 +2857,13 @@ export default function DriverView({ user }: DriverViewProps) {
                         </div>
                       </div>
                     ) : (
-                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-2xl text-center">
-                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest block">🎙️ Comunicação de Voz Ativa Dedicada</span>
-                        <span className="text-[8px] text-slate-400 uppercase tracking-wider block font-bold mt-0.5">Fale diretamente com o cliente. Canais de emergência ocultos até o cliente desligar ou ficar offline.</span>
-                      </div>
+                      <WebRTCAudioCall
+                        callId={currentService.id}
+                        role="driver"
+                        callStatus={currentService.status}
+                        partnerName={currentService.customerName || "Passageiro"}
+                        partnerPhone={currentService.customerPhone || currentService.passengerPhone}
+                      />
                     )}
                   </div>
 

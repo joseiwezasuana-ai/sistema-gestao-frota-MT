@@ -31,7 +31,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
   const [whatsAppLink, setWhatsAppLink] = useState('');
   const [isManualName, setIsManualName] = useState(false);
   const [companies, setCompanies] = useState<{ id: string, name: string }[]>([
-    { id: 'psm', name: 'JIS. (SU), LDA LUENA-MOXICO' }
+    { id: 'psm', name: 'JIS ANGOLA' }
   ]);
   const [selectedTenant, setSelectedTenant] = useState<string>(() => {
     const active = getActiveTenantId();
@@ -63,7 +63,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         if (!list.some(c => c.id === 'psm')) {
           list.unshift({ 
             id: 'psm', 
-            name: 'JIS. (SU), LDA LUENA-MOXICO'
+            name: 'JIS ANGOLA'
           });
         }
         setCompanies(list);
@@ -72,7 +72,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         // Robust fallback: keep PSM even on Firestore rules blocking direct search
         setCompanies(prev => {
           if (!prev.some(c => c.id === 'psm')) {
-            return [{ id: 'psm', name: 'JIS. (SU), LDA LUENA-MOXICO' }, ...prev];
+            return [{ id: 'psm', name: 'JIS ANGOLA' }, ...prev];
           }
           return prev;
         });
@@ -872,7 +872,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                     Administração Central
                   </span>
                 </h1>
-                <p className="text-xs text-slate-500 font-black uppercase tracking-[0.2em] mt-1">JIS. (SU), LDA LUENA • MOXICO</p>
+                <p className="text-xs text-slate-500 font-black uppercase tracking-[0.2em] mt-1">JIS ANGOLA</p>
               </div>
             </div>
           ) : (
@@ -895,7 +895,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
               
               <div className="mt-2 flex items-center justify-center gap-3 relative z-10 px-4">
                  <div className="h-0.5 w-6 bg-brand-primary/40" />
-                 <p className="text-[9px] text-slate-500 font-black uppercase tracking-[0.4em] whitespace-nowrap">JIS LUENA • MOXICO</p>
+                 <p className="text-[9px] text-slate-500 font-black uppercase tracking-[0.4em] whitespace-nowrap">JIS ANGOLA</p>
                  <div className="h-0.5 w-6 bg-brand-primary/40" />
               </div>
             </>
@@ -914,7 +914,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="w-full space-y-6"
               >
-                {/* QR Code de Divulgação do App do Passageiro (JIS. SU, LDA LUENA-MOXICO) */}
+                {/* QR Code de Divulgação do App do Passageiro (JIS ANGOLA) */}
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-2xl relative overflow-hidden text-white">
                   <div className="flex flex-col items-center gap-1.5">
                     <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full">
@@ -1031,7 +1031,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                           >
                             {companies.map((c, idx) => (
                               <option key={`${c.id}-${idx}`} value={c.id} className="text-slate-800 font-bold uppercase">
-                                {c.id === 'psm' ? 'JIS. (SU), LDA LUENA-MOXICO' : c.name}
+                                {c.id === 'psm' ? 'JIS ANGOLA' : c.name}
                               </option>
                             ))}
                           </select>

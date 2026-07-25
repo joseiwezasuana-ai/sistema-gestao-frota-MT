@@ -155,7 +155,7 @@ export default function DriverDashboard() {
       } else {
         setActiveTenantData({
           id: tenantId,
-          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS. (SU), LDA LUENA-MOXICO',
+          name: tenantId === 'psm' ? 'PSMOREIRA COMERCIAL (SU), LDA' : 'JIS ANGOLA',
           phone: '+244 921 277 223',
           address: 'Bairro Social Da Juventude, Luena-Moxico',
         });
@@ -712,7 +712,7 @@ export default function DriverDashboard() {
               </span>
             </div>
             <p className="text-[10px] text-slate-450 font-bold uppercase tracking-wider mt-1.5 flex items-center gap-1.5">
-              <span>{activeTenantData?.name || "JIS. (SU), LDA LUENA-MOXICO"}</span>
+              <span>{activeTenantData?.name || "JIS ANGOLA"}</span>
               <span>•</span>
               <span className="text-amber-400">Análise Integrada de Operação</span>
             </p>
@@ -1501,7 +1501,12 @@ export default function DriverDashboard() {
                                       <button
                                         onClick={async () => {
                                           try {
-                                            await updateDoc(doc(db, 'complaints', item.id), { status: 'resolved' });
+                                            await updateDoc(doc(db, 'complaints', item.id), { 
+                                              status: 'resolved',
+                                              resolvedBy: 'Motorista',
+                                              resolvedAt: new Date(),
+                                              updatedAt: new Date()
+                                            });
                                             alert("Reclamação marcada como RESOLVIDA!");
                                           } catch (error) {
                                             console.error("Erro ao resolver reclamação:", error);

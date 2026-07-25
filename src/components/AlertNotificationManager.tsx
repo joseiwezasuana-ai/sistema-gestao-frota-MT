@@ -12,16 +12,19 @@ import {
   Activity,
   Trash2,
   MessageSquare,
-  Wallet
+  Wallet,
+  CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, addDoc, serverTimestamp } from '@/src/lib/firebase';
+import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, addDoc, serverTimestamp, deleteDoc, doc } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { format } from 'date-fns';
 import WaitingTimer from './WaitingTimer';
 
 interface Alert {
   id: string;
+  docId?: string;
+  collectionName?: string;
   type: 'speeding' | 'missed_call' | 'security' | 'geo_fence' | 'panic' | 'revenue';
   title: string;
   message: string;
@@ -30,10 +33,37 @@ interface Alert {
   metadata?: any;
 }
 
+const DISMISSED_ALERTS_KEY = 'super_taxi_dismissed_alert_ids_v2';
+
+const getDismissedAlertIds = (): Set<string> => {
+  try {
+    const saved = localStorage.getItem(DISMISSED_ALERTS_KEY);
+    if (saved) return new Set(JSON.parse(saved));
+  } catch (e) {}
+  return new Set();
+};
+
+const saveDismissedAlertId = (id: string) => {
+  try {
+    const current = getDismissedAlertIds();
+    current.add(id);
+    localStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(Array.from(current)));
+  } catch (e) {}
+};
+
+const saveMultipleDismissedAlertIds = (ids: string[]) => {
+  try {
+    const current = getDismissedAlertIds();
+    ids.forEach(id => current.add(id));
+    localStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify(Array.from(current)));
+  } catch (e) {}
+};
+
 export default function AlertNotificationManager({ user }: { user?: any }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [showPermissionBanner, setShowPermissionBanner] = useState(false);
+  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
 
   // Request browser notification permission
   const requestPermission = useCallback(async () => {
@@ -52,14 +82,16 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
 
     // 1. Monitor Missed & Stuck Calls
     const unsubCalls = onSnapshot(query(collection(db, 'calls'), where('status', '==', 'pending')), (snapshot) => {
-      snapshot.docs.forEach((doc) => {
-        const call = doc.data();
+      snapshot.docs.forEach((docItem) => {
+        const call = docItem.data();
         const ts = call.timestamp?.toDate ? call.timestamp.toDate() : new Date(call.timestamp);
         const diff = (new Date().getTime() - ts.getTime()) / (1000 * 60);
         
         if (diff > 5) {
           triggerAlert({
-            id: `missed-stale-${doc.id}`,
+            id: `missed-stale-${docItem.id}`,
+            docId: docItem.id,
+            collectionName: 'calls',
             type: 'missed_call',
             title: 'Chamada Abandonada',
             message: `Cliente ${call.customerName || 'N/A'} está à espera há mais de 5 min!`,
@@ -79,7 +111,6 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
             const alertId = `speed-${change.doc.id}`;
             
             // Avoid spam: Check if we already logged this vehicle recently (10 min cooldown)
-            // We use a simple local timestamp map for this session
             const lastAlert = (window as any)._lastSpeedAlerts?.[change.doc.id];
             const now = Date.now();
             
@@ -106,6 +137,7 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
               // 2. Trigger UI Notification
               triggerAlert({
                   id: `${alertId}-${now}`,
+                  docId: change.doc.id,
                   type: 'speeding',
                   title: 'Excesso de Velocidade',
                   message: `Viatura ${vehicle.prefix} detectada a ${vehicle.speed}km/h em Luena!`,
@@ -148,9 +180,11 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
 
             triggerAlert({
               id: `panic-${change.doc.id}`,
+              docId: change.doc.id,
+              collectionName: 'panic_alerts',
               type: 'panic',
               title: 'S.O.S - EMERGÊNCIA CRÍTICA',
-              message: `O MOTORISTA ${panic.driverName?.toUpperCase()} ACACIONOU O BOTÃO DE PÂNICO EM LUENA!`,
+              message: `O MOTORISTA ${panic.driverName?.toUpperCase()} ACCIONOU O BOTÃO DE PÂNICO EM LUENA!`,
               severity: 'critical',
               timestamp: new Date(),
               metadata: panic
@@ -194,6 +228,8 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
 
             triggerAlert({
               id: `rev-op-${change.doc.id}`,
+              docId: change.doc.id,
+              collectionName: 'messages',
               type: 'revenue',
               title: msg.title || '🚨 RENDA VALIDADA PELO OPERADOR',
               message: msg.content || `Operador aprovou a renda da viatura ${msg.prefix || ''}. Requer aprovação do Admin/Gerente.`,
@@ -223,6 +259,8 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
 
             triggerAlert({
               id: `rev-contab-${change.doc.id}`,
+              docId: change.doc.id,
+              collectionName: 'messages',
               type: 'revenue',
               title: msg.title || '💰 RENDA ENTREGUE AO CONTABILISTA',
               message: msg.content || `Admin/Gerente entregou a renda da viatura ${msg.prefix || ''} para liquidação e encerramento.`,
@@ -259,6 +297,12 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
   };
 
   const triggerAlert = (alert: Alert) => {
+    // DO NOT re-trigger if this alert or document was already dismissed by the user!
+    const dismissedIds = getDismissedAlertIds();
+    if (dismissedIds.has(alert.id) || (alert.docId && dismissedIds.has(alert.docId))) {
+      return;
+    }
+
     let isDuplicate = false;
     setAlerts(prev => {
       if (prev.find(a => a.id === alert.id)) {
@@ -289,7 +333,7 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
           data: alert.metadata
         };
 
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        if ('serviceWorker' in navigator) {
           navigator.serviceWorker.ready
             .then(registration => {
               registration.showNotification(alert.title, notifOptions)
@@ -312,9 +356,8 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
           }
         }
       } else if (Notification.permission === 'default') {
-        // Request notification permission if not explicitly denied
         try {
-          Notification.requestPermission();
+          Notification.requestPermission().then(res => setPermission(res));
         } catch (e) {}
       }
     }
@@ -327,15 +370,69 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
   };
 
   const removeAlert = (id: string) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
+    saveDismissedAlertId(id);
     setAlerts(prev => prev.filter(a => a.id !== id));
   };
 
+  const permanentlyDeleteAlert = async (alertItem: Alert) => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
+
+    // 1. Remember dismissal locally so it never triggers on refresh
+    saveDismissedAlertId(alertItem.id);
+    if (alertItem.docId) {
+      saveDismissedAlertId(alertItem.docId);
+    }
+
+    // 2. Remove from active alerts state
+    setAlerts(prev => prev.filter(a => a.id !== alertItem.id));
+
+    // 3. Permanently delete from Firestore if document reference exists
+    if (alertItem.docId && alertItem.collectionName) {
+      try {
+        await deleteDoc(doc(db, alertItem.collectionName, alertItem.docId));
+        setFeedbackToast('Alerta crítico e registo eliminados permanentemente!');
+        setTimeout(() => setFeedbackToast(null), 3000);
+      } catch (err) {
+        console.error("Erro ao eliminar alerta do Firestore:", err);
+        setFeedbackToast('Alerta removido do ecran (erro ao eliminar documento da BD).');
+        setTimeout(() => setFeedbackToast(null), 3000);
+      }
+    } else {
+      setFeedbackToast('Alerta removido e ocultado permanentemente!');
+      setTimeout(() => setFeedbackToast(null), 3000);
+    }
+  };
+
   const clearAllAlerts = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
+    const idsToDismiss = alerts.map(a => a.id).concat(alerts.filter(a => a.docId).map(a => a.docId!));
+    saveMultipleDismissedAlertIds(idsToDismiss);
     setAlerts([]);
   };
 
   return (
     <>
+      {/* Toast Feedback */}
+      {feedbackToast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[110] bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 border border-emerald-500/50 shadow-2xl animate-bounce">
+          <CheckCircle2 size={16} className="text-emerald-400" />
+          <span>{feedbackToast}</span>
+        </div>
+      )}
+
       {/* Visual Alerts Overlay */}
       <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-4 w-full max-w-md pointer-events-none px-4">
         <AnimatePresence>
@@ -401,25 +498,32 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
                       <div className="w-1 h-1 rounded-full bg-white animate-ping" />
                     </div>
                     <h4 className="text-lg font-black text-white leading-none mb-1 uppercase italic tracking-tighter">{alertItem.title}</h4>
-                    <p className="text-sm text-white/90 font-bold leading-tight">
+                    <p className="text-sm text-white/90 font-bold leading-tight mb-2">
                       {alertItem.type === 'missed_call' && alertItem.metadata?.callTimestamp ? (
                         <>Cliente {alertItem.metadata.customerName || 'N/A'} está à espera há <WaitingTimer timestamp={alertItem.metadata.callTimestamp} className="underline font-black" />!</>
                       ) : (
                         alertItem.message
                       )}
                     </p>
+
+                    {/* Button to Permanently Delete Critical Alerts */}
+                    {(alertItem.type === 'revenue' || alertItem.type === 'panic' || alertItem.docId) && (
+                      <button
+                        onClick={() => permanentlyDeleteAlert(alertItem)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-black/40 hover:bg-black/70 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 cursor-pointer shadow-md"
+                        title="Eliminar este alerta permanentemente do sistema"
+                      >
+                        <Trash2 size={12} className="text-rose-400" />
+                        Eliminar Permanentemente
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={() => alert('Respondendo ao alerta: ' + alertItem.title)}
-                      className="p-1.5 hover:bg-white/10 rounded-lg transition-all text-white/70 hover:text-white"
-                    >
-                      <MessageSquare size={18} />
-                    </button>
-                    <button 
                       onClick={() => removeAlert(alertItem.id)}
-                      className="p-1.5 hover:bg-white/10 rounded-lg transition-all text-white/50 hover:text-white"
+                      className="p-1.5 hover:bg-white/20 bg-black/20 rounded-lg transition-all text-white/80 hover:text-white"
+                      title="Fechar Alerta (Ocultar)"
                     >
                       <X size={20} />
                     </button>
@@ -441,3 +545,4 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
     </>
   );
 }
+
