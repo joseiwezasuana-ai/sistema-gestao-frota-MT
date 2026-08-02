@@ -185,6 +185,7 @@ interface VehicleOption {
   driverName: string;
   phone: string;
   model: string;
+  prefix?: string;
   driverId?: string;
   lat?: number;
   lng?: number;
@@ -994,6 +995,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           driverName: data.name,
           phone: data.phone || data.secondaryPhone || '+244 923 456 789',
           model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
+          prefix: data.prefix || data.code || '',
           driverId: data.driverId || '',
           lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
           lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
@@ -1070,6 +1072,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             driverName: data.name,
             phone: data.phone || data.secondaryPhone || '+244 923 456 789',
             model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
+            prefix: data.prefix || data.code || '',
             driverId: data.driverId || '',
             lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
             lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
@@ -2707,12 +2710,13 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                               availableVehicles.map((vehicle, idx) => {
                                 const vLat = vehicle.lat || (passengerCoords[0] + (idx * 0.003) - 0.0015);
                                 const vLng = vehicle.lng || (passengerCoords[1] + (idx * 0.003) - 0.0015);
+                                const prefixLabel = vehicle.prefix ? `Viatura ${vehicle.prefix}` : 'Viatura Oficial';
                                 // @ts-ignore
                                 return <Marker key={vehicle.id || idx} position={[vLat, vLng]} icon={driverIconAvailable}>
                                     <Popup>
                                       <div className="text-slate-900 text-xs font-bold p-1 space-y-1">
-                                        <p className="font-extrabold uppercase text-[10px] text-amber-500">{vehicle.driverName || 'Motorista'}</p>
-                                        <p className="text-[9px] text-slate-500 font-mono">{vehicle.model} • {vehicle.plate}</p>
+                                        <p className="font-extrabold uppercase text-[10px] text-amber-500">{prefixLabel}</p>
+                                        <p className="text-[9px] text-slate-500 font-mono">Matrícula: {vehicle.plate || 'Sem Matrícula'}</p>
                                         <p className="text-[8px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded font-black uppercase">Disponível</p>
                                       </div>
                                     </Popup>
@@ -2720,15 +2724,17 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                               })
                             ) : (
                               (() => {
-                                const assigned = availableVehicles.find(v => v.driverName === activeRideRecord?.driverName);
+                                const assigned = availableVehicles.find(v => v.driverName === activeRideRecord?.driverName || v.id === activeRideRecord?.vehicleId);
                                 const dLat = assigned?.lat || -11.7825;
                                 const dLng = assigned?.lng || 20.0695;
+                                const prefixStr = activeRideRecord?.prefix || assigned?.prefix ? `Viatura ${activeRideRecord?.prefix || assigned?.prefix}` : 'Viatura Atribuída';
+                                const plateStr = activeRideRecord?.plate || assigned?.plate || 'LD-92-33-PX';
                                 // @ts-ignore
                                 return <Marker position={[dLat, dLng]} icon={driverIconAssigned}>
                                     <Popup>
-                                      <div className="text-slate-900 text-xs font-bold p-1">
-                                        <p className="font-extrabold uppercase text-[10px] text-amber-500">{activeRideRecord?.driverName || 'Motorista'}</p>
-                                        <p className="text-[9px] text-slate-500 font-mono">Placa: {activeRideRecord?.plate || 'LD-92-33-PX'}</p>
+                                      <div className="text-slate-900 text-xs font-bold p-1 space-y-1">
+                                        <p className="font-extrabold uppercase text-[10px] text-amber-500">{prefixStr}</p>
+                                        <p className="text-[9px] text-slate-500 font-mono">Matrícula: {plateStr}</p>
                                         <p className="text-[8px] bg-rose-100 text-rose-850 px-1 py-0.5 rounded font-black uppercase">A Caminho</p>
                                       </div>
                                     </Popup>
@@ -3027,11 +3033,32 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                             <AlertCircle size={16} />
                           </div>
                           <div>
-                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Reclamações & Outros...</p>
+                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Reclamações & Ocorrências</p>
                             <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Denunciar conduta ou obter ajuda</p>
                           </div>
                         </div>
                         <span className="text-[10px] font-black text-rose-500 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
+                      </button>
+
+                      {/* CONSULTAR TERMOS DE SEGURANÇA E POLÍTICAS */}
+                      <button
+                        onClick={() => setShowTermsModal(true)}
+                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
+                          isDark 
+                            ? 'bg-slate-900 border-white/5 hover:border-amber-500/35 hover:bg-slate-800/80' 
+                            : 'bg-white border-slate-200 hover:border-amber-500/35 hover:bg-slate-50 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0 group-hover:scale-110 transition-transform">
+                            <ShieldCheck size={16} />
+                          </div>
+                          <div>
+                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Termos & Políticas de Segurança</p>
+                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Consultar regulamento e privacidade JIS</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-black text-amber-500 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
                       </button>
                     </div>
                   )}
@@ -4425,29 +4452,69 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                   </div>
 
                   <div className="space-y-4 py-2 text-justify text-[10.5px] leading-relaxed text-slate-300">
-                    <p className="text-center text-[10px] text-amber-500 uppercase font-black tracking-wider">
-                      PSM COMERCIAL. (SU), LDA LUENA-MOXICO • SUPER TAXI
-                    </p>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center space-y-1">
+                      <p className="text-[10px] text-amber-400 uppercase font-black tracking-wider m-0">
+                        PSM COMERCIAL (SU), LDA • LUENA-MOXICO
+                      </p>
+                      <p className="text-[8.5px] text-slate-400 font-bold uppercase tracking-widest m-0">
+                        Regulamento de Segurança Operacional & Políticas de Privacidade (SUPER TÁXI / JIS ANGOLA)
+                      </p>
+                    </div>
+
                     <p>
-                      <strong>1. Objeto e Âmbito:</strong> Estes Termos e Políticas regulam o uso do aplicativo de mobilidade <strong>SUPER Táxi</strong> na província do Moxico, especificamente em Luena. Ao registar-se, o passageiro assume o compromisso de respeitar as diretrizes de segurança física, operacional e de trânsito vigentes.
+                      <strong>1. Objeto e Âmbito Operacional:</strong> Estes Termos e Políticas regulam a prestação e a utilização do serviço de mobilidade urbana <strong>SUPER Táxi</strong> na província do Moxico (Luena), operado pela PSM Comercial (SU), Lda sob gestão da central <strong>TaxiControl (JIS ANGOLA)</strong>. Ao registar-se ou utilizar a aplicação, o utilizador aceita integralmente as normas operacionais e de segurança.
                     </p>
+
                     <p>
-                      <strong>2. Identidade e Perfil:</strong> O passageiro declara que os dados fornecidos no âmbito do cadastro (Nome, Idade e Contacto de Backup com prefixo obrigatório <strong>+244</strong>) são inteiramente verdadeiros e de sua autoria. É expressamente proibido o uso de informações de terceiros ou registo de perfis falsos.
+                      <strong>2. Veracidade de Dados e Perfil:</strong> O passageiro declara que todas as informações prestadas no cadastro (Nome Completo, Idade e Contacto Telefónico de Backup com prefixo fixo <strong>+244</strong>) são exatas, verdadeiras e ativas. O registo de contas com dados falsos ou de terceiros constitui infração grave sujeita a bloqueio imediato.
                     </p>
+
                     <p>
-                      <strong>3. Segurança a Bordo (Integridade Física):</strong> O passageiro compromete-se a colaborar ativamente com as normas de urbanidade a bordo dos veículos da rede. Fica estritamente vedado o transporte de qualquer tipo de material inflamável, corrosivo, armas ou substâncias proibidas por lei.
+                      <strong>3. Segurança a Bordo & Norma de Conduta:</strong> O passageiro compromete-se a colaborar ativamente na manutenção de um ambiente seguro, urbano e respeitoso a bordo dos veículos. Fica estritamente proibido o transporte de qualquer tipo de material inflamável, corrosivo, explosivo, armas de qualquer natureza ou substâncias ilícitas.
                     </p>
+
                     <p>
-                      <strong>4. Validação do Token de Embarque:</strong> Como medida antifraude de mitigação de sinistrose e sequestros expressos, o passageiro compromete-se a validar presencialmente o seu <strong>Token de Embarque (Boarding Token)</strong> exclusivo com o motorista no momento de iniciar a corrida.
+                      <strong>4. Validação Obrigatória do Token de Embarque:</strong> Para prevenção de fraude, sequestros expressos ou trocas inadvertidas de viatura, o passageiro deve obrigatoriamente fornecer o seu <strong>Token de Embarque (Código PIN exclusivo)</strong> ao motorista no ato de entrada no táxi antes de iniciar a marcha.
                     </p>
+
                     <p>
-                      <strong>5. Velocidade Limite de Segurança:</strong> De acordo com as diretrizes do operador TaxiControl (**JIS**), a velocidade de condução máxima em áreas residenciais é limitada inteligentemente por monitorização telemática por satélite a <strong>80km/h</strong>. Se houver violação por parte do condutor, é direito e dever do passageiro enviar uma participação imediata ao nosso departamento fiscal pelo painel de Reclamações.
+                      <strong>5. Limite Telemático de Velocidade (80 km/h):</strong> A frota de táxis é monitorizada continuamente por telemetria GPS via satélite sob orientação do operador <strong>José Iweza Suana (JIS)</strong>. A velocidade máxima permitida em perímetro urbano é de <strong>80 km/h</strong>. Qualquer transgressão por parte do condutor pode e deve ser reportada de imediato no painel de Reclamações para instauração de processo disciplinar.
                     </p>
+
                     <p>
-                      <strong>6. S.O.S de Pânico:</strong> O botão de Pânico S.O.S tem prioridade operacional absoluta de proteção física e envia coordenadas imediatas à central de fiscalização TaxiControl. A sua acção indevida e trotes poderão levar ao banimento unilateral da conta de passageiro de forma irrevogável.
+                      <strong>6. Protocolo de Emergência S.O.S (Botão de Pânico):</strong> O botão de Pânico S.O.S transmite instantaneamente a localização geoespacial exata do utilizador e da viatura à Central de Fiscalização e às autoridades policiais competentes. O acionamento indevido ou por negligência ("trotes") implicará o banimento irreversível da conta e responsabilização legal.
                     </p>
+
                     <p>
-                      <strong>7. Privacidade e Geolocalização:</strong> De acordo com normativos angolanos de comunicações electrónicas, a sua geolocalização e telecomunicações são guardadas sob segurança estrita local e no Firestore para reencaminhamentos operativos, nunca sendo licenciados ou vendidos à terceiros.
+                      <strong>7. Proteção da Identidade e Privacidade do Motorista:</strong> Em observância às diretivas de segurança física dos condutores, a aplicação exibe publicamente aos passageiros apenas o prefixo numérico operacional da viatura (ex: <em>Viatura 12</em>) e a respetiva matrícula oficial (ex: <em>LD-92-33-PX</em>), protegendo os contactos pessoais e a privacidade do motorista.
+                    </p>
+
+                    <p>
+                      <strong>8. Proteção de Dados e Direito de Eliminação:</strong> Os dados de geolocalização e histórico de viagens são encriptados e processados exclusivamente para fins operacionais da rede SUPER Táxi e do Firestore, em inteira conformidade com a legislação angolana de proteção de dados. O utilizador pode solicitar a eliminação definitiva dos seus dados a qualquer momento via painel de Reclamações, sendo a conta eliminada em até 48 horas operacionais.
+                    </p>
+
+                    <p>
+                      <strong>9. Transparência Tarifária e Pagamentos:</strong> Os valores de corrida indicados no momento da solicitação ou acordados previamente no canal oficial são finais. É estritamente vedada a cobrança de sobretaxas não contratadas a bordo. O pagamento pode ser feito em dinheiro físico ou por transferência bancária (Kwanza - AOA).
+                    </p>
+
+                    <p>
+                      <strong>10. Política de Cancelamentos e Assiduidade:</strong> Cancelamentos injustificados e reiterados após o descolamento ou chegada da viatura ao ponto de recolha causam prejuízos à frota e poderão originar a aplicação de restrições temporárias na realização de novos pedidos.
+                    </p>
+
+                    <p>
+                      <strong>11. Continuidade Operacional Offline (Rede Móvel / SMS / Chamada):</strong> Em situações de oscilação ou quebra na transmissão de dados de internet móvel, a Central de Proteção JIS aciona automaticamente o canal analógico redundante (Chamadas de Voz e SMS) para garantir o contacto e o reencaminhamento seguro do passageiro.
+                    </p>
+
+                    <p>
+                      <strong>12. Política de Achados e Perdidos:</strong> Quaisquer bens, documentos ou dispositivos esquecidos no interior dos táxis da rede serão recolhidos pelo condutor e depositados na Central da PSM Comercial (SU), Lda no Luena. O proprietário dispõe do prazo de 30 dias para efetuar a recolha mediante comprovação de identidade.
+                    </p>
+
+                    <p>
+                      <strong>13. Utilização de Bónus e Cupões Promocionais:</strong> Quaisquer saldos de bónus ou créditos promocionais atribuídos pela administração da JIS ANGOLA são pessoais, intransferíveis e aplicáveis única e exclusivamente como desconto na contratação de corridas no aplicativo oficial SUPER Táxi.
+                    </p>
+
+                    <p>
+                      <strong>14. Jurisdição e Resolução de Litígios:</strong> O presente regulamento rege-se pelas leis da República de Angola. Quaisquer divergências ou litígios não resolvidos por via amigável com a Central de Atendimento serão submetidos ao foro da comarca da província do Moxico (Luena).
                     </p>
                   </div>
 

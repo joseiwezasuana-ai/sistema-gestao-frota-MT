@@ -1186,7 +1186,13 @@ export default function RevenueManagement({ user }: { user: any }) {
       {/* Archived Records Modal */}
       <AnimatePresence>
         {isHistoryModalOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <motion.div 
+            key="history-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          >
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1349,14 +1355,20 @@ export default function RevenueManagement({ user }: { user: any }) {
                 </div>
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
       {/* Manual Revenue Declaration Modal */}
       <AnimatePresence>
         {isManualDeclareOpen && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <motion.div 
+            key="manual-declare-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          >
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1574,7 +1586,7 @@ export default function RevenueManagement({ user }: { user: any }) {
                 </div>
               </form>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -1590,7 +1602,13 @@ export default function RevenueManagement({ user }: { user: any }) {
       {/* Treasury Critical Alerts Management Modal */}
       <AnimatePresence>
         {isRevenueAlertsModalOpen && (
-          <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <motion.div 
+            key="revenue-alerts-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1688,7 +1706,7 @@ export default function RevenueManagement({ user }: { user: any }) {
                 </button>
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

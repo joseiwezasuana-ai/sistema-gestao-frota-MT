@@ -96,10 +96,11 @@ export default function RealTimeMonitor({ user, initialSubTab }: RealTimeMonitor
       { id: 'sos', roles: ['admin', 'operator'] },
     ];
     const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
-    const hasPermission = isMasterAdmin || tabsList.find(t => t.id === activeSubTab)?.roles.includes(user?.role);
+    const isManagerOrAdmin = isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente';
+    const hasPermission = isManagerOrAdmin || tabsList.find(t => t.id === activeSubTab)?.roles.includes(user?.role);
     if (!hasPermission) {
       const allowed = tabsList.filter(tab => {
-        if (isMasterAdmin) return true;
+        if (isManagerOrAdmin) return true;
         return tab.roles.includes(user?.role);
       });
       if (allowed.length > 0) {
@@ -418,7 +419,7 @@ export default function RealTimeMonitor({ user, initialSubTab }: RealTimeMonitor
              ]
              .filter(tab => {
                const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
-               if (isMasterAdmin) return true;
+               if (isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente') return true;
                return tab.roles.includes(user?.role);
              })
              .map((tab) => (

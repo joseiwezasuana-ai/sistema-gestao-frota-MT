@@ -266,7 +266,13 @@ export default function CompanyPhones() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <motion.div 
+            key="phone-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] flex items-center justify-center p-4"
+          >
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -402,7 +408,7 @@ export default function CompanyPhones() {
                 </div>
               </form>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

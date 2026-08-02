@@ -27,11 +27,23 @@ import {
   Pencil,
   Printer,
   Package,
+  Trophy,
+  Award,
+  Crown,
+  Medal,
+  Sparkles,
+  Star,
+  Zap,
+  DollarSign,
+  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { jsPDF } from "jspdf";
 import html2canvas from 'html2canvas';
 import { InvoiceViewerModal } from './InvoiceViewerModal';
+import DriverDiscountsAudit, { DiscountAuditLog } from "./DriverDiscountsAudit";
+import DriverSubsidiesAudit, { SubsidyAuditLog } from "./DriverSubsidiesAudit";
+import { Gift } from "lucide-react";
 import autoTable from "jspdf-autotable";
 import {
   BarChart,
@@ -68,13 +80,14 @@ import InvoiceDrafting from "./InvoiceDrafting";
 
 export default function AccountingManager({ user }: { user?: any }) {
   const [activeView, setActiveView] = useState<
-    "revenue" | "income" | "salaries" | "individual" | "balance" | "invoicing"
+    "revenue" | "income" | "salaries" | "individual" | "balance" | "invoicing" | "ranking" | "discounts_audit" | "subsidies_audit"
   >("income");
   const [currentMonth] = useState(new Date().toISOString().slice(0, 7));
   const [finalizedRevenues, setFinalizedRevenues] = useState<any[]>([]);
   const [allRevenues, setAllRevenues] = useState<any[]>([]);
   const [salarySheets, setSalarySheets] = useState<any[]>([]);
   const [individualReports, setIndividualReports] = useState<any[]>([]);
+  const [driversMaster, setDriversMaster] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [editingReport, setEditingReport] = useState<string | null>(null);
@@ -95,6 +108,459 @@ export default function AccountingManager({ user }: { user?: any }) {
     address: string;
     logoUrl?: string;
   } | null>(null);
+
+  // Estados e filtros para Classificação de Produção dos Motoristas (Ranking JIS)
+  const [rankingSearchTerm, setRankingSearchTerm] = useState("");
+  const [rankingPeriodFilter, setRankingPeriodFilter] = useState<"all" | "current_month">("current_month");
+
+  // Estados e Log de Auditoria para Descontos dos Motoristas
+  const [discountAuditLogs, setDiscountAuditLogs] = useState<DiscountAuditLog[]>(() => {
+    try {
+      const saved = localStorage.getItem('jis_discount_audit_logs_v1');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("Erro ao carregar auditoria de descontos:", e);
+    }
+    return [
+      {
+        id: "AUD-892101",
+        driverId: "drv-1",
+        driverName: "António Manuel",
+        category: "manutencao",
+        categoryLabel: "Manutenção / Reparação",
+        amount: 5500,
+        date: new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toISOString(),
+        motive: "Substituição de pastilhas de travão por uso indevido.",
+        registeredBy: "JIS Operações",
+      },
+      {
+        id: "AUD-892102",
+        driverId: "drv-2",
+        driverName: "Mateus Domingos",
+        category: "multas",
+        categoryLabel: "Multa de Trânsito",
+        amount: 3000,
+        date: new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toISOString(),
+        motive: "Excesso de velocidade na travessia Luena-Moxico (>80km/h).",
+        registeredBy: "Auditoria Financeira",
+      }
+    ];
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('jis_discount_audit_logs_v1', JSON.stringify(discountAuditLogs));
+    } catch (e) {
+      console.error("Erro ao guardar auditoria de descontos:", e);
+    }
+  }, [discountAuditLogs]);
+
+  const handleAddDiscountLog = (newLog: Omit<DiscountAuditLog, "id" | "timestamp">) => {
+    const fullLog: DiscountAuditLog = {
+      ...newLog,
+      id: `AUD-${Math.floor(100000 + Math.random() * 900000)}`,
+      timestamp: new Date().toISOString(),
+    };
+
+    setDiscountAuditLogs(prev => [fullLog, ...prev]);
+
+    // Atualiza automaticamente o mapa customDriverDiscounts
+    const key = (newLog.driverId || newLog.driverName || '').toLowerCase().trim();
+    setCustomDriverDiscounts(prev => {
+      const current = prev[key] || { manutencao: 0, multas: 0, adiantamentos: 0, outros: 0 };
+      const updated = { ...current };
+      if (newLog.category === "manutencao") updated.manutencao += newLog.amount;
+      else if (newLog.category === "multas") updated.multas += newLog.amount;
+      else if (newLog.category === "adiantamentos") updated.adiantamentos += newLog.amount;
+      else updated.outros += newLog.amount;
+
+      return {
+        ...prev,
+        [key]: updated,
+      };
+    });
+  };
+
+  const handleDeleteDiscountLog = (logId: string) => {
+    const logToDelete = discountAuditLogs.find((l) => l.id === logId);
+    setDiscountAuditLogs((prev) => prev.filter((l) => l.id !== logId));
+
+    if (logToDelete) {
+      const key = (logToDelete.driverId || logToDelete.driverName || "")
+        .toLowerCase()
+        .trim();
+      setCustomDriverDiscounts((prev) => {
+        const current = prev[key];
+        if (!current) return prev;
+        const updated = { ...current };
+        if (logToDelete.category === "manutencao") {
+          updated.manutencao = Math.max(0, updated.manutencao - logToDelete.amount);
+        } else if (logToDelete.category === "multas") {
+          updated.multas = Math.max(0, updated.multas - logToDelete.amount);
+        } else if (logToDelete.category === "adiantamentos") {
+          updated.adiantamentos = Math.max(0, updated.adiantamentos - logToDelete.amount);
+        } else {
+          updated.outros = Math.max(0, updated.outros - logToDelete.amount);
+        }
+        return {
+          ...prev,
+          [key]: updated,
+        };
+      });
+    }
+  };
+
+  const handleResetDiscountLogs = () => {
+    setDiscountAuditLogs([]);
+    setCustomDriverDiscounts({});
+    try {
+      localStorage.removeItem("jis_discount_audit_logs_v1");
+    } catch (e) {
+      console.error("Erro ao zerar auditoria de descontos:", e);
+    }
+  };
+
+  // Estados e Log de Auditoria para Subsídios e Bónus dos Motoristas
+  const [subsidyAuditLogs, setSubsidyAuditLogs] = useState<SubsidyAuditLog[]>(() => {
+    try {
+      const saved = localStorage.getItem('jis_subsidy_audit_logs_v1');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("Erro ao carregar auditoria de subsídios:", e);
+    }
+    return [
+      {
+        id: "SUB-891001",
+        driverId: "drv-1",
+        driverName: "António Manuel",
+        category: "alimentacao",
+        categoryLabel: "Subsídio de Alimentação",
+        amount: 15000,
+        date: new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toISOString(),
+        motive: "Subsídio de Alimentação mensal aprovado pela direção.",
+        registeredBy: "JIS Operações",
+      },
+      {
+        id: "SUB-891002",
+        driverId: "drv-2",
+        driverName: "Mateus Domingos",
+        category: "desempenho",
+        categoryLabel: "Prémio de Desempenho / Meta",
+        amount: 25000,
+        date: new Date().toISOString().slice(0, 10),
+        timestamp: new Date().toISOString(),
+        motive: "Superação da meta semanal de produção em 120%.",
+        registeredBy: "Auditoria Financeira",
+      }
+    ];
+  });
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('jis_subsidy_audit_logs_v1', JSON.stringify(subsidyAuditLogs));
+    } catch (e) {
+      console.error("Erro ao guardar auditoria de subsídios:", e);
+    }
+  }, [subsidyAuditLogs]);
+
+  const handleAddSubsidyLog = (newLog: Omit<SubsidyAuditLog, "id" | "timestamp">) => {
+    const fullLog: SubsidyAuditLog = {
+      ...newLog,
+      id: `SUB-${Math.floor(100000 + Math.random() * 900000)}`,
+      timestamp: new Date().toISOString(),
+    };
+    setSubsidyAuditLogs(prev => [fullLog, ...prev]);
+  };
+
+  const handleDeleteSubsidyLog = (logId: string) => {
+    setSubsidyAuditLogs(prev => prev.filter(l => l.id !== logId));
+  };
+
+  const handleResetSubsidyLogs = () => {
+    setSubsidyAuditLogs([]);
+    try {
+      localStorage.removeItem("jis_subsidy_audit_logs_v1");
+    } catch (e) {
+      console.error("Erro ao zerar auditoria de subsídios:", e);
+    }
+  };
+
+  // Estados para Lançamento de Descontos por Motorista (Manutenção, Multas, Adiantamentos)
+  const [customDriverDiscounts, setCustomDriverDiscounts] = useState<Record<string, {
+    manutencao: number;
+    multas: number;
+    adiantamentos: number;
+    outros: number;
+  }>>({});
+  const [selectedDriverForDiscount, setSelectedDriverForDiscount] = useState<any | null>(null);
+  const [discountForm, setDiscountForm] = useState({
+    manutencao: 0,
+    multas: 0,
+    adiantamentos: 0,
+    outros: 0,
+  });
+
+  const handleOpenDiscountModal = (driver: any) => {
+    setSelectedDriverForDiscount(driver);
+    const key = (driver.driverId || driver.driverName || '').toLowerCase().trim();
+    const existing = customDriverDiscounts[key] || { manutencao: 0, multas: 0, adiantamentos: 0, outros: 0 };
+    setDiscountForm(existing);
+  };
+
+  const handleSaveDriverDiscounts = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDriverForDiscount) return;
+    const key = (selectedDriverForDiscount.driverId || selectedDriverForDiscount.driverName || '').toLowerCase().trim();
+    setCustomDriverDiscounts(prev => ({
+      ...prev,
+      [key]: {
+        manutencao: Number(discountForm.manutencao) || 0,
+        multas: Number(discountForm.multas) || 0,
+        adiantamentos: Number(discountForm.adiantamentos) || 0,
+        outros: Number(discountForm.outros) || 0,
+      }
+    }));
+    setSelectedDriverForDiscount(null);
+  };
+
+  // Cálculo memoizado de ranking de produção (do 1º ao último colocado)
+  const driverRankingList = React.useMemo(() => {
+    const driverMap = new Map<string, {
+      driverId: string;
+      driverName: string;
+      prefix: string;
+      plate: string;
+      totalGross: number;
+      totalExpenses: number;
+      totalDiscounts: number;
+      totalNet: number;
+      logCount: number;
+      status: string;
+    }>();
+
+    // 1. Motoristas cadastrados no driversMaster
+    (driversMaster || []).forEach((d: any) => {
+      const nameKey = (d.name || d.driverName || '').trim();
+      const idKey = d.id || d.driverId || nameKey;
+      if (idKey || nameKey) {
+        const key = nameKey ? nameKey.toLowerCase() : idKey;
+        driverMap.set(key, {
+          driverId: d.id || d.driverId || '',
+          driverName: d.name || d.driverName || 'Motorista',
+          prefix: d.prefix || d.code || 'N/A',
+          plate: d.plate || d.vehiclePlate || 'LD-92-33-PX',
+          totalGross: 0,
+          totalExpenses: 0,
+          totalDiscounts: 0,
+          totalNet: 0,
+          logCount: 0,
+          status: d.status || 'ativo',
+        });
+      }
+    });
+
+    // 2. Registos de rendimento em allRevenues
+    (allRevenues || []).forEach((rev: any) => {
+      if (rev.status === 'archived' || rev.status === 'rejected_by_operator' || rev.status === 'rejected_by_accountant') {
+        return;
+      }
+      
+      if (rankingPeriodFilter === "current_month") {
+        const rMonth = rev.date ? rev.date.slice(0, 7) : (rev.timestamp ? rev.timestamp.slice(0, 7) : '');
+        if (rMonth && rMonth !== currentMonth) return;
+      }
+
+      const driverNameStr = (rev.driverName || '').trim();
+      const key = driverNameStr ? driverNameStr.toLowerCase() : (rev.driverId || '');
+      if (!key) return;
+
+      const gross = (rev.breakdown?.tpa || 0) + (rev.breakdown?.cash || 0) + (rev.breakdown?.transfer || 0) || (rev.amount || 0);
+      const exp = rev.breakdown?.expenses || 0;
+      const disc = rev.breakdown?.discounts || rev.discounts || rev.discountValue || 0;
+      const net = gross - exp - disc;
+
+      if (driverMap.has(key)) {
+        const existing = driverMap.get(key)!;
+        existing.totalGross += gross;
+        existing.totalExpenses += exp;
+        existing.totalDiscounts += disc;
+        existing.totalNet += net;
+        existing.logCount += 1;
+        if (rev.prefix && (existing.prefix === 'N/A' || !existing.prefix)) existing.prefix = rev.prefix;
+        if (rev.plate && existing.plate === 'LD-92-33-PX') existing.plate = rev.plate;
+      } else {
+        driverMap.set(key, {
+          driverId: rev.driverId || '',
+          driverName: rev.driverName || 'Motorista',
+          prefix: rev.prefix || 'N/A',
+          plate: rev.plate || 'LD-92-33-PX',
+          totalGross: gross,
+          totalExpenses: exp,
+          totalDiscounts: disc,
+          totalNet: net,
+          logCount: 1,
+          status: 'ativo',
+        });
+      }
+    });
+
+    // 3. Sincronizar com relatórios individuais se houver valores superiores
+    (individualReports || []).forEach((rep: any) => {
+      const driverNameStr = (rep.driverName || '').trim();
+      const key = driverNameStr ? driverNameStr.toLowerCase() : (rep.driverId || '');
+      if (!key) return;
+
+      const repGross = rep.totalGross || 0;
+      const repDisc = rep.totalDiscounts || rep.discounts || rep.descontoDanos || 0;
+      if (driverMap.has(key)) {
+        const existing = driverMap.get(key)!;
+        if (repGross > existing.totalGross) {
+          existing.totalGross = repGross;
+          existing.totalNet = rep.totalNet || repGross;
+          if (rep.totalExpenses) existing.totalExpenses = rep.totalExpenses;
+          if (repDisc > existing.totalDiscounts) existing.totalDiscounts = repDisc;
+        }
+      } else {
+        driverMap.set(key, {
+          driverId: rep.driverId || '',
+          driverName: rep.driverName || 'Motorista',
+          prefix: rep.prefix || 'N/A',
+          plate: rep.plate || 'LD-92-33-PX',
+          totalGross: repGross,
+          totalExpenses: rep.totalExpenses || 0,
+          totalDiscounts: repDisc,
+          totalNet: rep.totalNet || repGross,
+          logCount: rep.workingDays || 1,
+          status: 'ativo',
+        });
+      }
+    });
+
+    const list = Array.from(driverMap.values());
+    // Aplicação dos descontos operacionais manuais (Manutenção, Multas, Adiantamentos, Outros)
+    list.forEach((driver) => {
+      const key = (driver.driverId || driver.driverName || '').toLowerCase().trim();
+      const custom = customDriverDiscounts[key] || { manutencao: 0, multas: 0, adiantamentos: 0, outros: 0 };
+      const customTotal = (custom.manutencao || 0) + (custom.multas || 0) + (custom.adiantamentos || 0) + (custom.outros || 0);
+      driver.totalDiscounts += customTotal;
+      driver.totalNet = driver.totalGross - driver.totalExpenses - driver.totalDiscounts;
+    });
+
+    // Ordenar estritamente por produção bruta decrescente (do 1º ao último)
+    list.sort((a, b) => b.totalGross - a.totalGross);
+
+    return list;
+  }, [driversMaster, allRevenues, individualReports, currentMonth, rankingPeriodFilter, customDriverDiscounts]);
+
+  const filteredRankingList = React.useMemo(() => {
+    if (!rankingSearchTerm.trim()) return driverRankingList;
+    const term = rankingSearchTerm.toLowerCase();
+    return driverRankingList.filter(
+      (d) =>
+        d.driverName.toLowerCase().includes(term) ||
+        d.prefix.toLowerCase().includes(term) ||
+        d.plate.toLowerCase().includes(term)
+    );
+  }, [driverRankingList, rankingSearchTerm]);
+
+  const exportRankingToPDF = () => {
+    try {
+      const doc = new jsPDF();
+      const tenantName = activeTenantData?.name || 'PSM COMERCIAL (SU), LDA • JIS ANGOLA';
+
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 38, 'F');
+
+      doc.setTextColor(245, 158, 11);
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.text("SUPER TÁXI • TAXICONTROL (JIS ANGOLA)", 14, 16);
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("RELATÓRIO DE CLASSIFICAÇÃO DE PRODUÇÃO DOS MOTORISTAS", 14, 25);
+
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Entidade: ${tenantName} | Emissão: ${new Date().toLocaleDateString('pt-AO')} | Período: ${rankingPeriodFilter === 'current_month' ? currentMonth : 'Histórico Consolidado'}`, 14, 32);
+
+      const top1 = driverRankingList[0];
+      const top2 = driverRankingList[1];
+      const top3 = driverRankingList[2];
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text("PÓDIO DE DESTAQUES (TOP 3 PRODUTORES)", 14, 46);
+
+      let topText = "";
+      if (top1) topText += `1º LUGAR (OURO): ${top1.driverName} - ${top1.totalGross.toLocaleString('pt-AO')} Kz\n`;
+      if (top2) topText += `2º LUGAR (PRATA): ${top2.driverName} - ${top2.totalGross.toLocaleString('pt-AO')} Kz\n`;
+      if (top3) topText += `3º LUGAR (BRONZE): ${top3.driverName} - ${top3.totalGross.toLocaleString('pt-AO')} Kz`;
+
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text(topText, 14, 52);
+
+      const highestGross = top1?.totalGross || 1;
+      const tableData = driverRankingList.map((driver, index) => {
+        const pos = index + 1;
+        const posLabel = pos === 1 ? '1º (OURO)' : pos === 2 ? '2º (PRATA)' : pos === 3 ? '3º (BRONZE)' : `${pos}º`;
+        const salary10Pct = driver.totalGross * 0.1;
+        const pctOfLeader = highestGross > 0 ? ((driver.totalGross / highestGross) * 100).toFixed(1) + '%' : '0%';
+
+        return [
+          posLabel,
+          driver.driverName,
+          `${driver.logCount} dia(s)`,
+          `${driver.totalGross.toLocaleString('pt-AO')} Kz`,
+          `${driver.totalExpenses.toLocaleString('pt-AO')} Kz`,
+          `${driver.totalDiscounts.toLocaleString('pt-AO')} Kz`,
+          `${salary10Pct.toLocaleString('pt-AO')} Kz`,
+          pctOfLeader,
+        ];
+      });
+
+      autoTable(doc, {
+        startY: top3 ? 68 : 56,
+        head: [['Posição', 'Motorista', 'Registos', 'Produção Bruta', 'Custos', 'Descontos', 'Salário 10%', '% do Líder']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [245, 158, 11],
+          fontStyle: 'bold',
+          fontSize: 8,
+        },
+        bodyStyles: {
+          fontSize: 7.5,
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 26 },
+          1: { fontStyle: 'bold' },
+          3: { fontStyle: 'bold', textColor: [16, 185, 129] },
+          5: { fontStyle: 'bold', textColor: [225, 29, 72] },
+          6: { fontStyle: 'bold', textColor: [245, 158, 11] },
+        },
+      });
+
+      const finalY = (doc as any).lastAutoTable?.finalY || 200;
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Documento emitido automaticamente pela Central de Contabilidade TaxiControl (JIS ANGOLA). Auditado para apuramento de prémios de produtividade.`, 14, finalY + 12);
+
+      doc.save(`Classificacao_Producao_Motoristas_${currentMonth}.pdf`);
+    } catch (err) {
+      console.error("Erro ao gerar PDF de classificação:", err);
+      alert("Erro ao exportar o documento PDF do Ranking.");
+    }
+  };
 
   // Filtros rápidos para conciliação mensal na aba de Relatório Individual Analítico
   const monthlyPendingLogs = allRevenues.filter(r => {
@@ -214,8 +680,6 @@ export default function AccountingManager({ user }: { user?: any }) {
   const [editingAdminStaffId, setEditingAdminStaffId] = useState<string | null>(
     null,
   );
-
-  const [driversMaster, setDriversMaster] = useState<any[]>([]);
 
   useEffect(() => {
     // Fetch Active Tenant Info
@@ -375,19 +839,57 @@ export default function AccountingManager({ user }: { user?: any }) {
     const subsAliment = person.subsAliment || 0;
     const subsTransp = person.subsTransp || 0;
     
+    // Determine exact days worked, respecting 0 when no days are logged
+    const daysWorked = person.days ?? person.logCount ?? person.diasTrabalho ?? (person.role === "Motorista" ? 0 : 30);
+
+    // Cross-reference with subsidyAuditLogs for real-time synchronization
+    const pName = (person.name || person.driverName || "").toLowerCase().trim();
+    const pId = (person.id || person.driverId || "").toLowerCase().trim();
+
+    const matchedSubsidyLogs = (subsidyAuditLogs || []).filter((log) => {
+      const lName = (log.driverName || "").toLowerCase().trim();
+      const lId = (log.driverId || "").toLowerCase().trim();
+      return (pName && lName === pName) || (pId && lId === pId);
+    });
+
+    const sumAlimentacao = matchedSubsidyLogs
+      .filter((l) => l.category === "alimentacao")
+      .reduce((a, c) => a + Number(c.amount || 0), 0);
+    const sumTransporte = matchedSubsidyLogs
+      .filter((l) => l.category === "transporte")
+      .reduce((a, c) => a + Number(c.amount || 0), 0);
+    const sumFerias = matchedSubsidyLogs
+      .filter((l) => l.category === "ferias")
+      .reduce((a, c) => a + Number(c.amount || 0), 0);
+    const sumReforco = matchedSubsidyLogs
+      .filter((l) => l.category === "reforco" || l.category === "desempenho" || l.category === "ajudas_custo" || l.category === "outros")
+      .reduce((a, c) => a + Number(c.amount || 0), 0);
+    const sumRenda1 = matchedSubsidyLogs
+      .filter((l) => l.category === "renda1")
+      .reduce((a, c) => a + Number(c.amount || 0), 0);
+    const sumRenda2 = matchedSubsidyLogs
+      .filter((l) => l.category === "renda2")
+      .reduce((a, c) => a + Number(c.amount || 0), 0);
+    const sumRenda3 = matchedSubsidyLogs
+      .filter((l) => l.category === "renda3")
+      .reduce((a, c) => a + Number(c.amount || 0), 0);
+
+    const baseAliment = subs > 0 ? subs / 2 : subsAliment;
+    const baseTransp = subs > 0 ? subs / 2 : subsTransp;
+    
     setActiveReceipt({
       name: person.name || person.driverName,
       categoria: person.role || "Colaborador",
-      dataProcessamento: new Date().toLocaleDateString(),
-      diasTrabalho: person.days || 30,
+      dataProcessamento: new Date().toLocaleDateString("pt-PT"),
+      diasTrabalho: daysWorked,
       salarioBase: person.baseSalary || person.commissions || 0,
-      subsidioAlimentacao: subs > 0 ? subs / 2 : subsAliment,
-      subsidioTransporte: subs > 0 ? subs / 2 : subsTransp,
-      subsidioFerias: person.subsidioFerias || 0,
-      subsidioReforco: person.subsidioReforco || 0,
-      subsidioRenda1: person.subsidioRenda1 || 0,
-      subsidioRenda2: person.subsidioRenda2 || 0,
-      subsidioRenda3: person.subsidioRenda3 || 0,
+      subsidioAlimentacao: (person.subsidioAlimentacao ?? baseAliment) + sumAlimentacao,
+      subsidioTransporte: (person.subsidioTransporte ?? baseTransp) + sumTransporte,
+      subsidioFerias: (person.subsidioFerias || 0) + sumFerias,
+      subsidioReforco: (person.subsidioReforco || 0) + sumReforco,
+      subsidioRenda1: (person.subsidioRenda1 || 0) + sumRenda1,
+      subsidioRenda2: (person.subsidioRenda2 || 0) + sumRenda2,
+      subsidioRenda3: (person.subsidioRenda3 || 0) + sumRenda3,
       descontoDanos: person.descontoDanos || 0,
       numeroFaltas: person.numeroFaltas || 0,
       outrosDescontos: person.discounts || person.totalDiscounts || 0,
@@ -416,32 +918,72 @@ export default function AccountingManager({ user }: { user?: any }) {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
       const { totalRemun, totalDisc, net } = calculateReceiptTotals(data);
+      const docCode = `BIL-SAL-PSM-${Math.floor(100000 + Math.random() * 900000)}`;
+      const issueDate = `${new Date().toLocaleDateString("pt-PT")} ${new Date().toLocaleTimeString("pt-PT")}`;
 
-      // Header
-      doc.setFontSize(22);
-      doc.setTextColor(15, 23, 42); 
-      doc.text(activeTenantData?.name.toUpperCase() || "PSM COMERCIAL LUENA MOXICO", pageWidth / 2, 20, { align: "center" });
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139);
-      doc.text("RECIBO DE SALÁRIO - PROCESSAMENTO ELECTRÓNICO", pageWidth / 2, 28, { align: "center" });
-      doc.setDrawColor(226, 232, 240);
-      doc.line(15, 35, pageWidth - 15, 35);
+      // Timbre Oficial PSM - Faixa Superior Slate-900 com Detalhes Amber
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.rect(0, 0, 210, 42, "F");
 
-      // Info Table
-      doc.setFontSize(10);
+      doc.setFillColor(245, 158, 11); // amber-500
+      doc.rect(0, 41, 210, 1.5, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(15);
+      doc.text("PSM COMERCIAL (SU), LDA • SUPER TÁXI", 14, 14);
+
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(251, 191, 36);
+      doc.text("DEPARTAMENTO DE RECURSOS HUMANOS & CONTABILIDADE CENTRAL", 14, 20);
+
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(203, 213, 225);
+      doc.text("Filial Principal: Luena, Província do Moxico • República de Angola | NIF: 5417089201", 14, 26);
+      doc.text(`Cód Ref: ${docCode} | Período: ${receiptMonth} | Emissão: ${issueDate}`, 14, 31);
+      doc.text("Sistema Oficial JIS ANGOLA • TAXICONTROL HUB", 14, 36);
+
+      // Carimbo Digital de Verificação no Timbre
+      doc.setDrawColor(245, 158, 11);
+      doc.setFillColor(30, 41, 59);
+      doc.roundedRect(150, 7, 48, 28, 3, 3, "FD");
+      doc.setTextColor(251, 191, 36);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.text("TIMBRE OFICIAL", 154, 14);
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      doc.text("PSM LUENA MOXICO", 154, 19);
+      doc.text("BILHETE DE SALÁRIO", 154, 24);
+      doc.text("PROCESSADO POR COMPUTADOR", 154, 29);
+
+      // Title
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
       doc.setTextColor(15, 23, 42);
-      doc.text(`NOME: ${data.name}`, 15, 45);
-      doc.text(`CATEGORIA: ${data.categoria}`, 15, 51);
-      doc.text(`DATA: ${data.dataProcessamento}`, pageWidth - 15, 45, { align: "right" });
-      doc.text(`MÊS REF: ${receiptMonth}`, pageWidth - 15, 51, { align: "right" });
+      doc.text("BILHETE DE SALÁRIO E DEMONSTRATIVO DE RENDIMENTOS", pageWidth / 2, 52, { align: "center" });
+
+      // Info Table Box
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 23, 42);
+      doc.text(`COLABORADOR: ${data.name.toUpperCase()}`, 14, 61);
+      doc.text(`CATEGORIA: ${data.categoria.toUpperCase()}`, 14, 67);
+      doc.text(`DIAS TRABALHADOS: ${data.diasTrabalho} DIAS`, 14, 73);
+
+      doc.text(`DATA PROCESSAMENTO: ${data.dataProcessamento}`, pageWidth - 14, 61, { align: "right" });
+      doc.text(`MÊS REFERÊNCIA: ${receiptMonth}`, pageWidth - 14, 67, { align: "right" });
+      doc.text(`ENTIDADE PATRONAL: PSM COMERCIAL (SU), LDA`, pageWidth - 14, 73, { align: "right" });
 
       // Remunerations
       const remunerations = [
-        ["Dias de Trabalho", `${data.diasTrabalho} dias`],
-        ["Salário Base", `${Number(data.salarioBase)?.toLocaleString()} Kz`],
-        ["Subsídio de Férias", `${Number(data.subsidioFerias)?.toLocaleString()} Kz`],
+        ["Salário Base / Produção", `${Number(data.salarioBase)?.toLocaleString()} Kz`],
         ["Subsídio de Alimentação", `${Number(data.subsidioAlimentacao)?.toLocaleString()} Kz`],
         ["Subsídio de Transporte", `${Number(data.subsidioTransporte)?.toLocaleString()} Kz`],
+        ["Subsídio de Férias", `${Number(data.subsidioFerias)?.toLocaleString()} Kz`],
         ["Subsídio de Reforço", `${Number(data.subsidioReforco)?.toLocaleString()} Kz`],
         ["Subsídio de Renda 1", `${Number(data.subsidioRenda1)?.toLocaleString()} Kz`],
         ["Subsídio de Renda 2", `${Number(data.subsidioRenda2)?.toLocaleString()} Kz`],
@@ -449,45 +991,72 @@ export default function AccountingManager({ user }: { user?: any }) {
       ];
 
       const discountsTable = [
-        ["Desconto de Danos", `${Number(data.descontoDanos)?.toLocaleString()} Kz`],
+        ["Desconto de Danos / Avarias", `${Number(data.descontoDanos)?.toLocaleString()} Kz`],
         ["Nº de Faltas", `${data.numeroFaltas}`],
-        ["Outros Descontos", `${Number(data.outrosDescontos)?.toLocaleString()} Kz`],
+        ["Outros Descontos Auditados (Multas / Válens)", `${Number(data.outrosDescontos)?.toLocaleString()} Kz`],
       ];
 
       autoTable(doc, {
-        startY: 60,
-        head: [["REMUNERAÇÕES", "VALOR"]],
+        startY: 78,
+        head: [["CRÉDITOS DE REMUNERAÇÃO", "VALOR (KZ)"]],
         body: remunerations,
         theme: "striped",
-        headStyles: { fillColor: [15, 23, 42] },
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+        styles: { fontSize: 8 },
+        columnStyles: { 0: { cellWidth: 130 }, 1: { cellWidth: 50, halign: "right", fontStyle: "bold" } }
       });
 
       autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 10,
-        head: [["DESCONTOS", "VALOR"]],
+        startY: (doc as any).lastAutoTable.finalY + 5,
+        head: [["DEDUÇÕES & ABATES AUDITADOS", "VALOR (KZ)"]],
         body: discountsTable,
         theme: "striped",
-        headStyles: { fillColor: [220, 38, 38] },
+        headStyles: { fillColor: [225, 29, 72], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+        styles: { fontSize: 8 },
+        columnStyles: { 0: { cellWidth: 130 }, 1: { cellWidth: 50, halign: "right", fontStyle: "bold" } }
       });
 
-      const finalY = (doc as any).lastAutoTable.finalY + 15;
-      doc.setFontSize(11);
+      const finalY = (doc as any).lastAutoTable.finalY + 10;
+      doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
-      doc.text(`TOTAL BRUTO: ${totalRemun.toLocaleString()} Kz`, pageWidth - 15, finalY, { align: "right" });
-      doc.text(`TOTAL DESCONTOS: ${totalDisc.toLocaleString()} Kz`, pageWidth - 15, finalY + 7, { align: "right" });
-      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`TOTAL BRUTO REMUNERAÇÕES: ${totalRemun.toLocaleString()} Kz`, pageWidth - 14, finalY, { align: "right" });
+      doc.setTextColor(225, 29, 72);
+      doc.text(`TOTAL DEDUÇÕES E ABATES: -${totalDisc.toLocaleString()} Kz`, pageWidth - 14, finalY + 6, { align: "right" });
+      
+      doc.setFontSize(12);
       doc.setTextColor(16, 185, 129);
-      doc.text(`SALÁRIO LÍQUIDO: ${net.toLocaleString()} Kz`, pageWidth - 15, finalY + 18, { align: "right" });
+      doc.text(`VALOR LÍQUIDO A RECEBER: ${net.toLocaleString()} Kz`, pageWidth - 14, finalY + 15, { align: "right" });
+
+      // Signatures
+      const sigY = finalY + 34;
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 41, 59);
+
+      doc.text("__________________________________________", 20, sigY);
+      doc.text("O Colaborador / Beneficiário", 28, sigY + 5);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Data: ____/____/2026`, 32, sigY + 9);
 
       doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text("__________________________________________", 120, sigY);
+      doc.text("Pela Direção de RH & Finanças", 128, sigY + 5);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text("PSM COMERCIAL (SU), LDA • LUENA MOXICO", 122, sigY + 9);
+
+      doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
-      doc.text("Este documento é um recibo de salário gerado electronicamente.", pageWidth / 2, 285, { align: "center" });
+      doc.text("Documento oficial de bilhete de salário emitido com o Timbre Oficial da PSM COMERCIAL (SU), LDA.", pageWidth / 2, 285, { align: "center" });
 
       const tenantSlug = activeTenantData?.id.toUpperCase() || "JIS";
-      doc.save(`RECIBO_${tenantSlug}_${data.name}_${receiptMonth}.pdf`);
+      doc.save(`RECIBO_TIMBRADO_${tenantSlug}_${data.name.replace(/\s+/g, '_')}_${receiptMonth}.pdf`);
     } catch (err) {
       console.error(err);
-      alert("Erro ao gerar PDF.");
+      alert("Erro ao gerar PDF do recibo.");
     }
   };
 
@@ -926,14 +1495,14 @@ export default function AccountingManager({ user }: { user?: any }) {
     if (!isAdmin) return;
     if (
       !confirm(
-        "Deseja zerar o ciclo da contabilidade? Todos os relatórios individuais, folhas de salário, rendimentos e despesas ativos serão arquivados. Esta operação é irreversível.",
+        "ATENÇÃO: Deseja ZERAR o Hub de Contabilidade? Todos os dados de receita, alertas, histórico de análise, folhas de salário, despesas, relatórios individuais e auditorias de descontos serão completamente zerados e limpos. Esta operação é irreversível.",
       )
     )
       return;
 
     setIsProcessing(true);
     try {
-      // 1. Archer Revenue Logs
+      // 1. Archive Revenue Logs
       const revDocs = await getDocs(query(collection(db, "revenue_logs"), where("status", "!=", "archived")));
       
       const chunks = [];
@@ -979,18 +1548,40 @@ export default function AccountingManager({ user }: { user?: any }) {
       internalDocs.docs.forEach(d => internalBatch.update(d.ref, { paymentStatus: "Pendente" }));
       try { await internalBatch.commit(); } catch (e) {}
 
-      // 6. Reset Driver/Vehicle Call Counts (The "2" alert fix)
+      // 6. Reset Calls & Alerts in Firestore
+      try {
+        const callsDocs = await getDocs(query(collection(db, "calls"), where("status", "==", "pending")));
+        const callsBatch = writeBatch(db);
+        callsDocs.docs.forEach(d => callsBatch.update(d.ref, { status: "resolved", resolvedAt: new Date().toISOString() }));
+        await callsBatch.commit();
+      } catch (e) {}
+
+      // 7. Reset Driver/Vehicle Call Counts, Missed Calls & Panic/Speed Alerts
       const driversDocs = await getDocs(collection(db, "drivers"));
       const driversBatch = writeBatch(db);
       driversDocs.docs.forEach(d => {
         driversBatch.update(d.ref, { 
           callCount: 0,
-          recentCalls: [] 
+          missedCalls: 0,
+          recentCalls: [],
+          speedAlerts: [],
+          panicAlerts: [],
+          sos: false,
         });
       });
       try { await driversBatch.commit(); } catch (e) {}
 
-      alert("Ciclo contábil reiniciado com sucesso! Todos os contadores e alertas foram zerados.");
+      // 8. Zerar Descontos e Subsídios Auditados e Limpar LocalStorage
+      handleResetDiscountLogs();
+      handleResetSubsidyLogs();
+
+      // 9. Repor Estados Locais do React a ZERO
+      setAllRevenues([]);
+      setFinalizedRevenues([]);
+      setSalarySheets([]);
+      setIndividualReports([]);
+
+      alert("HUB DE CONTABILIDADE ZERADO COM SUCESSO!\n\nTodos os dados de receita, alertas de chamadas/velocidade, histórico de análise, relatórios individuais e auditoria de descontos foram reposição a zero.");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, "accounting_cycle_reset");
       alert("Erro ao reiniciar ciclo contábil.");
@@ -1382,6 +1973,9 @@ export default function AccountingManager({ user }: { user?: any }) {
         {[
           { id: "revenue", label: "Fluxo de Renda", icon: Wallet, roles: ["operator", "contabilista", "admin"] },
           { id: "income", label: "Mapa de Faturamento", icon: TrendingUp },
+          { id: "ranking", label: "Classificação de Produção", icon: Trophy, roles: ["operator", "contabilista", "admin"] },
+          { id: "discounts_audit", label: "Descontos & Auditoria", icon: ShieldAlert, roles: ["operator", "contabilista", "admin"] },
+          { id: "subsidies_audit", label: "Subsídios & Auditoria", icon: Gift, roles: ["operator", "contabilista", "admin"] },
           { id: "balance", label: "Balanço de Análise", icon: Calculator, roles: ["admin"] },
           { id: "individual", label: "Relatório Individual Analítico", icon: User, roles: ["operator", "contabilista", "admin"] },
           { id: "salaries", label: "Folha de Salários", icon: Users },
@@ -1429,23 +2023,37 @@ export default function AccountingManager({ user }: { user?: any }) {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="w-full max-w-sm bg-[#fffcf5] rounded-[2rem] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.2)] border-2 border-[#e6dfc8] overflow-hidden relative"
             >
-              {/* Decorative Postal Elements */}
-              <div className="absolute top-4 right-4 w-12 h-16 border-2 border-brand-primary/20 rounded flex flex-col items-center justify-center opacity-40">
-                <div className="text-[6px] font-black uppercase text-brand-primary">POSTAL</div>
-                <Package size={16} className="text-brand-primary my-1" />
-                <div className="text-[6px] font-black uppercase text-brand-primary tracking-tighter text-center">PSM LUENA MOXICO</div>
+              {/* TIMBRE OFICIAL DA COMPANHIA */}
+              <div className="bg-slate-900 text-white p-5 relative overflow-hidden border-b-2 border-amber-500">
+                <div className="flex items-center justify-between relative z-10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-amber-500/20 border border-amber-500/40 rounded-xl flex items-center justify-center text-amber-400 font-black">
+                      <ShieldCheck size={20} />
+                    </div>
+                    <div>
+                      <span className="text-[8px] font-black uppercase tracking-[0.25em] text-amber-400 block">
+                        TIMBRE OFICIAL • RH & RECURSOS HUMANOS
+                      </span>
+                      <h3 className="text-sm font-black uppercase tracking-tight italic text-white">
+                        PSM COMERCIAL (SU), LDA
+                      </h3>
+                      <p className="text-[8px] text-slate-300 font-bold uppercase tracking-wider">
+                        SUPER TÁXI • LUENA, MOXICO
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setIsReceiptModalOpen(false)} 
+                    className="w-7 h-7 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
 
-              <div className="p-6 border-b border-dashed border-[#e6dfc8] text-center">
-                <h3 className="text-xl font-black uppercase italic tracking-tighter text-slate-900">Bilhete de Salário</h3>
-                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">Ref: {receiptMonth} • {activeReceipt.dataProcessamento}</p>
-                
-                <button 
-                  onClick={() => setIsReceiptModalOpen(false)} 
-                  className="absolute top-4 left-4 w-8 h-8 flex items-center justify-center bg-slate-200/50 hover:bg-slate-200 rounded-full transition-colors"
-                >
-                  <X size={16} />
-                </button>
+              <div className="p-4 border-b border-dashed border-[#e6dfc8] text-center bg-[#fdfbf7]">
+                <h4 className="text-base font-black uppercase italic tracking-tighter text-slate-900">Bilhete de Salário</h4>
+                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Ref: {receiptMonth} • {activeReceipt.dataProcessamento}</p>
               </div>
 
               <div className="p-6 max-h-[70vh] overflow-y-auto custom-scrollbar space-y-6">
@@ -1532,17 +2140,25 @@ export default function AccountingManager({ user }: { user?: any }) {
               </div>
 
               <div className="p-6 bg-[#f7f3e9] border-t-2 border-dashed border-[#e6dfc8] flex flex-col gap-3">
-                 <button 
-                  onClick={() => handleDownloadReceiptPDF(activeReceipt)}
-                  className="w-full py-4 bg-brand-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-blue-700 transition-all flex items-center justify-center gap-3 shadow-lg shadow-brand-primary/10"
-                 >
-                   <Download size={16} /> Exportar Bilhete PDF
-                 </button>
+                 <div className="grid grid-cols-2 gap-3">
+                   <button 
+                    onClick={() => handleDownloadReceiptPDF(activeReceipt)}
+                    className="w-full py-3.5 bg-brand-primary text-white rounded-2xl text-[9.5px] font-black uppercase tracking-[0.15em] hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand-primary/10 cursor-pointer"
+                   >
+                     <Download size={15} /> Exportar PDF
+                   </button>
+                   <button 
+                    onClick={() => window.print()}
+                    className="w-full py-3.5 bg-slate-900 text-amber-400 rounded-2xl text-[9.5px] font-black uppercase tracking-[0.15em] hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-900/10 cursor-pointer border border-slate-700"
+                   >
+                     <Printer size={15} /> Imprimir Recibo
+                   </button>
+                 </div>
                  <button 
                   onClick={() => handleSendWhatsApp(activeReceipt)}
-                  className="w-full py-4 bg-emerald-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-emerald-600 transition-all flex items-center justify-center gap-3 shadow-lg shadow-emerald-500/10"
+                  className="w-full py-3.5 bg-emerald-500 text-white rounded-2xl text-[9.5px] font-black uppercase tracking-[0.15em] hover:bg-emerald-600 transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10 cursor-pointer"
                  >
-                   <Send size={16} /> Enviar p/ Colaborador (WhatsApp)
+                   <Send size={15} /> Enviar p/ Colaborador (WhatsApp)
                  </button>
                  <p className="text-[7px] text-slate-400 text-center font-black uppercase tracking-[0.2em] italic">Comprovativo PSM TAXICONTROL • Luena, Moxico • v.6.5</p>
               </div>
@@ -1551,7 +2167,557 @@ export default function AccountingManager({ user }: { user?: any }) {
         )}
       </AnimatePresence>
 
+        {selectedDriverForDiscount && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedDriverForDiscount(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden relative z-10 p-8 space-y-6"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-500/10 text-rose-600 flex items-center justify-center font-black">
+                    <DollarSign size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black uppercase text-slate-900 italic tracking-tight">Registar Descontos</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{selectedDriverForDiscount.driverName}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedDriverForDiscount(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveDriverDiscounts} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block mb-1">
+                    Desconto por Manutenção (Kz)
+                  </label>
+                  <input 
+                    type="number"
+                    min="0"
+                    value={discountForm.manutencao}
+                    onChange={(e) => setDiscountForm({...discountForm, manutencao: Number(e.target.value)})}
+                    placeholder="Ex: 5000"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block mb-1">
+                    Multas de Trânsito / Infrações (Kz)
+                  </label>
+                  <input 
+                    type="number"
+                    min="0"
+                    value={discountForm.multas}
+                    onChange={(e) => setDiscountForm({...discountForm, multas: Number(e.target.value)})}
+                    placeholder="Ex: 2500"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block mb-1">
+                    Adiantamentos / Válens (Kz)
+                  </label>
+                  <input 
+                    type="number"
+                    min="0"
+                    value={discountForm.adiantamentos}
+                    onChange={(e) => setDiscountForm({...discountForm, adiantamentos: Number(e.target.value)})}
+                    placeholder="Ex: 10000"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider block mb-1">
+                    Outros Descontos / Danos (Kz)
+                  </label>
+                  <input 
+                    type="number"
+                    min="0"
+                    value={discountForm.outros}
+                    onChange={(e) => setDiscountForm({...discountForm, outros: Number(e.target.value)})}
+                    placeholder="Ex: 1500"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl mb-4 flex items-center justify-between text-xs font-black text-rose-700">
+                    <span className="uppercase text-[9px] tracking-widest">Total de Descontos a Subtrair:</span>
+                    <span className="font-mono text-sm">{((Number(discountForm.manutencao)||0) + (Number(discountForm.multas)||0) + (Number(discountForm.adiantamentos)||0) + (Number(discountForm.outros)||0)).toLocaleString()} Kz</span>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDriverForDiscount(null)}
+                      className="w-1/2 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="w-1/2 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer shadow-lg shadow-rose-600/20"
+                    >
+                      Guardar Descontos
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
       {activeView === "invoicing" && <InvoiceDrafting />}
+
+      {activeView === "discounts_audit" && (
+        <DriverDiscountsAudit
+          drivers={driverRankingList}
+          user={user}
+          discountAuditLogs={discountAuditLogs}
+          onAddDiscountLog={handleAddDiscountLog}
+          onDeleteDiscountLog={handleDeleteDiscountLog}
+          onResetDiscountLogs={handleResetDiscountLogs}
+          currentMonth={currentMonth}
+        />
+      )}
+
+      {activeView === "subsidies_audit" && (
+        <DriverSubsidiesAudit
+          drivers={driverRankingList}
+          user={user}
+          subsidyAuditLogs={subsidyAuditLogs}
+          onAddSubsidyLog={handleAddSubsidyLog}
+          onDeleteSubsidyLog={handleDeleteSubsidyLog}
+          onResetSubsidyLogs={handleResetSubsidyLogs}
+          currentMonth={currentMonth}
+        />
+      )}
+
+      {activeView === "ranking" && (
+        <div className="space-y-10 animate-in fade-in duration-300">
+          {/* Header Banner & Controls */}
+          <div className="bg-slate-900 rounded-[2.5rem] p-8 md:p-10 text-white shadow-2xl relative overflow-hidden border border-white/10">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full -mr-40 -mt-40 blur-3xl pointer-events-none" />
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                    <Trophy size={22} />
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-400">
+                    PSM COMERCIAL • SUPER TÁXI (JIS ANGOLA)
+                  </span>
+                </div>
+                <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tighter italic">
+                  Classificação de Produção dos Motoristas
+                </h2>
+                <p className="text-xs text-slate-400 max-w-2xl font-medium">
+                  Apuramento hierárquico de faturação e produtividade em tempo real. Pódio de destaques em evidência (Ouro 🥇, Prata 🥈 e Bronze 🥉) e tabela completa do 1º ao último classificado.
+                </p>
+              </div>
+
+              {/* Action & Filter Controls */}
+              <div className="flex flex-wrap items-center gap-3 shrink-0">
+                <div className="flex items-center p-1 bg-white/5 border border-white/10 rounded-2xl">
+                  <button
+                    onClick={() => setRankingPeriodFilter("current_month")}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer",
+                      rankingPeriodFilter === "current_month"
+                        ? "bg-amber-500 text-slate-950 font-black shadow-lg"
+                        : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    Mês Atual ({currentMonth})
+                  </button>
+                  <button
+                    onClick={() => setRankingPeriodFilter("all")}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer",
+                      rankingPeriodFilter === "all"
+                        ? "bg-amber-500 text-slate-950 font-black shadow-lg"
+                        : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    Consolidado Total
+                  </button>
+                </div>
+
+                <button
+                  onClick={exportRankingToPDF}
+                  className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-xl shadow-amber-500/10 cursor-pointer"
+                >
+                  <Download size={15} /> Exportar Ranking PDF
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* PODIUM HIGHLIGHTS (Top 3 Produção) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* 1º LUGAR (OURO) */}
+            {driverRankingList[0] ? (
+              <div className="relative bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-slate-900 border-2 border-amber-400/80 rounded-[2.5rem] p-8 text-white shadow-2xl overflow-hidden group hover:scale-[1.02] transition-all">
+                <div className="absolute top-4 right-4 bg-amber-400 text-slate-950 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg">
+                  <Crown size={13} /> 1º Lugar • Ouro
+                </div>
+                <div className="w-14 h-14 rounded-2xl bg-amber-400/20 border border-amber-400/50 flex items-center justify-center text-amber-300 mb-6 shadow-inner">
+                  <Trophy size={28} />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">Campeão de Produção</span>
+                  <h3 className="text-2xl font-black uppercase tracking-tight text-white">{driverRankingList[0].driverName}</h3>
+                  <p className="text-xs text-slate-400 font-mono font-bold">
+                    PSM COMERCIAL • SUPER TÁXI
+                  </p>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Total Produzido</span>
+                    <span className="text-2xl font-black text-emerald-400 font-mono italic">
+                      {driverRankingList[0].totalGross.toLocaleString()} <span className="text-xs opacity-60">Kz</span>
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Salário (10%)</span>
+                    <span className="text-xl font-black text-amber-400 font-mono italic">
+                      {(driverRankingList[0].totalGross * 0.1).toLocaleString()} <span className="text-xs opacity-60">Kz</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 bg-amber-500/20 rounded-xl p-3 border border-amber-500/30 flex items-center justify-between">
+                  <span className="text-[9px] font-black uppercase text-amber-300">Nº de Dias com Registos</span>
+                  <span className="text-xs font-black text-white">{driverRankingList[0].logCount} dia(s)</span>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 text-center text-slate-500">
+                Sem dados para 1º Lugar
+              </div>
+            )}
+
+            {/* 2º LUGAR (PRATA) */}
+            {driverRankingList[1] ? (
+              <div className="relative bg-gradient-to-br from-slate-300/10 via-slate-400/5 to-slate-900 border-2 border-slate-300/60 rounded-[2.5rem] p-8 text-white shadow-xl overflow-hidden group hover:scale-[1.02] transition-all">
+                <div className="absolute top-4 right-4 bg-slate-200 text-slate-900 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-md">
+                  <Medal size={13} /> 2º Lugar • Prata
+                </div>
+                <div className="w-14 h-14 rounded-2xl bg-slate-300/20 border border-slate-300/40 flex items-center justify-center text-slate-300 mb-6">
+                  <Medal size={28} />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Vice-Campeão</span>
+                  <h3 className="text-2xl font-black uppercase tracking-tight text-white">{driverRankingList[1].driverName}</h3>
+                  <p className="text-xs text-slate-400 font-mono font-bold">
+                    PSM COMERCIAL • SUPER TÁXI
+                  </p>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Total Produzido</span>
+                    <span className="text-2xl font-black text-emerald-400 font-mono italic">
+                      {driverRankingList[1].totalGross.toLocaleString()} <span className="text-xs opacity-60">Kz</span>
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Salário (10%)</span>
+                    <span className="text-xl font-black text-slate-300 font-mono italic">
+                      {(driverRankingList[1].totalGross * 0.1).toLocaleString()} <span className="text-xs opacity-60">Kz</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 bg-slate-100/10 rounded-xl p-3 border border-slate-300/20 flex items-center justify-between">
+                  <span className="text-[9px] font-black uppercase text-slate-300">% em Relação ao 1º</span>
+                  <span className="text-xs font-black text-white">
+                    {driverRankingList[0]?.totalGross ? ((driverRankingList[1].totalGross / driverRankingList[0].totalGross) * 100).toFixed(1) : 0}%
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 text-center text-slate-500">
+                Sem dados para 2º Lugar
+              </div>
+            )}
+
+            {/* 3º LUGAR (BRONZE) */}
+            {driverRankingList[2] ? (
+              <div className="relative bg-gradient-to-br from-amber-800/20 via-orange-900/10 to-slate-900 border-2 border-amber-700/50 rounded-[2.5rem] p-8 text-white shadow-xl overflow-hidden group hover:scale-[1.02] transition-all">
+                <div className="absolute top-4 right-4 bg-amber-700 text-amber-100 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-md">
+                  <Award size={13} /> 3º Lugar • Bronze
+                </div>
+                <div className="w-14 h-14 rounded-2xl bg-amber-700/20 border border-amber-700/40 flex items-center justify-center text-amber-500 mb-6">
+                  <Award size={28} />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Terceiro Colocado</span>
+                  <h3 className="text-2xl font-black uppercase tracking-tight text-white">{driverRankingList[2].driverName}</h3>
+                  <p className="text-xs text-slate-400 font-mono font-bold">
+                    PSM COMERCIAL • SUPER TÁXI
+                  </p>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Total Produzido</span>
+                    <span className="text-2xl font-black text-emerald-400 font-mono italic">
+                      {driverRankingList[2].totalGross.toLocaleString()} <span className="text-xs opacity-60">Kz</span>
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Salário (10%)</span>
+                    <span className="text-xl font-black text-amber-500 font-mono italic">
+                      {(driverRankingList[2].totalGross * 0.1).toLocaleString()} <span className="text-xs opacity-60">Kz</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 bg-amber-700/20 rounded-xl p-3 border border-amber-700/30 flex items-center justify-between">
+                  <span className="text-[9px] font-black uppercase text-amber-400">% em Relação ao 1º</span>
+                  <span className="text-xs font-black text-white">
+                    {driverRankingList[0]?.totalGross ? ((driverRankingList[2].totalGross / driverRankingList[0].totalGross) * 100).toFixed(1) : 0}%
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] p-8 text-center text-slate-500">
+                Sem dados para 3º Lugar
+              </div>
+            )}
+          </div>
+
+          {/* TABELA DE CLASSIFICAÇÃO COMPLETA (1º AO ÚLTIMO CLASSIFICADO) */}
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-8 py-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between bg-slate-50/60 gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center shrink-0">
+                  <Trophy size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 uppercase tracking-tight italic">
+                    Tabela Hierárquica Completa de Produção
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                    Listagem ordenada da maior para a menor faturação ({filteredRankingList.length} motoristas)
+                  </p>
+                </div>
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative w-full md:w-80">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={rankingSearchTerm}
+                  onChange={(e) => setRankingSearchTerm(e.target.value)}
+                  placeholder="Pesquisar motorista..."
+                  className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-white text-[9.5px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">
+                    <th className="px-6 py-4 text-center">Classificação</th>
+                    <th className="px-6 py-4">Motorista</th>
+                    <th className="px-6 py-4 text-center">Registos</th>
+                    <th className="px-6 py-4 text-right">Produção Bruta (Kz)</th>
+                    <th className="px-6 py-4 text-right">Despesas Operacionais</th>
+                    <th className="px-6 py-4 text-right font-black">Descontos</th>
+                    <th className="px-6 py-4 text-right font-black">Total Líquido (Kz)</th>
+                    <th className="px-6 py-4 text-right font-black">Salário 10%</th>
+                    <th className="px-6 py-4 text-center">% vs Líder</th>
+                    <th className="px-6 py-4 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredRankingList.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-20 text-center text-slate-400 italic text-xs uppercase font-bold">
+                        Nenhum motorista encontrado no ranking
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRankingList.map((driver, index) => {
+                      const pos = index + 1;
+                      const isTop1 = pos === 1;
+                      const isTop2 = pos === 2;
+                      const isTop3 = pos === 3;
+                      const isTop10 = pos <= 10;
+                      const leaderGross = driverRankingList[0]?.totalGross || 1;
+                      const pctVsLeader = leaderGross > 0 ? (driver.totalGross / leaderGross) * 100 : 0;
+
+                      let posBadge = (
+                        <span className="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 font-black text-xs flex items-center justify-center mx-auto border border-slate-200">
+                          #{pos}
+                        </span>
+                      );
+
+                      if (isTop1) {
+                        posBadge = (
+                          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center mx-auto shadow-md shadow-amber-500/20 border border-amber-300">
+                            1º 🥇
+                          </span>
+                        );
+                      } else if (isTop2) {
+                        posBadge = (
+                          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-200 to-slate-300 text-slate-900 font-black text-xs flex items-center justify-center mx-auto shadow-sm border border-slate-300">
+                            2º 🥈
+                          </span>
+                        );
+                      } else if (isTop3) {
+                        posBadge = (
+                          <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-700 to-orange-800 text-amber-100 font-black text-xs flex items-center justify-center mx-auto shadow-sm border border-amber-600">
+                            3º 🥉
+                          </span>
+                        );
+                      } else if (isTop10) {
+                        posBadge = (
+                          <span className="w-8 h-8 rounded-xl bg-blue-50 text-blue-700 font-black text-xs flex items-center justify-center mx-auto border border-blue-200">
+                            #{pos}
+                          </span>
+                        );
+                      }
+
+                      return (
+                        <tr
+                          key={driver.driverId || driver.driverName || index}
+                          className={cn(
+                            "transition-colors group",
+                            isTop1 ? "bg-amber-500/5 hover:bg-amber-500/10" :
+                            isTop2 ? "bg-slate-50 hover:bg-slate-100/80" :
+                            isTop3 ? "bg-orange-500/5 hover:bg-orange-500/10" :
+                            "hover:bg-slate-50"
+                          )}
+                        >
+                          <td className="px-6 py-5 text-center">
+                            {posBadge}
+                          </td>
+
+                          <td className="px-6 py-5">
+                            <div className="flex items-center gap-3.5">
+                              <div className={cn(
+                                "w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-sm",
+                                isTop1 ? "bg-amber-400 text-slate-950" :
+                                isTop2 ? "bg-slate-300 text-slate-900" :
+                                isTop3 ? "bg-amber-700 text-amber-100" :
+                                "bg-slate-100 text-slate-600"
+                              )}>
+                                {driver.driverName[0] || 'M'}
+                              </div>
+                              <div>
+                                <p className="text-xs font-black uppercase text-slate-900 tracking-tight flex items-center gap-2">
+                                  {driver.driverName}
+                                  {isTop1 && (
+                                    <span className="bg-amber-400/20 text-amber-700 border border-amber-400/40 text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest">
+                                      Líder
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-5 text-center">
+                            <span className="px-2.5 py-1 bg-slate-100 text-slate-700 text-[10px] font-black rounded-lg font-mono">
+                              {driver.logCount} dia(s)
+                            </span>
+                          </td>
+
+                          <td className="px-6 py-5 text-right font-mono text-sm font-black text-emerald-600 italic">
+                            {driver.totalGross.toLocaleString()} <span className="text-[9px] opacity-60 text-slate-400">Kz</span>
+                          </td>
+
+                          <td className="px-6 py-5 text-right font-mono text-xs font-black text-rose-500">
+                            {driver.totalExpenses.toLocaleString()} Kz
+                          </td>
+
+                          <td className="px-6 py-5 text-right font-mono text-xs font-black text-rose-600">
+                            {driver.totalDiscounts.toLocaleString()} Kz
+                          </td>
+
+                          <td className="px-6 py-5 text-right font-mono text-xs font-black text-emerald-700 bg-emerald-500/10 rounded-xl">
+                            {driver.totalNet.toLocaleString()} Kz
+                          </td>
+
+                          <td className="px-6 py-5 text-right font-mono text-xs font-black text-amber-500 italic">
+                            {(driver.totalGross * 0.1).toLocaleString()} Kz
+                          </td>
+
+                          <td className="px-6 py-5">
+                            <div className="w-24 mx-auto space-y-1">
+                              <div className="flex items-center justify-between text-[8.5px] font-black text-slate-500 font-mono">
+                                <span>{pctVsLeader.toFixed(0)}%</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={cn(
+                                    "h-full rounded-full transition-all duration-500",
+                                    isTop1 ? "bg-amber-500" :
+                                    isTop2 ? "bg-slate-400" :
+                                    isTop3 ? "bg-amber-700" :
+                                    "bg-blue-500"
+                                  )}
+                                  style={{ width: `${Math.min(100, Math.max(2, pctVsLeader))}%` }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-5 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => {
+                                  generateIndividualSlip(
+                                    {
+                                      name: driver.driverName,
+                                      role: "Motorista",
+                                      days: driver.logCount || 0,
+                                      baseSalary: driver.totalGross * 0.1,
+                                      totalDiscounts: driver.totalDiscounts,
+                                    },
+                                    currentMonth
+                                  );
+                                }}
+                                className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500 text-amber-700 hover:text-slate-950 border border-amber-500/30 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer shadow-sm"
+                                title="Ver e Imprimir Recibo do Motorista"
+                              >
+                                Ver Recibo
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeView === "balance" && (
         <div className="space-y-10">
@@ -1721,6 +2887,31 @@ export default function AccountingManager({ user }: { user?: any }) {
               icon={Wallet}
               sub="Cofre Disponível"
             />
+          </div>
+
+          {/* Quick Ranking Highlights Widget in Income View */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-6 rounded-[2rem] border border-slate-800 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                <Trophy size={24} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black uppercase tracking-tight italic flex items-center gap-2">
+                  Líderes de Produção do Mês ({currentMonth})
+                  <span className="bg-amber-400/20 text-amber-300 text-[8px] px-2 py-0.5 rounded-full border border-amber-400/30">Top 3</span>
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+                  1º: {driverRankingList[0] ? `${driverRankingList[0].driverName} (${driverRankingList[0].totalGross.toLocaleString()} Kz)` : 'N/A'} • 2º: {driverRankingList[1] ? driverRankingList[1].driverName : 'N/A'} • 3º: {driverRankingList[2] ? driverRankingList[2].driverName : 'N/A'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setActiveView("ranking")}
+              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer shadow-lg shadow-amber-500/10"
+            >
+              Ver Classificação Completa <ArrowUpRight size={14} />
+            </button>
           </div>
 
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden group">

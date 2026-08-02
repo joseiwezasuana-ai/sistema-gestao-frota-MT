@@ -66,6 +66,9 @@ interface Driver {
   licenseNumber?: string;
   status: string;
   experienceYears?: number | string;
+  logCount?: number;
+  contractedDays?: number;
+  diasContratados?: number;
 }
 
 export default function DriverDashboard() {
@@ -247,6 +250,14 @@ export default function DriverDashboard() {
   const pendingCalls = driverCalls.filter(c => c.status === 'pending' || c.status === 'pendente' || c.status === 'accepted').length;
   const totalCallsCount = driverCalls.length;
   const callSuccessRate = totalCallsCount > 0 ? Math.round((completedCalls / totalCallsCount) * 100) : 0;
+
+  const workedDaysSet = new Set(driverRevenues.map(r => {
+    const d = toSafeDate(r.timestamp || r.date);
+    return d ? d.toISOString().slice(0, 10) : null;
+  }).filter(Boolean));
+  const workedDays = Math.max(workedDaysSet.size, activeDriver?.logCount || (driverRevenues.length > 0 ? driverRevenues.length : 22));
+  const contractedDays = activeDriver?.contractedDays || activeDriver?.diasContratados || 26;
+  const daysRatio = Math.min(100, Math.round((workedDays / contractedDays) * 100));
 
   // Generate 7-day comparative chart data
   const daysAbbr = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -926,6 +937,40 @@ export default function DriverDashboard() {
                       </div>
                     </div>
 
+                  </div>
+
+                  {/* Visual Indicator: Worked Days vs Contracted Days */}
+                  <div className="bg-gradient-to-r from-slate-900 to-slate-950 p-6 rounded-[2rem] text-white border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-brand-primary/10 border border-brand-primary/30 flex items-center justify-center text-brand-primary shrink-0">
+                        <Calendar size={22} />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-black text-brand-primary uppercase tracking-widest">Transparência de Cálculos Salariais</span>
+                        <h3 className="text-base font-black uppercase tracking-tight text-white mt-0.5">Dias Trabalhados vs. Contratados</h3>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          O bilhete de salário e subsídios são sincronizados proporcionalmente aos dias efetivamente registados no sistema.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end">
+                      <div className="text-right">
+                        <div className="text-2xl font-black font-mono text-white">
+                          {workedDays} <span className="text-sm text-slate-400 font-normal">/ {contractedDays} dias</span>
+                        </div>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                          {daysRatio}% Cumprimento Mensal
+                        </span>
+                      </div>
+
+                      <div className="w-32 bg-slate-800 h-3 rounded-full overflow-hidden p-0.5 border border-slate-700">
+                        <div 
+                          className="h-full bg-gradient-to-r from-brand-primary to-emerald-400 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(100, daysRatio)}%` }}
+                        />
+                      </div>
+                    </div>
                   </div>
 
                   {/* Charts & AI Row */}

@@ -54,12 +54,16 @@ export default defineConfig(({mode}) => {
       })
     ],
     build: {
+      outDir: 'dist',
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom'],
-            'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/analytics'],
-            'vendor-ui': ['lucide-react', 'motion/react', 'recharts'],
+          manualChunks(id) {
+            if (id.includes('node_modules/firebase')) {
+              return 'vendor-firebase';
+            }
+            if (id.includes('node_modules/lucide-react') || id.includes('node_modules/recharts') || id.includes('node_modules/motion')) {
+              return 'vendor-ui';
+            }
           }
         }
       }

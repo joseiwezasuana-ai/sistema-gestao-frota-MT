@@ -97,7 +97,7 @@ export default function PassengerManagement({ user }: { user: any }) {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [callSearchTerm, setCallSearchTerm] = useState('');
   const [passengerSearchTerm, setPassengerSearchTerm] = useState('');
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'config'>('dashboard');
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'complaints' | 'config'>('dashboard');
   const [activeTenantName, setActiveTenantName] = useState('SUPER Taxi');
   const [isClearingCalls, setIsClearingCalls] = useState(false);
   const currentTenantId = getActiveTenantId() || '';
@@ -409,7 +409,7 @@ export default function PassengerManagement({ user }: { user: any }) {
           </p>
         </div>
         
-        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 self-start sm:self-center">
+        <div className="flex flex-wrap items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 self-start sm:self-center">
           <button
             onClick={() => setActiveSubTab('dashboard')}
             className={`px-4 py-2 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -421,6 +421,23 @@ export default function PassengerManagement({ user }: { user: any }) {
             <Users size={14} />
             Estatísticas & Chamadas
           </button>
+
+          <button
+            onClick={() => setActiveSubTab('complaints')}
+            className={`px-4 py-2 text-[11px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === 'complaints' 
+                ? 'bg-rose-600 text-white shadow-sm' 
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-250'
+            }`}
+          >
+            <AlertCircle size={14} />
+            Reclamações & Ocorrências
+            {complaints.filter(c => c.status !== 'resolved').length > 0 && (
+              <span className="bg-rose-500 text-white text-[8.5px] font-black px-1.5 py-0.5 rounded-full ml-1 animate-pulse">
+                {complaints.filter(c => c.status !== 'resolved').length}
+              </span>
+            )}
+          </button>
           
           <button
             onClick={() => setActiveSubTab('config')}
@@ -431,13 +448,300 @@ export default function PassengerManagement({ user }: { user: any }) {
             }`}
           >
             <Smartphone size={14} />
-            Configurar App do Passageiro
+            Configurar App
           </button>
         </div>
       </div>
 
       {activeSubTab === 'config' ? (
         <PassengerAppConfig tenantId={currentTenantId} tenantName={activeTenantName} />
+      ) : activeSubTab === 'complaints' ? (
+        <div className="space-y-4">
+          {/* Top Banner inside complaints subtab */}
+          {complaints.filter(c => c.status !== 'resolved').length > 0 && (
+            <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-rose-500 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-500 flex items-center justify-center shrink-0">
+                  <AlertCircle size={22} className="animate-pulse" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                    Atenção Operador: {complaints.filter(c => c.status !== 'resolved').length} {complaints.filter(c => c.status !== 'resolved').length === 1 ? 'Reclamação Pendente' : 'Reclamações Pendentes'}
+                  </h4>
+                  <p className="text-[10px] text-slate-600 dark:text-slate-300 font-bold uppercase tracking-tight">
+                    Existem ocorrências de passageiros pendentes de auditoria e resolução na central JIS.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Render Complaints Section directly at full height */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/5 p-6 shadow-sm flex flex-col space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
+                  <AlertCircle size={22} className="animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+                    <span>Reclamações & Ocorrências dos Passageiros</span>
+                    {complaints.filter(c => c.status !== 'resolved').length > 0 && (
+                      <span className="bg-rose-500 text-white text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full animate-bounce">
+                        {complaints.filter(c => c.status !== 'resolved').length} PENDENTES
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                    Central de auditoria, fiscalização e acompanhamento de reclamações enviadas via App do Passageiro e Atendimento
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsManualComplaintModalOpen(true)}
+                  className="flex items-center gap-1.5 bg-brand-primary hover:bg-amber-500 text-slate-950 font-black text-[11px] uppercase tracking-wider px-3.5 py-2 rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
+                >
+                  <Plus size={14} />
+                  Registar Reclamação Manual
+                </button>
+
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar por texto, nome, viatura..." 
+                    value={complaintSearchTerm}
+                    onChange={(e) => setComplaintSearchTerm(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/5 rounded-xl text-xs text-slate-800 dark:text-slate-100 w-full sm:w-56 outline-none focus:ring-1 focus:ring-brand-primary"
+                  />
+                  <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                </div>
+              </div>
+            </div>
+
+            {/* Filter subtabs */}
+            <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <button
+                type="button"
+                onClick={() => setComplaintFilter('all')}
+                className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  complaintFilter === 'all' 
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Todas ({complaints.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setComplaintFilter('pending')}
+                className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  complaintFilter === 'pending' 
+                    ? 'bg-rose-600 text-white shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Pendentes ({complaints.filter(c => c.status !== 'resolved').length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setComplaintFilter('resolved')}
+                className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                  complaintFilter === 'resolved' 
+                    ? 'bg-emerald-600 text-white shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Resolvidas ({complaints.filter(c => c.status === 'resolved').length})
+              </button>
+            </div>
+
+            {/* Complaints Grid/List */}
+            <div className="space-y-3 max-h-[750px] overflow-y-auto pr-1 custom-scrollbar">
+              {complaints.filter(c => {
+                if (complaintFilter === 'pending' && c.status === 'resolved') return false;
+                if (complaintFilter === 'resolved' && c.status !== 'resolved') return false;
+
+                if (!complaintSearchTerm.trim()) return true;
+                const term = complaintSearchTerm.toLowerCase();
+                const typeStr = (c.type || '').toLowerCase();
+                const descStr = (c.description || '').toLowerCase();
+                const nameStr = (c.passengerName || '').toLowerCase();
+                const phoneStr = (c.passengerPhone || '').toLowerCase();
+                const vehStr = (c.vehicle || '').toLowerCase();
+
+                return typeStr.includes(term) || descStr.includes(term) || nameStr.includes(term) || phoneStr.includes(term) || vehStr.includes(term);
+              }).length === 0 ? (
+                <div className="p-12 text-center bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <AlertCircle size={32} className="mx-auto text-slate-400 mb-2 opacity-50" />
+                  <p className="text-xs font-black uppercase tracking-wider text-slate-500">
+                    Nenhuma reclamação ou ocorrência encontrada de momento.
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                    As reclamações submetidas no formulário do aplicativo público do passageiro ou registadas manualmente pela central aparecerão aqui em tempo real.
+                  </p>
+                </div>
+              ) : (
+                complaints.filter(c => {
+                  if (complaintFilter === 'pending' && c.status === 'resolved') return false;
+                  if (complaintFilter === 'resolved' && c.status !== 'resolved') return false;
+
+                  if (!complaintSearchTerm.trim()) return true;
+                  const term = complaintSearchTerm.toLowerCase();
+                  const typeStr = (c.type || '').toLowerCase();
+                  const descStr = (c.description || '').toLowerCase();
+                  const nameStr = (c.passengerName || '').toLowerCase();
+                  const phoneStr = (c.passengerPhone || '').toLowerCase();
+                  const vehStr = (c.vehicle || '').toLowerCase();
+
+                  return typeStr.includes(term) || descStr.includes(term) || nameStr.includes(term) || phoneStr.includes(term) || vehStr.includes(term);
+                }).map((c) => {
+                  const getBadge = (t: string) => {
+                    switch (t) {
+                      case 'excesso_velocidade': return { label: 'Excesso de Velocidade', color: 'bg-rose-500/10 text-rose-500 border-rose-500/20' };
+                      case 'conduta_motorista': return { label: 'Conduta do Motorista', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20' };
+                      case 'cobranca_indevida': return { label: 'Cobrança Indevida', color: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20' };
+                      case 'estado_viatura': return { label: 'Condição da Viatura', color: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' };
+                      case 'eliminar_conta': return { label: 'Eliminar Conta / Dados', color: 'bg-purple-500/10 text-purple-500 border-purple-500/20' };
+                      default: return { label: t ? t.replace('_', ' ').toUpperCase() : 'Ocorrência / Reclamação', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' };
+                    }
+                  };
+                  const badge = getBadge(c.type);
+                  const isResolved = c.status === 'resolved';
+
+                  const dateStr = c.createdAt?.seconds 
+                    ? new Date(c.createdAt.seconds * 1000).toLocaleString('pt-PT')
+                    : (c.timestamp ? new Date(c.timestamp).toLocaleString('pt-PT') : 'Data recente');
+
+                  return (
+                    <div 
+                      key={c.id} 
+                      className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row justify-between gap-4 ${
+                        isResolved 
+                          ? 'bg-slate-50/50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800/80 opacity-75' 
+                          : 'bg-white dark:bg-slate-900 border-rose-500/30 dark:border-rose-500/20 shadow-md'
+                      }`}
+                    >
+                      <div className="space-y-2 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${badge.color}`}>
+                            {badge.label}
+                          </span>
+
+                          <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border border-slate-200 dark:border-slate-700">
+                            Viatura: {c.vehicle || 'Não Especificada'}
+                          </span>
+
+                          {c.source === 'app_passageiro' ? (
+                            <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider">
+                              Via App Móvel
+                            </span>
+                          ) : (
+                            <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider">
+                              Via Central
+                            </span>
+                          )}
+
+                          <span className="text-[10px] font-bold text-slate-400 ml-auto flex items-center gap-1">
+                            <Calendar size={11} />
+                            {dateStr}
+                          </span>
+                        </div>
+
+                        <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-relaxed bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-100 dark:border-white/5 whitespace-pre-wrap">
+                          "{c.description || 'Sem descrição enviada.'}"
+                        </p>
+
+                        {c.satisfaction && (
+                          <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${
+                            c.satisfaction === 'satisfied' 
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
+                              : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+                          }`}>
+                            <span className="text-sm">{c.satisfaction === 'satisfied' ? '😊' : '🙁'}</span>
+                            <div className="text-[10px] font-black uppercase tracking-wider">
+                              <span>Avaliação do Passageiro: {c.satisfaction === 'satisfied' ? 'SATISFEITO COM O ATENDIMENTO' : 'INSATISFEITO COM O ATENDIMENTO'}</span>
+                              {c.satisfactionComment && (
+                                <p className="normal-case font-medium italic text-slate-600 dark:text-slate-300 m-0">
+                                  "{c.satisfactionComment}"
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold text-slate-500 pt-1">
+                          <span className="flex items-center gap-1 text-slate-900 dark:text-white font-black">
+                            <Users size={12} className="text-brand-primary" />
+                            {c.passengerName || 'Passageiro Anónimo'}
+                          </span>
+
+                          {c.passengerPhone && c.passengerPhone !== 'Anónimo' && c.passengerPhone !== 'Central' && (
+                            <div className="flex items-center gap-2">
+                              <span className="flex items-center gap-1 text-slate-400 font-mono">
+                                <PhoneCall size={11} />
+                                {c.passengerPhone}
+                              </span>
+                              <a
+                                href={`https://wa.me/${c.passengerPhone.replace(/[^0-9]/g, '')}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[9.5px] font-black text-emerald-500 hover:text-emerald-400 flex items-center gap-1 uppercase bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/20 transition-all"
+                              >
+                                <MessageCircle size={10} />
+                                WhatsApp
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-2 border-t md:border-t-0 md:border-l border-slate-100 dark:border-slate-800 pt-3 md:pt-0 md:pl-4 shrink-0">
+                        <div>
+                          {isResolved ? (
+                            <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                              <CheckCircle2 size={12} /> Resolvido
+                            </span>
+                          ) : (
+                            <span className="bg-rose-500/10 text-rose-500 border border-rose-500/20 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                              <AlertTriangle size={12} /> Pendente
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleResolveComplaint(c)}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95 ${
+                              isResolved 
+                                ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300' 
+                                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            }`}
+                          >
+                            <Check size={12} />
+                            {isResolved ? 'Reabrir' : 'Marcar Resolvido'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteComplaint(c)}
+                            className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-xl transition-all cursor-pointer border border-rose-500/20"
+                            title="Eliminar Reclamação"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
       ) : (
         <>
           {/* Alerta de Visibilidade Imediata para Reclamações Pendentes */}
@@ -456,12 +760,13 @@ export default function PassengerManagement({ user }: { user: any }) {
                   </p>
                 </div>
               </div>
-              <a 
-                href="#complaints-section" 
-                className="bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all text-center shrink-0 shadow-md active:scale-95"
+              <button 
+                type="button"
+                onClick={() => setActiveSubTab('complaints')}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest px-4 py-2.5 rounded-xl transition-all text-center shrink-0 shadow-md active:scale-95 cursor-pointer"
               >
                 Tratar Ocorrências &rarr;
-              </a>
+              </button>
             </div>
           )}
 
@@ -504,12 +809,13 @@ export default function PassengerManagement({ user }: { user: any }) {
                 <p className={`text-3xl font-black ${complaints.filter(c => c.status !== 'resolved').length > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
                   {complaints.filter(c => c.status !== 'resolved').length}
                 </p>
-                <a 
-                  href="#complaints-section"
-                  className="text-[10px] font-black uppercase tracking-wider text-rose-500 hover:underline"
+                <button 
+                  type="button"
+                  onClick={() => setActiveSubTab('complaints')}
+                  className="text-[10px] font-black uppercase tracking-wider text-rose-500 hover:underline cursor-pointer bg-transparent border-none p-0"
                 >
                   Ver Fila &rarr;
-                </a>
+                </button>
               </div>
             </div>
 
@@ -695,7 +1001,7 @@ export default function PassengerManagement({ user }: { user: any }) {
                       </tr>
                       {expandedRow === p.id && (
                         <tr>
-                          <td colSpan={3} className="p-4 bg-slate-50 dark:bg-slate-850 rounded-xl">
+                          <td colSpan={3} className="p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
                             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center mb-3">
                               <PassengerAvatar src={p.photoUrl} name={p.name} size="lg" />
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-600 dark:text-slate-300 font-semibold flex-1 w-full">
@@ -900,272 +1206,6 @@ export default function PassengerManagement({ user }: { user: any }) {
                 )}
               </tbody>
             </table>
-          </div>
-        </div>
-
-        {/* SECTION: PASSENGER COMPLAINTS & FEEDBACK AUDIT PANEL */}
-        <div id="complaints-section" className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/5 p-6 shadow-sm flex flex-col space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
-                <AlertCircle size={22} className="animate-pulse" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
-                  <span>Reclamações & Ocorrências dos Passageiros</span>
-                  {complaints.filter(c => c.status !== 'resolved').length > 0 && (
-                    <span className="bg-rose-500 text-white text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full animate-bounce">
-                      {complaints.filter(c => c.status !== 'resolved').length} PENDENTES
-                    </span>
-                  )}
-                </h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                  Central de auditoria, fiscalização e acompanhamento de reclamações enviadas via App do Passageiro e Atendimento
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsManualComplaintModalOpen(true)}
-                className="flex items-center gap-1.5 bg-brand-primary hover:bg-amber-500 text-slate-950 font-black text-[11px] uppercase tracking-wider px-3.5 py-2 rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
-              >
-                <Plus size={14} />
-                Registar Reclamação Manual
-              </button>
-
-              <div className="relative">
-                <input 
-                  type="text" 
-                  placeholder="Pesquisar por texto, nome, viatura..." 
-                  value={complaintSearchTerm}
-                  onChange={(e) => setComplaintSearchTerm(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-white/5 rounded-xl text-xs text-slate-800 dark:text-slate-100 w-full sm:w-56 outline-none focus:ring-1 focus:ring-brand-primary"
-                />
-                <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
-              </div>
-            </div>
-          </div>
-
-          {/* Filter subtabs */}
-          <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-            <button
-              type="button"
-              onClick={() => setComplaintFilter('all')}
-              className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                complaintFilter === 'all' 
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-              }`}
-            >
-              Todas ({complaints.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setComplaintFilter('pending')}
-              className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                complaintFilter === 'pending' 
-                  ? 'bg-rose-600 text-white shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-              }`}
-            >
-              Pendentes ({complaints.filter(c => c.status !== 'resolved').length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setComplaintFilter('resolved')}
-              className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                complaintFilter === 'resolved' 
-                  ? 'bg-emerald-600 text-white shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-              }`}
-            >
-              Resolvidas ({complaints.filter(c => c.status === 'resolved').length})
-            </button>
-          </div>
-
-          {/* Complaints Grid/List */}
-          <div className="space-y-3 max-h-[650px] overflow-y-auto pr-1 custom-scrollbar">
-            {complaints.filter(c => {
-              if (complaintFilter === 'pending' && c.status === 'resolved') return false;
-              if (complaintFilter === 'resolved' && c.status !== 'resolved') return false;
-
-              if (!complaintSearchTerm.trim()) return true;
-              const term = complaintSearchTerm.toLowerCase();
-              const typeStr = (c.type || '').toLowerCase();
-              const descStr = (c.description || '').toLowerCase();
-              const nameStr = (c.passengerName || '').toLowerCase();
-              const phoneStr = (c.passengerPhone || '').toLowerCase();
-              const vehStr = (c.vehicle || '').toLowerCase();
-
-              return typeStr.includes(term) || descStr.includes(term) || nameStr.includes(term) || phoneStr.includes(term) || vehStr.includes(term);
-            }).length === 0 ? (
-              <div className="p-12 text-center bg-slate-50 dark:bg-slate-850/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                <AlertCircle size={32} className="mx-auto text-slate-400 mb-2 opacity-50" />
-                <p className="text-xs font-black uppercase tracking-wider text-slate-500">
-                  Nenhuma reclamação ou ocorrência encontrada de momento.
-                </p>
-                <p className="text-[10px] text-slate-400 mt-1 font-medium">
-                  As reclamações submetidas no formulário do aplicativo público do passageiro ou registadas manualmente pela central aparecerão aqui em tempo real.
-                </p>
-              </div>
-            ) : (
-              complaints.filter(c => {
-                if (complaintFilter === 'pending' && c.status === 'resolved') return false;
-                if (complaintFilter === 'resolved' && c.status !== 'resolved') return false;
-
-                if (!complaintSearchTerm.trim()) return true;
-                const term = complaintSearchTerm.toLowerCase();
-                const typeStr = (c.type || '').toLowerCase();
-                const descStr = (c.description || '').toLowerCase();
-                const nameStr = (c.passengerName || '').toLowerCase();
-                const phoneStr = (c.passengerPhone || '').toLowerCase();
-                const vehStr = (c.vehicle || '').toLowerCase();
-
-                return typeStr.includes(term) || descStr.includes(term) || nameStr.includes(term) || phoneStr.includes(term) || vehStr.includes(term);
-              }).map((c) => {
-                const getBadge = (t: string) => {
-                  switch (t) {
-                    case 'excesso_velocidade': return { label: 'Excesso de Velocidade', color: 'bg-rose-500/10 text-rose-500 border-rose-500/20' };
-                    case 'conduta_motorista': return { label: 'Conduta do Motorista', color: 'bg-amber-500/10 text-amber-500 border-amber-500/20' };
-                    case 'cobranca_indevida': return { label: 'Cobrança Indevida', color: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20' };
-                    case 'estado_viatura': return { label: 'Condição da Viatura', color: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' };
-                    case 'eliminar_conta': return { label: 'Eliminar Conta / Dados', color: 'bg-purple-500/10 text-purple-500 border-purple-500/20' };
-                    default: return { label: t ? t.replace('_', ' ').toUpperCase() : 'Ocorrência / Reclamação', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' };
-                  }
-                };
-                const badge = getBadge(c.type);
-                const isResolved = c.status === 'resolved';
-
-                const dateStr = c.createdAt?.seconds 
-                  ? new Date(c.createdAt.seconds * 1000).toLocaleString('pt-PT')
-                  : (c.timestamp ? new Date(c.timestamp).toLocaleString('pt-PT') : 'Data recente');
-
-                return (
-                  <div 
-                    key={c.id} 
-                    className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row justify-between gap-4 ${
-                      isResolved 
-                        ? 'bg-slate-50/50 dark:bg-slate-850/30 border-slate-200 dark:border-slate-800/80 opacity-75' 
-                        : 'bg-white dark:bg-slate-850 border-rose-500/30 dark:border-rose-500/20 shadow-md'
-                    }`}
-                  >
-                    <div className="space-y-2 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${badge.color}`}>
-                          {badge.label}
-                        </span>
-
-                        <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border border-slate-200 dark:border-slate-700">
-                          Viatura: {c.vehicle || 'Não Especificada'}
-                        </span>
-
-                        {c.source === 'app_passageiro' ? (
-                          <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider">
-                            Via App Móvel
-                          </span>
-                        ) : (
-                          <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider">
-                            Via Central
-                          </span>
-                        )}
-
-                        <span className="text-[10px] font-bold text-slate-400 ml-auto flex items-center gap-1">
-                          <Calendar size={11} />
-                          {dateStr}
-                        </span>
-                      </div>
-
-                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-relaxed bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-100 dark:border-white/5 whitespace-pre-wrap">
-                        "{c.description || 'Sem descrição enviada.'}"
-                      </p>
-
-                      {c.satisfaction && (
-                        <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${
-                          c.satisfaction === 'satisfied' 
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
-                            : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
-                        }`}>
-                          <span className="text-sm">{c.satisfaction === 'satisfied' ? '😊' : '🙁'}</span>
-                          <div className="text-[10px] font-black uppercase tracking-wider">
-                            <span>Avaliação do Passageiro: {c.satisfaction === 'satisfied' ? 'SATISFEITO COM O ATENDIMENTO' : 'INSATISFEITO COM O ATENDIMENTO'}</span>
-                            {c.satisfactionComment && (
-                              <p className="normal-case font-medium italic text-slate-600 dark:text-slate-300 m-0">
-                                "{c.satisfactionComment}"
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold text-slate-500 pt-1">
-                        <span className="flex items-center gap-1 text-slate-900 dark:text-white font-black">
-                          <Users size={12} className="text-brand-primary" />
-                          {c.passengerName || 'Passageiro Anónimo'}
-                        </span>
-
-                        {c.passengerPhone && c.passengerPhone !== 'Anónimo' && c.passengerPhone !== 'Central' && (
-                          <div className="flex items-center gap-2">
-                            <span className="flex items-center gap-1 text-slate-400 font-mono">
-                              <PhoneCall size={11} />
-                              {c.passengerPhone}
-                            </span>
-                            <a
-                              href={`https://wa.me/${c.passengerPhone.replace(/[^0-9]/g, '')}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[9.5px] font-black text-emerald-500 hover:text-emerald-400 flex items-center gap-1 uppercase bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/20 transition-all"
-                            >
-                              <MessageCircle size={10} />
-                              WhatsApp
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-2 border-t md:border-t-0 md:border-l border-slate-100 dark:border-slate-800 pt-3 md:pt-0 md:pl-4 shrink-0">
-                      <div>
-                        {isResolved ? (
-                          <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-                            <CheckCircle2 size={12} /> Resolvido
-                          </span>
-                        ) : (
-                          <span className="bg-rose-500/10 text-rose-500 border border-rose-500/20 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                            <AlertTriangle size={12} /> Pendente
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleResolveComplaint(c)}
-                          className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 shadow-sm active:scale-95 ${
-                            isResolved 
-                              ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-300' 
-                              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                          }`}
-                        >
-                          <Check size={12} />
-                          {isResolved ? 'Reabrir' : 'Marcar Resolvido'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteComplaint(c)}
-                          className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-xl transition-all cursor-pointer border border-rose-500/20"
-                          title="Eliminar Reclamação"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
           </div>
         </div>
 

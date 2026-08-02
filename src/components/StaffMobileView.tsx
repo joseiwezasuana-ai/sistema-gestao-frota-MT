@@ -948,7 +948,13 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       
        <AnimatePresence>
          {isWhatsAppOpen && (
-           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+           <motion.div 
+             key="whatsapp-modal"
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             className="fixed inset-0 z-[120] bg-slate-950 flex flex-col"
+           >
              <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
                <div className="flex items-center gap-2">
                  <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
@@ -964,11 +970,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
              <div className="flex-1 overflow-y-auto bg-slate-950">
                <WhatsAppMonitor isMechanicView={false} />
              </div>
-           </div>
+           </motion.div>
          )}
 
          {isAiInsightsOpen && (
-           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+           <motion.div 
+             key="ai-insights-modal"
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             className="fixed inset-0 z-[120] bg-slate-950 flex flex-col"
+           >
              <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
                <div className="flex items-center gap-2">
                  <Sparkles size={14} className="text-brand-primary animate-pulse" />
@@ -1019,11 +1031,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  </button>
                </div>
              </div>
-           </div>
+           </motion.div>
          )}
 
          {isGatewayOpen && (
-           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+           <motion.div 
+             key="gateway-modal"
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             className="fixed inset-0 z-[120] bg-slate-950 flex flex-col"
+           >
              <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
                <div className="flex items-center gap-2">
                  <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
@@ -1114,11 +1132,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  )}
                </div>
              </div>
-           </div>
+           </motion.div>
          )}
 
          {isMapOpen && (
-           <div className="fixed inset-0 z-[120] bg-slate-950 flex flex-col">
+           <motion.div 
+             key="live-map-modal"
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             className="fixed inset-0 z-[120] bg-slate-950 flex flex-col"
+           >
              <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 shrink-0">
                <div className="flex items-center gap-2">
                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
@@ -1134,7 +1158,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
              <div className="flex-1 relative overflow-hidden bg-slate-950">
                <RealTimeMap />
              </div>
-           </div>
+           </motion.div>
          )}
        </AnimatePresence>
       
