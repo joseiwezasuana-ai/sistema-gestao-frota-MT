@@ -148,9 +148,12 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
 
               // 3. Play alert sound
               try {
-                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-                audio.volume = 0.4;
-                audio.play();
+                if (typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
+                  const AudioClass = (window as any).Audio;
+                  const audio = new AudioClass('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                  audio.volume = 0.4;
+                  audio.play().catch(() => {});
+                }
               } catch (err) {}
             }
         }
@@ -166,16 +169,19 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
           if (panic.status === 'active') {
             // Play a priority alert sound (using simple browser beep)
             try {
-              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const oscillator = audioCtx.createOscillator();
-              const gainNode = audioCtx.createGain();
-              oscillator.connect(gainNode);
-              gainNode.connect(audioCtx.destination);
-              oscillator.type = 'square';
-              oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
-              gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-              oscillator.start();
-              oscillator.stop(audioCtx.currentTime + 0.5);
+              const AudioCtxClass = typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext);
+              if (AudioCtxClass && typeof AudioCtxClass === 'function') {
+                const audioCtx = new (AudioCtxClass as any)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.5);
+              }
             } catch (e) {}
 
             triggerAlert({
@@ -213,17 +219,20 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
           if (msg.category === 'revenue_operator_approved' && (isAdminOrGerente || !user?.role)) {
             // Play awakening chime sound
             try {
-              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const osc = audioCtx.createOscillator();
-              const gain = audioCtx.createGain();
-              osc.connect(gain);
-              gain.connect(audioCtx.destination);
-              osc.type = 'triangle';
-              osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-              osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.15); // A5
-              gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-              osc.start();
-              osc.stop(audioCtx.currentTime + 0.4);
+              const AudioCtxClass = typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext);
+              if (AudioCtxClass && typeof AudioCtxClass === 'function') {
+                const audioCtx = new (AudioCtxClass as any)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.15); // A5
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.4);
+              }
             } catch (e) {}
 
             triggerAlert({
@@ -243,18 +252,21 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
           if (msg.category === 'revenue_delivered_to_accountant' && (isContabilista || !user?.role)) {
             // Play accountant delivery sound
             try {
-              const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-              const osc = audioCtx.createOscillator();
-              const gain = audioCtx.createGain();
-              osc.connect(gain);
-              gain.connect(audioCtx.destination);
-              osc.type = 'sine';
-              osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
-              osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.15); // E5
-              osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.3); // G5
-              gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
-              osc.start();
-              osc.stop(audioCtx.currentTime + 0.5);
+              const AudioCtxClass = typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext);
+              if (AudioCtxClass && typeof AudioCtxClass === 'function') {
+                const audioCtx = new (AudioCtxClass as any)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.15); // E5
+                osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.3); // G5
+                gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+              }
             } catch (e) {}
 
             triggerAlert({
@@ -282,14 +294,17 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
   }, [user]);
 
   const speakText = (text: string) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) {
       try {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'pt-PT';
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        window.speechSynthesis.speak(utterance);
+        const UtteranceClass = (window as any).SpeechSynthesisUtterance;
+        if (typeof UtteranceClass === 'function') {
+          const utterance = new UtteranceClass(text);
+          utterance.lang = 'pt-PT';
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+          window.speechSynthesis.speak(utterance);
+        }
       } catch (e) {
         console.warn("Speech synthesis error:", e);
       }
@@ -320,8 +335,8 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
     }
 
     // Push / Browser Notification logic
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'granted') {
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification) {
+      if (window.Notification.permission === 'granted') {
         const notifOptions = {
           body: alert.message,
           icon: '/icon-192.png',
@@ -336,28 +351,13 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.ready
             .then(registration => {
-              registration.showNotification(alert.title, notifOptions)
-                .catch(() => {
-                  try {
-                    new Notification(alert.title, notifOptions);
-                  } catch (e) {}
-                });
+              registration.showNotification(alert.title, notifOptions).catch(() => {});
             })
-            .catch(() => {
-              try {
-                new Notification(alert.title, notifOptions);
-              } catch (e) {}
-            });
-        } else {
-          try {
-            new Notification(alert.title, notifOptions);
-          } catch (e) {
-            console.warn("Direct Notification fallback failed:", e);
-          }
+            .catch(() => {});
         }
-      } else if (Notification.permission === 'default') {
+      } else if (window.Notification.permission === 'default' && typeof window.Notification.requestPermission === 'function') {
         try {
-          Notification.requestPermission().then(res => setPermission(res));
+          window.Notification.requestPermission().then(res => setPermission(res)).catch(() => {});
         } catch (e) {}
       }
     }

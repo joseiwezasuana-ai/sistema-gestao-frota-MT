@@ -274,6 +274,87 @@ const getGoogleCoords = (coords: any): { lat: number, lng: number } => {
   return { lat: -11.7833, lng: 19.9167 };
 };
 
+const isVehicleLocationConfirmed = (driver: any): boolean => {
+  if (!driver) return false;
+  const lat = Number(driver.lat);
+  const lng = Number(driver.lng);
+  return (
+    !isNaN(lat) &&
+    !isNaN(lng) &&
+    isFinite(lat) &&
+    isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180 &&
+    (lat !== 0 || lng !== 0)
+  );
+};
+
+function useAsyncGoogleMapsScript(apiKey: string | null, enabled: boolean) {
+  const [isScriptReady, setIsScriptReady] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && Boolean(window.google && window.google.maps);
+  });
+  const [scriptError, setScriptError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !apiKey) {
+      setIsScriptReady(false);
+      return;
+    }
+
+    if (typeof window !== 'undefined' && window.google && window.google.maps) {
+      setIsScriptReady(true);
+      return;
+    }
+
+    const scriptId = 'google-maps-async-sdk';
+    let scriptEl = document.getElementById(scriptId) as HTMLScriptElement | null;
+
+    if (scriptEl) {
+      const handleLoad = () => {
+        if (window.google && window.google.maps) {
+          setIsScriptReady(true);
+        }
+      };
+      const handleError = () => setScriptError('ScriptLoadError');
+      scriptEl.addEventListener('load', handleLoad);
+      scriptEl.addEventListener('error', handleError);
+
+      if (window.google && window.google.maps) {
+        setIsScriptReady(true);
+      }
+
+      return () => {
+        scriptEl?.removeEventListener('load', handleLoad);
+        scriptEl?.removeEventListener('error', handleError);
+      };
+    }
+
+    scriptEl = document.createElement('script');
+    scriptEl.id = scriptId;
+    scriptEl.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places,geometry`;
+    scriptEl.async = true;
+    scriptEl.defer = true;
+
+    scriptEl.onload = () => {
+      if (window.google && window.google.maps) {
+        setIsScriptReady(true);
+      } else {
+        setScriptError('GoogleMapsUndefined');
+      }
+    };
+
+    scriptEl.onerror = () => {
+      setScriptError('ScriptLoadError');
+    };
+
+    document.body.appendChild(scriptEl);
+  }, [apiKey, enabled]);
+
+  return { isScriptReady, scriptError };
+}
+
 export default function RealTimeMap() {
   const [useGoogleMaps, setUseGoogleMaps] = useState(false); // Default to Leaflet (OpenStreetMap)
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState<string | null>(null);
@@ -281,6 +362,8 @@ export default function RealTimeMap() {
   const [drivers, setDrivers] = useState<any[]>([]);
   const [showPassengerPaths, setShowPassengerPaths] = useState(true);
   const [calls, setCalls] = useState<any[]>([]);
+
+  const { isScriptReady: isGoogleScriptReady } = useAsyncGoogleMapsScript(googleMapsApiKey, useGoogleMaps);
 
   // Real-time listener for passenger calls to draw trajectories
   useEffect(() => {
@@ -507,31 +590,52 @@ export default function RealTimeMap() {
           )}
 
           {useGoogleMaps && !googleMapsError && isKeyValid ? (
-            <div className="h-full w-full">
-              <MapErrorBoundary onError={handleGoogleMapCrash}>
-                <GoogleMap
-                  /* @ts-ignore */
-                  apiKey={googleMapsApiKey}
-                  /* @ts-ignore */
-                  defaultCenter={getGoogleCoords(mapConfig.center)}
-                  /* @ts-ignore */
-                  defaultZoom={mapConfig.zoom}
-                  /* @ts-ignore */
-                  center={getGoogleCoords(mapConfig.center)}
-                  /* @ts-ignore */
-                  zoom={mapConfig.zoom}
-                  onGoogleApiLoaded={() => console.log('Google Maps API Loaded')}
-                  mapMinHeight="100%"
-                >
-                  {filteredDrivers.map(driver => (
-                    <MovingGoogleTaxiMarker 
-                      key={driver.id} 
-                      driver={driver}
-                    />
-                  ))}
-                </GoogleMap>
-              </MapErrorBoundary>
-            </div>
+            (() => {
+              const confirmedDrivers = filteredDrivers.filter(isVehicleLocationConfirmed);
+              const hasConfirmedVehicleCoords = confirmedDrivers.length > 0 || (mapConfig.center && isVehicleLocationConfirmed({ lat: mapConfig.center[0], lng: mapConfig.center[1] }));
+
+              if (isGoogleScriptReady && hasConfirmedVehicleCoords) {
+                return (
+                  <div className="h-full w-full">
+                    <MapErrorBoundary onError={handleGoogleMapCrash}>
+                      <GoogleMap
+                        /* @ts-ignore */
+                        apiKey={googleMapsApiKey}
+                        /* @ts-ignore */
+                        defaultCenter={getGoogleCoords(mapConfig.center)}
+                        /* @ts-ignore */
+                        defaultZoom={mapConfig.zoom}
+                        /* @ts-ignore */
+                        center={getGoogleCoords(mapConfig.center)}
+                        /* @ts-ignore */
+                        zoom={mapConfig.zoom}
+                        onGoogleApiLoaded={() => console.log('Google Maps API Loaded')}
+                        mapMinHeight="100%"
+                      >
+                        {confirmedDrivers.map(driver => (
+                          <MovingGoogleTaxiMarker 
+                            key={driver.id} 
+                            driver={driver}
+                          />
+                        ))}
+                      </GoogleMap>
+                    </MapErrorBoundary>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="h-full w-full flex flex-col items-center justify-center bg-slate-950 text-white p-6 text-center space-y-3">
+                  <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs font-black uppercase tracking-widest text-amber-400">
+                    {!isGoogleScriptReady ? 'A Carregar Scripts do Google Maps (Assíncrono)...' : 'A Confirmar Geolocalização do Veículo...'}
+                  </p>
+                  <p className="text-[10px] text-slate-400 max-w-sm">
+                    A aguardar validação das coordenadas GPS da frota antes de inicializar o motor gráfico do mapa para prevenir falhas de execução.
+                  </p>
+                </div>
+              );
+            })()
           ) : (
             <div className="h-full w-full">
               {/* @ts-ignore */}

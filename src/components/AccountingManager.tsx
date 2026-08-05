@@ -217,6 +217,7 @@ export default function AccountingManager({ user }: { user?: any }) {
     setCustomDriverDiscounts({});
     try {
       localStorage.removeItem("jis_discount_audit_logs_v1");
+      localStorage.removeItem("jis_custom_driver_discounts");
     } catch (e) {
       console.error("Erro ao zerar auditoria de descontos:", e);
     }
@@ -1581,6 +1582,10 @@ export default function AccountingManager({ user }: { user?: any }) {
       setSalarySheets([]);
       setIndividualReports([]);
 
+      // 10. Disparar Eventos Centralizados para Reiniciar o 'Análise de Receitas & Custos do Motorista'
+      window.dispatchEvent(new CustomEvent('accounting_hub_reset'));
+      window.dispatchEvent(new CustomEvent('revenue_logs_updated'));
+
       alert("HUB DE CONTABILIDADE ZERADO COM SUCESSO!\n\nTodos os dados de receita, alertas de chamadas/velocidade, histórico de análise, relatórios individuais e auditoria de descontos foram reposição a zero.");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, "accounting_cycle_reset");
@@ -1601,6 +1606,8 @@ export default function AccountingManager({ user }: { user?: any }) {
         batch.delete(doc(db, "individual_reports", report.id));
       });
       await batch.commit();
+      setIndividualReports([]);
+      window.dispatchEvent(new CustomEvent('accounting_hub_reset'));
       alert("Relatórios individuais removidos com sucesso.");
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, "individual_reports");

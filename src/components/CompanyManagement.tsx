@@ -468,24 +468,27 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
                     onChange={(e) => setNewTenantProvince(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:bg-white focus:border-brand-primary transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-white dark:focus:bg-slate-900/50"
                   >
-                    <option value="Moxico">Moxico (Luena)</option>
-                    <option value="Luanda">Luanda</option>
+                    <option value="Bengo">Bengo</option>
                     <option value="Benguela">Benguela</option>
-                    <option value="Huambo">Huambo</option>
+                    <option value="Bié">Bié</option>
                     <option value="Cabinda">Cabinda</option>
-                    <option value="Huíla">Huíla</option>
-                    <option value="Namibe">Namibe</option>
+                    <option value="Cuanza Norte">Cuanza Norte</option>
+                    <option value="Cuanza Sul">Cuanza Sul</option>
+                    <option value="Cubango">Cubango</option>
                     <option value="Cunene">Cunene</option>
-                    <option value="Cuando Cubango">Cuando Cubango</option>
+                    <option value="Huambo">Huambo</option>
+                    <option value="Huíla">Huíla</option>
+                    <option value="Icolo e Bengo">Icolo e Bengo</option>
+                    <option value="Luanda">Luanda</option>
                     <option value="Lunda Norte">Lunda Norte</option>
                     <option value="Lunda Sul">Lunda Sul</option>
-                    <option value="Bengo">Bengo</option>
-                    <option value="Zaire">Zaire</option>
-                    <option value="Bié">Bié</option>
                     <option value="Malanje">Malanje</option>
+                    <option value="Moxico">Moxico (Luena)</option>
+                    <option value="Moxico-Leste">Moxico-Leste (Cazombo)</option>
+                    <option value="Namibe">Namibe</option>
+                    <option value="Quando Cubango">Quando Cubango</option>
                     <option value="Uíge">Uíge</option>
-                    <option value="Kwanza Norte">Kwanza Norte</option>
-                    <option value="Kwanza Sul">Kwanza Sul</option>
+                    <option value="Zaire">Zaire</option>
                   </select>
                 </div>
               </div>

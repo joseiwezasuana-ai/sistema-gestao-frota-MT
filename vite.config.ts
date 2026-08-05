@@ -68,6 +68,25 @@ export default defineConfig(({mode}) => {
         }
       }
     },
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'lucide-react',
+        'motion/react',
+        'recharts',
+        'firebase/app',
+        'firebase/auth',
+        'firebase/firestore',
+        'leaflet',
+        'react-leaflet',
+        'swr',
+        'date-fns',
+        'jspdf',
+        'html2canvas',
+        'dompurify',
+      ],
+    },
     define: {
       // process.env.GEMINI_API_KEY is now handled server-side only
     },

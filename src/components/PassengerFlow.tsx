@@ -7,7 +7,7 @@ import {
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
   Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
-  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle
+  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag
 } from 'lucide-react';
 import { PWAInstallModal } from './PWAInstallBanner';
 import { WebRTCAudioCall } from './WebRTCAudioCall';
@@ -306,6 +306,94 @@ function PassengerAvatar({ src, name, size = "md" }: { src?: string; name?: stri
   );
 }
 
+interface ETACountdownProps {
+  driverEtaResponse: string;
+  driverEtaResponseAt?: string | null;
+  onCountdownEnd: () => void;
+}
+
+function ETACountdown({ driverEtaResponse, driverEtaResponseAt, onCountdownEnd }: ETACountdownProps) {
+  const [timeLeft, setTimeLeft] = useState<string>('');
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!driverEtaResponse) {
+      setTimeLeft('');
+      setSecondsRemaining(null);
+      return;
+    }
+
+    // Se o motorista informou que já está no local
+    if (driverEtaResponse.toLowerCase().includes('local') || driverEtaResponse.toLowerCase().includes('chegou')) {
+      setTimeLeft('No Local');
+      setSecondsRemaining(0);
+      onCountdownEnd();
+      return;
+    }
+
+    // Extrair os minutos (ex: "5 min" -> 5)
+    const minutesMatch = driverEtaResponse.match(/\d+/);
+    if (!minutesMatch) {
+      setTimeLeft(driverEtaResponse);
+      setSecondsRemaining(null);
+      return;
+    }
+
+    const minutes = parseInt(minutesMatch[0], 10);
+    const totalDurationSeconds = minutes * 60;
+
+    // Usar o timestamp de criação da resposta do motorista
+    const startTime = driverEtaResponseAt ? new Date(driverEtaResponseAt).getTime() : Date.now();
+
+    const updateTimer = () => {
+      const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, totalDurationSeconds - elapsedSeconds);
+      setSecondsRemaining(remaining);
+
+      if (remaining <= 0) {
+        setTimeLeft('Tempo esgotado! Motorista a chegar.');
+        onCountdownEnd();
+      } else {
+        const m = Math.floor(remaining / 60);
+        const s = remaining % 60;
+        setTimeLeft(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [driverEtaResponse, driverEtaResponseAt, onCountdownEnd]);
+
+  if (secondsRemaining !== null && secondsRemaining > 0) {
+    return (
+      <div className="flex flex-col">
+        <p className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">
+          ⏳ Contagem Regressiva em Tempo Real:
+        </p>
+        <p className="text-xl font-black text-emerald-300 font-mono tracking-widest mt-0.5 animate-pulse">
+          {timeLeft}
+        </p>
+        <p className="text-[8.5px] text-slate-400 mt-0.5">
+          O motorista informou: {driverEtaResponse}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col">
+      <p className="text-[9px] font-black uppercase text-amber-400 tracking-wider">
+        📍 Previsão de Chegada:
+      </p>
+      <p className="text-sm font-black text-white mt-0.5 leading-snug">
+        {timeLeft || driverEtaResponse}
+      </p>
+    </div>
+  );
+}
+
 export default function PassengerFlow({ isPublicApp = false, isEmbed = false, onBackToStaff }: { isPublicApp?: boolean; isEmbed?: boolean; onBackToStaff?: () => void }) {
   const [activePalette, setActivePalette] = useState<PassengerTheme>(() => {
     return (localStorage.getItem('psm-passenger-theme') as PassengerTheme) || 'gold';
@@ -327,6 +415,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
     routeSharingEnabled: true,
     bonusClubEnabled: true,
     bonusClubCashbackPercent: 5,
+    webrtcEnabled: true,
     searchRadiusKm: 15,
     driverWaitTimeSec: 90,
     baseFareKz: 500,
@@ -355,6 +444,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           routeSharingEnabled: data.routeSharingEnabled !== false,
           bonusClubEnabled: data.bonusClubEnabled !== false,
           bonusClubCashbackPercent: data.bonusClubCashbackPercent || 5,
+          webrtcEnabled: data.webrtcEnabled !== false,
           searchRadiusKm: data.searchRadiusKm || 15,
           driverWaitTimeSec: data.driverWaitTimeSec || 90,
           baseFareKz: data.baseFareKz || 500,
@@ -604,6 +694,16 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [showComplaintsModal, setShowComplaintsModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // States for Refusal Reason, Discount Proposal & ETA Questions
+  const [showRefusalModal, setShowRefusalModal] = useState(false);
+  const [refusalReasonOption, setRefusalReasonOption] = useState<string>('Preço Demasiado Alto');
+  const [customDiscountPrice, setCustomDiscountPrice] = useState<string>('');
+  const [isSubmittingDiscount, setIsSubmittingDiscount] = useState(false);
+  const [selectedEtaQuestion, setSelectedEtaQuestion] = useState<string>('');
+  const [isSubmittingEtaQuestion, setIsSubmittingEtaQuestion] = useState(false);
+  const [etaSentMsg, setEtaSentMsg] = useState<string>('');
+  const [isEtaExpired, setIsEtaExpired] = useState<boolean>(false);
   
   // Custom states for complaint submission and tracking
   const [complaintType, setComplaintType] = useState('excesso_velocidade');
@@ -689,9 +789,28 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
     }
   };
 
+const validateRideTransactionId = (callId: string | null | undefined): boolean => {
+  if (!callId) return false;
+  const clean = String(callId).trim();
+  if (!clean || clean.length < 5 || clean.length > 120) return false;
+  if (['undefined', 'null', 'none', '[object object]', 'false', 'true', '<id>'].includes(clean.toLowerCase())) return false;
+  const validIdPattern = /^[a-zA-Z0-9_\-]+$/;
+  return validIdPattern.test(clean);
+};
+
+  const getPassengerShareUrl = () => {
+    const callId = activeRideRecord?.id;
+    const isIdValid = validateRideTransactionId(callId);
+    const callParam = isIdValid ? `&callId=${encodeURIComponent(callId!)}` : '';
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      return `${window.location.origin}/?view=passenger${callParam}`;
+    }
+    return `https://jis-st.web.app/?view=passenger${callParam}`;
+  };
+
   const copyShareLink = () => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText("https://jis-st.web.app/?view=passenger");
+      navigator.clipboard.writeText(getPassengerShareUrl());
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2000);
     }
@@ -770,23 +889,30 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   }, [activeTenant, companies, passengerProfile, isGpsExact]);
 
   // Call Sequence states
-  // 'idle' | 'calling' | 'connected' | 'pricing' | 'offer_received' | 'ride_confirmed' | 'ride_completed' | 'cancelled_by_driver'
-  const [callState, setCallState] = useState<'idle' | 'calling' | 'connected' | 'pricing' | 'offer_received' | 'ride_confirmed' | 'ride_completed' | 'cancelled_by_driver'>('idle');
+  // 'idle' | 'calling' | 'connected' | 'pricing' | 'offer_received' | 'ride_confirmed' | 'ride_completed' | 'cancelled_by_driver' | 'price_negotiation_requested'
+  const [callState, setCallState] = useState<'idle' | 'calling' | 'connected' | 'pricing' | 'offer_received' | 'ride_confirmed' | 'ride_completed' | 'cancelled_by_driver' | 'price_negotiation_requested'>('idle');
   const [isCallMinimized, setIsCallMinimized] = useState<boolean>(false);
   const [negotiatedPrice, setNegotiatedPrice] = useState<number>(0);
   const [passengerRating, setPassengerRating] = useState<number>(5);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [activeRideRecord, setActiveRideRecord] = useState<any | null>(null);
+  
+  useEffect(() => {
+    setIsEtaExpired(false);
+  }, [activeRideRecord?.id, activeRideRecord?.driverEtaResponse]);
   const [isRestoringCall, setIsRestoringCall] = useState(true);
   const activeStatusRef = useRef<string | null>(null);
   const prevStatusRef = useRef<string | null>(null);
+  const prevPriceRef = useRef<number | null>(null);
+  const prevDriverEtaResponseRef = useRef<string | null>(null);
 
   // Real-time synchronization active toast notification
   const [notificationBanner, setNotificationBanner] = useState<{
     title: string;
     message: string;
     visible: boolean;
-  }>({ title: '', message: '', visible: false });
+    type?: 'info' | 'discount' | 'success' | 'warning';
+  }>({ title: '', message: '', visible: false, type: 'info' });
 
   const hasWelcomedRef = useRef(false);
 
@@ -806,9 +932,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   // Pure Web Audio API Premium Sound Generators - 100% Reliable Offline Sound Chimes
   const playNotificationSound = (type: 'ding' | 'success' | 'alert', extTitle?: string, extBody?: string) => {
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new (AudioContextClass as any)();
       
       if (type === 'ding') {
         const playDing = (delay: number) => {
@@ -857,28 +983,18 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       }
 
       // External native device push notifications for when tab is minimized or in background (JIS - Despertar Passageiro)
-      if (extTitle && extBody && 'Notification' in window) {
-        if (Notification.permission === 'granted') {
-          try {
-            const notif = new Notification(`🚕 TAXICONTROL: ${extTitle}`, {
+      if (extTitle && extBody && typeof window !== 'undefined' && 'Notification' in window && window.Notification) {
+        if (window.Notification.permission === 'granted' && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(registration => {
+            registration.showNotification(`🚕 TAXICONTROL: ${extTitle}`, {
               body: extBody,
               icon: '/icon-192.png',
               tag: 'super-taxi-passenger',
               requireInteraction: true
             });
-            notif.onclick = () => {
-              window.focus();
-            };
-          } catch (e) {
-            console.warn("Standard notification failed, trying backup ServiceWorker notification:", e);
-            navigator.serviceWorker?.ready.then(registration => {
-              registration.showNotification(`🚕 TAXICONTROL: ${extTitle}`, {
-                body: extBody,
-                icon: '/icon-192.png',
-                tag: 'super-taxi-passenger'
-              });
-            });
-          }
+          }).catch(() => {
+            // Fallback: do not invoke direct new Notification to avoid Illegal constructor
+          });
         }
       }
     } catch (err) {
@@ -891,7 +1007,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
     if (notificationBanner.visible) {
       const t = setTimeout(() => {
         setNotificationBanner(prev => ({ ...prev, visible: false }));
-      }, 25000);
+      }, 10000);
       return () => clearTimeout(t);
     }
   }, [notificationBanner.visible]);
@@ -1153,9 +1269,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       }
     });
 
-    if ('Notification' in window && Notification.permission === 'default') {
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification && window.Notification.permission === 'default' && typeof window.Notification.requestPermission === 'function') {
       try {
-        Notification.requestPermission();
+        window.Notification.requestPermission();
       } catch (err) {
         console.warn("Notification.requestPermission is not supported here:", err);
       }
@@ -1164,7 +1280,25 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
   // Load saved active call on mount to prevent state drop upon unmounting / tab switching
   useEffect(() => {
-    const savedCallId = localStorage.getItem('active_call_id');
+    const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const rawUrlCallId = urlParams ? (urlParams.get('callId') || urlParams.get('rideId')) : null;
+
+    if (rawUrlCallId && !validateRideTransactionId(rawUrlCallId)) {
+      console.warn("[PassengerFlow] Invalid URL transaction ID supplied:", rawUrlCallId);
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        window.history.replaceState({}, document.title, `${window.location.pathname}?view=passenger`);
+      }
+      setNotificationBanner({
+        title: "⚠️ LINK DE PARTILHA INVÁLIDO",
+        message: "O código de transação fornecido no link de partilha do WhatsApp é inválido ou malformado.",
+        visible: true,
+        type: 'warning'
+      });
+    }
+
+    const urlCallId = (rawUrlCallId && validateRideTransactionId(rawUrlCallId)) ? rawUrlCallId : null;
+    const savedCallId = urlCallId || localStorage.getItem('active_call_id');
+
     if (savedCallId) {
       const fetchSavedCall = async () => {
         try {
@@ -1173,19 +1307,29 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             const data = docSnap.data();
             
             // Safety guard: if the passenger already started/joined another call during this flight, do not overwrite it
-            if (activeStatusRef.current !== null) {
+            if (activeStatusRef.current !== null && !urlCallId) {
               console.log("[PassengerFlow] Stale restore flight aborted because another active ride is already set.");
               return;
             }
 
-            // Verify if call passenger matches currently logged-in passenger
-            const isMyCall = !passengerProfile || !passengerProfile.name || (data.passengerName === passengerProfile.name);
+            // Verify if call passenger matches currently logged-in passenger or opened via shared link
+            const isMyCall = urlCallId || !passengerProfile || !passengerProfile.name || (data.passengerName === passengerProfile.name);
 
-            // Only restore if the call is not ended and belongs to current passenger
+            // Only restore if the call is not ended
             if (isMyCall && !['completed', 'cancelled', 'rejected', 'ignored'].includes(data.status)) {
-               console.log("Restoring active call from localStorage:", savedCallId, data);
+               console.log("Restoring active call from URL / localStorage:", savedCallId, data);
                activeStatusRef.current = data.status;
                setActiveRideRecord({ id: docSnap.id, ...data });
+
+               if (urlCallId) {
+                 setNotificationBanner({
+                   title: "📍 ACOMPANHAMENTO EM TEMPO REAL",
+                   message: `A visualizar o trajeto em tempo real da viagem de ${data.passengerName || 'Passageiro'} (${data.originName || data.pickup || 'Luena'} ➔ ${data.destinationName || data.destination || 'Destino'}).`,
+                   visible: true,
+                   type: 'info'
+                 });
+               }
+
               // Set correct status immediately to prevent any blank visual overlay
               if (data.status === 'pending' || data.status === 'calling') {
                 setCallState('calling');
@@ -1196,13 +1340,13 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
               } else if (data.status === 'price_sent') {
                 setCallState('offer_received');
                 if (data.price) setNegotiatedPrice(data.price);
-              } else if (data.status === 'confirmed' || data.status === 'active') {
+              } else if (data.status === 'confirmed' || data.status === 'active' || data.status === 'arrived') {
                 setCallState('ride_confirmed');
                 if (data.price) setNegotiatedPrice(data.price);
               }
             } else {
               console.log("[PassengerFlow] Saved call is already ended/completed in database, clearing.");
-              localStorage.removeItem('active_call_id');
+              if (!urlCallId) localStorage.removeItem('active_call_id');
               setPickup('');
               setDestination('');
               setNegotiatedPrice(0);
@@ -1212,14 +1356,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             }
           } else {
             console.log("[PassengerFlow] Saved call ID does not exist, clearing localStorage.");
-            localStorage.removeItem('active_call_id');
+            if (!urlCallId) localStorage.removeItem('active_call_id');
             setActiveRideRecord(null);
             activeStatusRef.current = null;
             setCallState('idle');
           }
         } catch (err) {
           console.error("Error restoring call:", err);
-          localStorage.removeItem('active_call_id');
+          if (!urlCallId) localStorage.removeItem('active_call_id');
           setActiveRideRecord(null);
           activeStatusRef.current = null;
           setCallState('idle');
@@ -1357,21 +1501,61 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           return { ...prev, ...data };
         });
 
+        // Check for new ETA response from driver in real-time
+        const prevDriverEtaResponse = prevDriverEtaResponseRef.current;
+        if (data.driverEtaResponse && prevDriverEtaResponse && prevDriverEtaResponse !== data.driverEtaResponse) {
+          playNotificationSound('ding', 'Previsão de Chegada!', `O motorista atualizou a previsão de chegada: ${data.driverEtaResponse}.`);
+          setNotificationBanner({
+            title: '⚡ PREVISÃO DE CHEGADA!',
+            message: `O motorista informou que chega em: ${data.driverEtaResponse}.`,
+            type: 'info',
+            visible: true
+          });
+        }
+        if (data.driverEtaResponse) {
+          prevDriverEtaResponseRef.current = data.driverEtaResponse;
+        }
+
         // Trigger real-time sound/visual notification on state change (JIS - Safety Notifications)
         const prevStatus = prevStatusRef.current;
-        if (prevStatus && prevStatus !== data.status) {
+        const prevPrice = prevPriceRef.current;
+        const isNegotiation = prevStatus === 'price_negotiation_requested';
+        const isPriceChange = prevPrice !== null && prevPrice !== data.price;
+        const isNewOffer = prevStatus !== 'price_sent';
+
+        // Custom real-time handling for price proposals and discounts
+        if (data.status === 'price_sent' && (isNewOffer || isPriceChange || isNegotiation)) {
+          const isDiscount = Boolean(data.discountPercent || (data.originalPrice && Number(data.price) < Number(data.originalPrice)) || isNegotiation);
+          const driverName = data.driverName || 'O Motorista SUPER TÁXI';
+          const newPrice = Number(data.price || 0);
+          const pctLabel = data.discountPercent ? ` (${data.discountPercent})` : '';
+
+          if (isDiscount) {
+            playNotificationSound('ding', '🏷️ Desconto Oferecido!', `O motorista ${driverName} ofereceu um novo preço com desconto: ${newPrice.toLocaleString()} Kz.`);
+            setNotificationBanner({
+              title: '🏷️ O MOTORISTA OFERECEU UM DESCONTO!',
+              message: `${driverName} aplicou um desconto! Novo valor da corrida: ${newPrice.toLocaleString()} Kz${pctLabel}. Toque para confirmar.`,
+              type: 'discount',
+              visible: true
+            });
+          } else {
+            playNotificationSound('ding', 'Proposta Recebida!', `O motorista ${driverName} propôs o preço de ${newPrice.toLocaleString()} Kz para a sua viagem.`);
+            setNotificationBanner({
+              title: '💬 PROPOSTA DE PREÇO RECEBIDA!',
+              message: `${driverName} propôs o preço de ${newPrice.toLocaleString()} Kz para a sua viagem.`,
+              type: 'info',
+              visible: true
+            });
+          }
+          setIsCallMinimized(false);
+          prevPriceRef.current = data.price;
+        } else if (prevStatus && prevStatus !== data.status) {
           if (data.status === 'connected') {
             playNotificationSound('ding', 'Chamada Atendida!', 'O motorista está em linha. Fale diretamente no canal de voz segura.');
             setNotificationBanner({
               title: 'Chamada Atendida!',
               message: 'O motorista está em linha. Fale diretamente no canal de voz segura.',
-              visible: true
-            });
-          } else if (data.status === 'price_sent') {
-            playNotificationSound('ding', 'Proposta Recebida!', `O motorista propôs o preço de ${data.price?.toLocaleString()} Kz para a sua viagem.`);
-            setNotificationBanner({
-              title: 'Proposta Recebida!',
-              message: `O motorista propôs o preço de ${data.price?.toLocaleString()} Kz para a sua viagem.`,
+              type: 'info',
               visible: true
             });
           } else if (data.status === 'confirmed' || data.status === 'active') {
@@ -1379,6 +1563,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             setNotificationBanner({
               title: 'Viagem Ativada!',
               message: 'A viagem foi confirmada pelo motorista. Desfrute da viagem.',
+              type: 'success',
               visible: true
             });
           } else if (data.status === 'arrived') {
@@ -1386,6 +1571,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             setNotificationBanner({
               title: 'Motorista Chegou!',
               message: 'O seu motorista já está no ponto de recolha.',
+              type: 'info',
               visible: true
             });
           } else if (data.status === 'completed') {
@@ -1393,6 +1579,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             setNotificationBanner({
               title: 'Viagem Fechada!',
               message: 'O motorista encerrou com sucesso. Obrigado por viajar connosco.',
+              type: 'success',
               visible: true
             });
 
@@ -1462,7 +1649,27 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
         
         // Let's change callState based on Firestore status
         console.log("Passenger Flow - Sync active ride. Status:", data.status, "Price:", data.price, "Doc ID:", docSnap.id);
-        if (data.status === 'pending' || data.status === 'calling') {
+        const hasRealtimeLocation = Boolean(
+          data.localizacao_tempo_real || 
+          data.localizacaoTempoReal || 
+          data.hasRealtimeLocation ||
+          (data.driverLat && data.driverLng)
+        );
+        const hasDriverLocationOrEta = Boolean(hasRealtimeLocation || data.driverEtaResponse || data.driverEta || data.eta);
+        
+        if (data.status === 'completed') {
+          console.log("[PassengerFlow] Sync detected ride completed. Showing success receipt screen.");
+          setCallState('ride_completed');
+          // Note: We deliberately do NOT set activeRideRecord to null here so the success/receipt screen 
+          // can display the actual trip details (driverName, vehiclePlate, negotiatedPrice) rather than fallback defaults!
+        } else if (data.status === 'cancelled' || data.status === 'rejected' || data.status === 'ignored' || data.status === 'missed') {
+          console.log("[PassengerFlow] Sync detected ride cancelled/rejected/missed.");
+          setCallState('cancelled_by_driver');
+          // Note: We deliberately do NOT set activeRideRecord to null here so the cancellation screen can read details.
+        } else if (data.status === 'confirmed' || data.status === 'arrived' || data.status === 'active' || hasDriverLocationOrEta) {
+          if (data.price !== undefined && data.price !== null) setNegotiatedPrice(data.price);
+          setCallState('ride_confirmed');
+        } else if (data.status === 'pending' || data.status === 'calling') {
           // Strict real alignment to calling status
           setCallState('calling');
         } else if (data.status === 'connected') {
@@ -1473,18 +1680,6 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           // Update price even if it's 0 to reflect the state accurately
           setNegotiatedPrice(data.price || 0); 
           setCallState('offer_received');
-        } else if (data.status === 'confirmed' || data.status === 'arrived' || data.status === 'active') {
-          if (data.price !== undefined && data.price !== null) setNegotiatedPrice(data.price);
-          setCallState('ride_confirmed');
-        } else if (data.status === 'completed') {
-          console.log("[PassengerFlow] Sync detected ride completed. Showing success receipt screen.");
-          setCallState('ride_completed');
-          // Note: We deliberately do NOT set activeRideRecord to null here so the success/receipt screen 
-          // can display the actual trip details (driverName, vehiclePlate, negotiatedPrice) rather than fallback defaults!
-        } else if (data.status === 'cancelled' || data.status === 'rejected' || data.status === 'ignored' || data.status === 'missed') {
-          console.log("[PassengerFlow] Sync detected ride cancelled/rejected/missed.");
-          setCallState('cancelled_by_driver');
-          // Note: We deliberately do NOT set activeRideRecord to null here so the cancellation screen can read details.
         }
       } else {
         console.warn("[Passenger Flow] Active call document does not exist in Firestore yet or was removed. ID:", docId);
@@ -1528,7 +1723,27 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   useEffect(() => {
     if (!activeRideRecord) return;
     const dbStatus = activeRideRecord.status;
-    if (dbStatus === 'pending' || dbStatus === 'calling') {
+    const hasRealtimeLocation = Boolean(
+      activeRideRecord.localizacao_tempo_real || 
+      activeRideRecord.localizacaoTempoReal || 
+      activeRideRecord.hasRealtimeLocation ||
+      (activeRideRecord.driverLat && activeRideRecord.driverLng)
+    );
+    const hasDriverLocationOrEta = Boolean(
+      hasRealtimeLocation || 
+      activeRideRecord.driverEtaResponse || 
+      activeRideRecord.driverEta || 
+      activeRideRecord.eta
+    );
+
+    if (dbStatus === 'completed') {
+      setCallState('ride_completed');
+    } else if (dbStatus === 'cancelled' || dbStatus === 'rejected' || dbStatus === 'ignored' || dbStatus === 'missed') {
+      setCallState('cancelled_by_driver');
+    } else if (dbStatus === 'confirmed' || dbStatus === 'active' || dbStatus === 'arrived' || hasDriverLocationOrEta) {
+      if (activeRideRecord.price !== undefined && activeRideRecord.price !== null) setNegotiatedPrice(activeRideRecord.price);
+      setCallState('ride_confirmed');
+    } else if (dbStatus === 'pending' || dbStatus === 'calling') {
       setCallState('calling');
     } else if (dbStatus === 'connected') {
       setCallState('connected');
@@ -1538,15 +1753,8 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       // Update price even if it's 0
       setNegotiatedPrice(activeRideRecord.price !== undefined && activeRideRecord.price !== null ? activeRideRecord.price : 0);
       setCallState('offer_received');
-    } else if (dbStatus === 'confirmed' || dbStatus === 'active' || dbStatus === 'arrived') {
-      if (activeRideRecord.price !== undefined && activeRideRecord.price !== null) setNegotiatedPrice(activeRideRecord.price);
-      setCallState('ride_confirmed');
-    } else if (dbStatus === 'completed') {
-      setCallState('ride_completed');
-    } else if (dbStatus === 'cancelled' || dbStatus === 'rejected' || dbStatus === 'ignored' || dbStatus === 'missed') {
-      setCallState('cancelled_by_driver');
     }
-  }, [activeRideRecord?.status, activeRideRecord?.price]);
+  }, [activeRideRecord?.status, activeRideRecord?.price, activeRideRecord?.driverLat, activeRideRecord?.driverLng, activeRideRecord?.localizacao_tempo_real, activeRideRecord?.localizacaoTempoReal, activeRideRecord?.driverEtaResponse, activeRideRecord?.driverEta]);
 
   // Ticker for seconds elapsed
   useEffect(() => {
@@ -1773,18 +1981,24 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       const boardingToken = generateToken();
       const currentFcmToken = localStorage.getItem('passenger_fcm_token') || '';
 
+      const resolvedPhone = passengerProfile?.backupPhone || passengerProfile?.phone || '+244923000000';
+      const resolvedCount = Number(passengerCount) || 1;
+
       const docRef = await addDoc(collection(db, 'calls'), {
         passengerId: passengerProfile ? passengerProfile.name.toLowerCase().replace(/\s/g, '') : 'anon',
         passengerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
-        passengerPhone: passengerProfile?.backupPhone || passengerProfile?.phone || '+244 9XX XXX XXX',
+        passengerPhone: resolvedPhone,
+        customerPhone: resolvedPhone,
+        phone: resolvedPhone,
         passengerAge: passengerProfile?.age || 'N/A',
         passengerProvince: passengerProfile ? passengerProfile.province : 'Luena, Moxico',
         passengerPhoto: passengerProfile?.photoUrl || '',
         pickup,
         destination,
-        passengerCount,
+        passengerCount: resolvedCount,
+        passengersCount: resolvedCount,
+        numPassengers: resolvedCount,
         customerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
-        customerPhone: passengerProfile?.backupPhone || passengerProfile?.phone || '+244 9XX XXX XXX',
         pickupAddress: pickup,
         destinationAddress: destination,
         pickupLat: passengerCoords[0],
@@ -1876,16 +2090,23 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
       // Save to driver's daily records inside driver_scales as well 
       // or associate with general drivers_master total earnings.
       // Additionally, we persist confirmed ride amounts in localstorage to display in DriverView Rendas if needed.
-      const currentDriverSavedRides = localStorage.getItem(`rides_driver_${activeRideRecord.driverName}`) || '[]';
-      const driverRides = JSON.parse(currentDriverSavedRides);
-      driverRides.push({
-        id: activeRideRecord.id,
-        price: negotiatedPrice,
-        pickup: activeRideRecord.pickup,
-        destination: activeRideRecord.destination,
-        createdAt: new Date().toISOString()
-      });
-      localStorage.setItem(`rides_driver_${activeRideRecord.driverName}`, JSON.stringify(driverRides));
+      try {
+        const driverKey = activeRideRecord.driverName || 'general';
+        const currentDriverSavedRides = localStorage.getItem(`rides_driver_${driverKey}`) || '[]';
+        const driverRides = JSON.parse(currentDriverSavedRides);
+        if (Array.isArray(driverRides)) {
+          driverRides.push({
+            id: activeRideRecord.id,
+            price: negotiatedPrice,
+            pickup: activeRideRecord.pickup,
+            destination: activeRideRecord.destination,
+            createdAt: new Date().toISOString()
+          });
+          localStorage.setItem(`rides_driver_${driverKey}`, JSON.stringify(driverRides));
+        }
+      } catch (storageErr) {
+        console.warn("Local storage save skipped:", storageErr);
+      }
 
       alert("Corrida confirmada! O motorista iniciou viagem.");
       setCallState('ride_confirmed');
@@ -1894,16 +2115,76 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
     }
   };
 
-  // Passenger cancels the proposed ride
+  // Passenger cancels or opens refusal modal
   const handlePassengerCancelRide = async () => {
+    if (!activeRideRecord?.id) return;
+    setShowRefusalModal(true);
+  };
+
+  const handleConfirmDefinitiveCancellation = async (reason?: string) => {
     if (!activeRideRecord?.id) return;
     try {
       activeStatusRef.current = 'cancelled';
       const rideRef = doc(db, 'calls', activeRideRecord.id);
-      await setDoc(rideRef, { status: 'cancelled' }, { merge: true });
+      await setDoc(rideRef, { 
+        status: 'cancelled',
+        refusalReason: reason || refusalReasonOption,
+        cancelledBy: 'passenger'
+      }, { merge: true });
+      setShowRefusalModal(false);
       setCallState('cancelled_by_driver');
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleSendDiscountRequest = async () => {
+    if (!activeRideRecord?.id) return;
+    setIsSubmittingDiscount(true);
+    try {
+      const rideRef = doc(db, 'calls', activeRideRecord.id);
+      await setDoc(rideRef, {
+        status: 'price_negotiation_requested',
+        refusalReason: 'Preço Demasiado Alto',
+        passengerRequestedDiscount: true,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      setCallState('price_negotiation_requested');
+      setShowRefusalModal(false);
+      alert("Pedido de desconto enviado ao motorista! A aguardar que o motorista defina o novo preço com desconto.");
+    } catch (err) {
+      console.error("Erro ao enviar pedido de desconto:", err);
+      alert("Falha ao enviar solicitação de desconto.");
+    } finally {
+      setIsSubmittingDiscount(false);
+    }
+  };
+
+  const handleSendEtaQuestion = async (questionText: string) => {
+    if (!activeRideRecord?.id) return;
+    setIsSubmittingEtaQuestion(true);
+    try {
+      const rideRef = doc(db, 'calls', activeRideRecord.id);
+      await setDoc(rideRef, {
+        passengerAskedEta: true,
+        passengerEtaQuestion: questionText,
+        askedEtaAt: new Date().toISOString(),
+        driverEtaResponse: null,
+        driverEta: null,
+        eta: null,
+        driverEtaResponseAt: null,
+        passengerAcceptedEta: false
+      }, { merge: true });
+
+      setSelectedEtaQuestion(questionText);
+      setIsEtaExpired(false);
+      setEtaSentMsg(`Pergunta enviada ao motorista: "${questionText}"`);
+      setTimeout(() => setEtaSentMsg(''), 5000);
+    } catch (err) {
+      console.error("Erro ao perguntar tempo de espera:", err);
+    } finally {
+      setIsSubmittingEtaQuestion(false);
     }
   };
 
@@ -2046,17 +2327,47 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
           <AnimatePresence>
             {notificationBanner.visible && (
               <motion.div 
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="absolute top-4 left-4 right-4 bg-slate-900 border-2 border-amber-500 p-4.5 sm:p-5 rounded-2xl shadow-2xl z-[100] flex items-start gap-4 backdrop-blur-md animate-pulse"
+                initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                className={`absolute top-4 left-4 right-4 p-4 sm:p-4.5 rounded-2xl shadow-2xl z-[100] flex items-start gap-3.5 backdrop-blur-md border-2 transition-all ${
+                  notificationBanner.type === 'discount'
+                    ? 'bg-slate-950/95 border-emerald-400 shadow-emerald-500/30 animate-pulse'
+                    : 'bg-slate-900/95 border-amber-500 shadow-amber-500/20'
+                }`}
               >
-                <div className="p-2.5 bg-amber-500/20 rounded-xl text-amber-400 shrink-0 shadow-inner">
-                  <Sparkles size={20} className="animate-ping" />
+                <div className={`p-2.5 rounded-xl shrink-0 shadow-inner ${
+                  notificationBanner.type === 'discount'
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                }`}>
+                  {notificationBanner.type === 'discount' ? (
+                    <Tag size={20} className="animate-bounce" />
+                  ) : (
+                    <Sparkles size={20} className="animate-ping" />
+                  )}
                 </div>
                 <div className="text-left leading-tight min-w-0 flex-1">
-                  <h5 className="text-xs sm:text-sm font-black text-amber-500 uppercase tracking-widest">{notificationBanner.title}</h5>
-                  <p className="text-xs sm:text-sm text-slate-100 mt-1 leading-snug font-bold">{notificationBanner.message}</p>
+                  <h5 className={`text-xs sm:text-sm font-black uppercase tracking-widest ${
+                    notificationBanner.type === 'discount' ? 'text-emerald-400' : 'text-amber-500'
+                  }`}>
+                    {notificationBanner.title}
+                  </h5>
+                  <p className="text-xs sm:text-sm text-slate-100 mt-1 leading-snug font-bold">
+                    {notificationBanner.message}
+                  </p>
+                  {notificationBanner.type === 'discount' && (
+                    <button
+                      onClick={() => {
+                        setIsCallMinimized(false);
+                        setNotificationBanner(prev => ({ ...prev, visible: false }));
+                      }}
+                      className="mt-2.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>Ver e Aceitar Desconto</span>
+                      <ArrowRight size={12} />
+                    </button>
+                  )}
                 </div>
                 <button 
                   onClick={() => setNotificationBanner(prev => ({ ...prev, visible: false }))}
@@ -2392,17 +2703,22 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                       >
                         <div className="space-y-1">
                           <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Idade</label>
-                          <input 
-                            type="number" 
-                            placeholder="Ex: 24" 
+                          <select 
                             value={age}
                             onChange={e => setAge(e.target.value)}
-                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all ${
+                            className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border appearance-none transition-all cursor-pointer ${
                               isDark 
-                                ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
-                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                                ? 'bg-white/5 border-white/10 text-white focus:border-white' 
+                                : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500'
                             }`}
-                          />
+                          >
+                            <option value="" className={isDark ? "bg-slate-800 text-slate-400" : "bg-white text-slate-500"}>Selecione Idade...</option>
+                            {Array.from({ length: 73 }, (_, i) => i + 18).map(num => (
+                              <option key={num} value={String(num)} className={isDark ? "bg-slate-800 text-white font-bold" : "bg-white text-slate-900 font-bold"}>
+                                {num} Anos
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div className="space-y-1">
                           <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Género</label>
@@ -2430,17 +2746,26 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                         className="space-y-1"
                       >
                         <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Província Atual</label>
-                        <input 
-                          type="text" 
-                          placeholder="Moxico" 
+                        <select 
                           value={province}
                           onChange={e => setProvince(e.target.value)}
-                          className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all ${
+                          className={`w-full px-4 py-2.5 rounded-xl text-xs font-bold outline-none border appearance-none transition-all cursor-pointer ${
                             isDark 
-                              ? 'bg-white/5 border-white/10 text-white focus:border-white placeholder-slate-500' 
-                              : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500 placeholder-slate-400'
+                              ? 'bg-white/5 border-white/10 text-white focus:border-white' 
+                              : 'bg-white border-slate-300 text-slate-900 focus:border-slate-500'
                           }`}
-                        />
+                        >
+                          <option value="" className={isDark ? "bg-slate-800 text-slate-400" : "bg-white text-slate-500"}>Selecione Província...</option>
+                          {[
+                            "Bengo", "Benguela", "Bié", "Cabinda", "Cuanza Norte", "Cuanza Sul", "Cubango", 
+                            "Cunene", "Huambo", "Huíla", "Icolo e Bengo", "Luanda", "Lunda Norte", "Lunda Sul", 
+                            "Malanje", "Moxico (Luena)", "Moxico-Leste", "Namibe", "Quando Cubango", "Uíge", "Zaire"
+                          ].map((prov) => (
+                            <option key={prov} value={prov} className={isDark ? "bg-slate-800 text-white font-bold" : "bg-white text-slate-900 font-bold"}>
+                              {prov}
+                            </option>
+                          ))}
+                        </select>
                       </motion.div>
 
                       <motion.div 
@@ -3229,10 +3554,9 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                                   }`}
                                 >
                                   {[
-                                    "Bengo", "Benguela", "Bié", "Cabinda", "Cuando Cubango", 
-                                    "Cuanza Norte", "Cuanza Sul", "Cunene", "Huambo", "Huíla", 
-                                    "Luanda", "Lunda Norte", "Lunda Sul", "Malanje", "Moxico", 
-                                    "Namibe", "Uíge", "Zaire"
+                                    "Bengo", "Benguela", "Bié", "Cabinda", "Cuanza Norte", "Cuanza Sul", "Cubango", 
+                                    "Cunene", "Huambo", "Huíla", "Icolo e Bengo", "Luanda", "Lunda Norte", "Lunda Sul", 
+                                    "Malanje", "Moxico (Luena)", "Moxico-Leste", "Namibe", "Quando Cubango", "Uíge", "Zaire"
                                   ].map((prov) => (
                                     <option key={prov} value={prov} className={isDark ? "bg-slate-900 text-white font-bold" : "bg-white text-slate-900 font-bold"}>
                                       {prov}
@@ -3245,17 +3569,22 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                                 {/* Campo: Idade */}
                                 <div className="space-y-1">
                                   <label className="text-[8px] text-slate-400 font-extrabold uppercase tracking-widest">Idade</label>
-                                  <input
-                                    type="number"
+                                  <select
                                     value={editAge}
                                     onChange={(e) => setEditAge(e.target.value)}
-                                    className={`w-full text-[10.5px] font-bold rounded-xl px-3 py-2 outline-none border transition-all ${
+                                    className={`w-full text-[10.5px] font-bold rounded-xl px-3 py-2 outline-none border cursor-pointer transition-all ${
                                       isDark 
                                         ? 'bg-slate-950 border-white/5 text-white focus:border-amber-500/50' 
                                         : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500/50'
                                     }`}
-                                    placeholder="Ex: 28"
-                                  />
+                                  >
+                                    <option value="" className={isDark ? "bg-slate-900 text-slate-400" : "bg-white text-slate-400"}>Selecionar Idade...</option>
+                                    {Array.from({ length: 73 }, (_, i) => i + 18).map(num => (
+                                      <option key={num} value={String(num)} className={isDark ? "bg-slate-900 text-white font-bold" : "bg-white text-slate-900 font-bold"}>
+                                        {num} Anos
+                                      </option>
+                                    ))}
+                                  </select>
                                 </div>
 
                                 {/* Campo: Gênero */}
@@ -3543,7 +3872,8 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                       <h3 className="text-xs font-black uppercase tracking-widest text-slate-300 leading-tight">
                         {activeRideRecord?.status === 'price_sent' ? 'Preço Proposto!' : 
                          activeRideRecord?.status === 'arrived' ? '✨ O MOTORISTA CHEGOU!' :
-                         (activeRideRecord?.status === 'confirmed' || activeRideRecord?.status === 'active') ? 'Confirmado! A Caminho' :
+                         activeRideRecord?.status === 'active' ? '🚀 CORRIDA EM CURSO!' :
+                         activeRideRecord?.status === 'confirmed' ? 'Confirmado! A Caminho' :
                          (activeRideRecord?.status === 'completed' || activeRideRecord?.status === 'cancelled' || activeRideRecord?.status === 'rejected' || activeRideRecord?.status === 'ignored') ? 'Chamada Concluída!' :
                          callState === 'calling' ? (activeRideRecord?.forwarded ? 'Reencaminhando Chamada...' : 'A Chamar Motorista...') : 
                          callState === 'connected' ? 'Em Chamada...' : 
@@ -3564,7 +3894,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                     </div>
 
                     {/* Canal de Voz Ativa Dedicada Sincronizado (JIS) */}
-                    {(callState === 'connected' || callState === 'pricing' || activeRideRecord?.status === 'connected' || activeRideRecord?.status === 'pricing') && activeRideRecord?.id && (
+                    {(appConfig?.webrtcEnabled !== false) && (callState === 'connected' || callState === 'pricing' || activeRideRecord?.status === 'connected' || activeRideRecord?.status === 'pricing') && activeRideRecord?.id && (
                       <div className="mx-2 shrink-0">
                         <WebRTCAudioCall
                           callId={activeRideRecord.id}
@@ -3618,6 +3948,42 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                       </div>
                     </div>
 
+                    {/* Partilha de Trajeto Ativo via WhatsApp (JIS) */}
+                    {(appConfig?.routeSharingEnabled !== false) && activeRideRecord && activeRideRecord.status === 'active' && (
+                      <div className="mx-2 shrink-0 my-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const callId = activeRideRecord?.id;
+                            if (!validateRideTransactionId(callId)) {
+                              setNotificationBanner({
+                                title: "⚠️ ID DE TRANSAÇÃO INVÁLIDO",
+                                message: "Não foi possível partilhar: A corrida atual não possui um ID de transação válido registado no sistema.",
+                                visible: true,
+                                type: 'warning'
+                              });
+                              return;
+                            }
+
+                            const driver = activeRideRecord.driverName || "Motorista SUPER Táxi";
+                            const plate = activeRideRecord.plate || activeRideRecord.vehiclePlate || "SUPER TÁXI";
+                            const model = activeRideRecord.model || activeRideRecord.vehicleModel || "Viatura";
+                            const pickupAddr = activeRideRecord.pickup || pickup || "Luena";
+                            const destAddr = activeRideRecord.destination || destination || "A definir";
+                            
+                            const shareUrl = getPassengerShareUrl();
+                            const shareText = `*SUPER TÁXI ANGOLA - PARTILHA DE TRAJETO SEGURO* 🚕%0A%0A*Motorista:* ${encodeURIComponent(driver)}%0A*Viatura:* ${encodeURIComponent(model)} (${encodeURIComponent(plate)})%0A*Origem:* ${encodeURIComponent(pickupAddr)}%0A*Destino:* ${encodeURIComponent(destAddr)}%0A*Estado da Viagem:* ${activeRideRecord.status === 'confirmed' ? 'Motorista a caminho do local' : activeRideRecord.status === 'arrived' ? 'Motorista no ponto de recolha' : 'Em deslocamento'}%0A%0A📍 *Acompanhe em tempo real:* ${shareUrl}%0A%0A_Partilhado via SUPER Táxi Angola_`;
+
+                            window.open(`https://api.whatsapp.com/send?text=${shareText}`, '_blank');
+                          }}
+                          className="w-full py-2.5 px-3 bg-[#25D366]/15 hover:bg-[#25D366]/25 border border-[#25D366]/40 text-[#25D366] font-black text-[10px] uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
+                        >
+                          <Share2 size={14} />
+                          <span>Partilhar Trajeto Ativo (WhatsApp)</span>
+                        </button>
+                      </div>
+                    )}
+
                     {/* Call Controls and Actions */}
                     <div className="pb-4 flex flex-col items-center gap-1.5 shrink-0">
                       {(callState === 'offer_received' || activeRideRecord?.status === 'price_sent') ? (
@@ -3660,6 +4026,142 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
                                 Mostre este código ao motorista para carregar/validar o seu embarque!
                               </p>
                             </div>
+                          )}
+
+                          {/* ETA Question Interactive Control */}
+                          {activeRideRecord?.status !== 'active' && (
+                            <div className="p-3 bg-slate-900 border border-blue-500/30 rounded-2xl space-y-2 text-left">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <Clock size={12} />
+                                Tempo de Espera & Chegada
+                                <span className="text-[8px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-extrabold uppercase ml-0.5">
+                                  OPCIONAL
+                                </span>
+                              </span>
+                            </div>
+
+                            {(() => {
+                              const liveRide = (myRides && activeRideRecord?.id) ? (myRides.find((r: any) => r.id === activeRideRecord.id) || activeRideRecord) : activeRideRecord;
+                              const currentDriverEta = liveRide?.driverEtaResponse || liveRide?.driverEta || liveRide?.eta || activeRideRecord?.driverEtaResponse || activeRideRecord?.driverEta || activeRideRecord?.eta;
+                              const isEtaAccepted = Boolean(liveRide?.passengerAcceptedEta || activeRideRecord?.passengerAcceptedEta);
+                              const hasRealtimeLoc = Boolean(
+                                liveRide?.localizacao_tempo_real || 
+                                liveRide?.localizacaoTempoReal || 
+                                activeRideRecord?.localizacao_tempo_real || 
+                                activeRideRecord?.localizacaoTempoReal ||
+                                (liveRide?.driverLat && liveRide?.driverLng)
+                              );
+                              const isNegotiationBlocked = isEtaAccepted || hasRealtimeLoc;
+
+                              return currentDriverEta ? (
+                                <div className="bg-emerald-500/15 border border-emerald-500/30 p-3 rounded-xl text-left space-y-2">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <ETACountdown 
+                                      driverEtaResponse={currentDriverEta}
+                                      driverEtaResponseAt={liveRide?.driverEtaResponseAt || activeRideRecord?.driverEtaResponseAt}
+                                      onCountdownEnd={() => setIsEtaExpired(true)}
+                                    />
+                                    {isNegotiationBlocked ? (
+                                      <span className="text-[9px] font-black uppercase text-emerald-300 bg-emerald-500/30 px-2.5 py-1 rounded-lg border border-emerald-500/40 animate-pulse shrink-0">
+                                        ✅ {hasRealtimeLoc ? 'Aguardando Chegada (GPS Vivo)' : 'Tempo Confirmado'}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[8.5px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30 shrink-0">
+                                        Pendente
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {!isNegotiationBlocked && (
+                                    <div className="pt-1.5 border-t border-emerald-500/20 flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          if (!activeRideRecord?.id) return;
+                                          try {
+                                            const rideRef = doc(db, 'calls', activeRideRecord.id);
+                                            await setDoc(rideRef, { 
+                                              passengerAcceptedEta: true,
+                                              etaStatus: 'accepted'
+                                            }, { merge: true });
+                                            setEtaSentMsg(`Confirmou e aceitou a previsão de ${currentDriverEta}!`);
+                                            setTimeout(() => setEtaSentMsg(''), 5000);
+                                          } catch (err) {
+                                            console.error("Erro ao aceitar ETA:", err);
+                                          }
+                                        }}
+                                        className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[10px] uppercase rounded-lg shadow transition-all active:scale-95 flex items-center justify-center gap-1"
+                                      >
+                                        <Check size={12} />
+                                        Aceitar Tempo
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setRefusalReasonOption('Tempo de Espera Muito Alto');
+                                          setShowRefusalModal(true);
+                                        }}
+                                        className="py-2 px-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-extrabold text-[9.5px] uppercase rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1"
+                                      >
+                                        ⏱️ Tempo Muito Alto
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-[8.5px] text-slate-400 leading-normal">
+                                  {hasRealtimeLoc 
+                                    ? "📍 Motorista a caminho com localização em tempo real ativa."
+                                    : "Perguntar ao motorista o tempo de demora para chegar:"}
+                                </p>
+                              );
+                            })()}
+
+                            {etaSentMsg && (
+                              <div className="text-[9px] text-emerald-400 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 font-bold">
+                                {etaSentMsg}
+                              </div>
+                            )}
+
+                            {(!(
+                              activeRideRecord?.passengerAcceptedEta || 
+                              activeRideRecord?.localizacao_tempo_real ||
+                              activeRideRecord?.localizacaoTempoReal ||
+                              (myRides && activeRideRecord?.id && myRides.find((r: any) => r.id === activeRideRecord.id)?.passengerAcceptedEta) ||
+                              (myRides && activeRideRecord?.id && myRides.find((r: any) => r.id === activeRideRecord.id)?.localizacao_tempo_real)
+                            ) || isEtaExpired) && (
+                              <div className="space-y-1.5">
+                                {isEtaExpired && (
+                                  <p className="text-[8.5px] text-amber-400 font-bold leading-normal mb-1">
+                                    ⏱️ O tempo de previsão expirou! Se o motorista ainda não chegou, pode perguntar novamente:
+                                  </p>
+                                )}
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {[
+                                    "Quanto tempo demora a chegar?",
+                                    "Qual é a sua previsão de chegada?",
+                                    "Já está a caminho do local?",
+                                    "Estou no ponto de encontro"
+                                  ].map((q) => (
+                                    <button
+                                      key={q}
+                                      disabled={isSubmittingEtaQuestion}
+                                      onClick={() => handleSendEtaQuestion(q)}
+                                      className={`px-2 py-1.5 text-[9px] font-bold rounded-lg border transition-all text-left truncate ${
+                                        selectedEtaQuestion === q
+                                          ? 'bg-blue-600 text-white border-blue-400'
+                                          : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                                      }`}
+                                    >
+                                      💬 {q}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           )}
 
                           <button 
@@ -4575,7 +5077,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
                     <div className="space-y-1">
                       <p className="text-[11px] font-mono text-amber-500 font-extrabold select-all break-all">
-                        https://jis-st.web.app/?view=passenger
+                        {getPassengerShareUrl()}
                       </p>
                       <p className="text-[8px] text-slate-550 uppercase font-black tracking-widest">
                         URL Oficial de Divulgação • Luena-Moxico
@@ -4604,6 +5106,161 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
             {/* PWA INSTALLATION MODAL */}
             <PWAInstallModal isOpen={showInstallPwaModal} onClose={() => setShowInstallPwaModal(false)} />
+
+            {/* MODAL REFUSAL REASON & DISCOUNT PROPOSAL */}
+            {showRefusalModal && (
+              <div className="absolute inset-0 bg-black/85 z-[1500] flex flex-col justify-end p-2">
+                <div className="bg-slate-900 border border-white/10 rounded-2xl p-5 space-y-4 text-white shadow-2xl animate-slide-up max-h-[90%] overflow-y-auto no-scrollbar">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-rose-400 flex items-center gap-2">
+                      <AlertCircle size={16} />
+                      Motivo da Recusa da Corrida
+                    </h3>
+                    <button 
+                      onClick={() => setShowRefusalModal(false)}
+                      className="p-1 hover:bg-white/10 rounded text-slate-400"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <p className="text-[10px] text-slate-300 leading-normal">
+                    Por favor especifique a razão pela qual está a recusar a corrida. Se o problema for o valor, pode enviar um pedido de desconto direto ao motorista:
+                  </p>
+
+                  <div className="space-y-2">
+                    {(() => {
+                      const liveRide = (myRides && activeRideRecord?.id) ? (myRides.find((r: any) => r.id === activeRideRecord.id) || activeRideRecord) : activeRideRecord;
+                      const hasDriverEta = Boolean(
+                        liveRide?.driverEtaResponse || 
+                        liveRide?.driverEta || 
+                        liveRide?.eta || 
+                        activeRideRecord?.driverEtaResponse ||
+                        activeRideRecord?.driverEta ||
+                        activeRideRecord?.eta
+                      );
+                      return [
+                        { id: 'Preço Demasiado Alto', label: '💰 Preço Demasiado Alto (Pedir Desconto)' },
+                        ...(hasDriverEta ? [{ id: 'Tempo de Espera Muito Alto', label: '⏱️ Tempo de Espera Muito Alto' }] : []),
+                        { id: 'Arranjei Outro Transporte', label: '🚗 Consegui Outro Transporte' },
+                        { id: 'Desisti da Viagem', label: '❌ Desisti da Viagem' },
+                      ];
+                    })().map((opt) => (
+                      <label 
+                        key={opt.id}
+                        onClick={() => setRefusalReasonOption(opt.id)}
+                        className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                          refusalReasonOption === opt.id 
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-300' 
+                            : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                        }`}
+                      >
+                        <input 
+                          type="radio" 
+                          name="refusalReason" 
+                          checked={refusalReasonOption === opt.id}
+                          onChange={() => setRefusalReasonOption(opt.id)}
+                          className="accent-amber-500"
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+
+                  {refusalReasonOption === 'Tempo de Espera Muito Alto' ? (
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-slate-300 font-bold">Tempo Informado pelo Motorista:</span>
+                        <span className="text-blue-400 font-black font-mono text-xs">
+                          {activeRideRecord?.driverEtaResponse || activeRideRecord?.driverEta || activeRideRecord?.eta || '20 min'}
+                        </span>
+                      </div>
+
+                      <p className="text-[9.5px] text-blue-200/90 leading-normal">
+                        O tempo de espera indicado pelo motorista é demasiado longo. Pode notificar o motorista pedindo para vir mais rápido ou cancelar a corrida.
+                      </p>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!activeRideRecord?.id) return;
+                            try {
+                              const rideRef = doc(db, 'calls', activeRideRecord.id);
+                              await setDoc(rideRef, { 
+                                passengerEtaFeedback: 'tempo_alto',
+                                passengerAskedEta: true,
+                                passengerEtaQuestion: 'O tempo de espera é muito alto! Pode acelerar ou vir mais rápido?' 
+                              }, { merge: true });
+                              setShowRefusalModal(false);
+                              alert("Notificação enviada ao motorista pedindo para vir mais rápido!");
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }}
+                          className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-1"
+                        >
+                          ⚡ Pedir p/ Vir Mais Rápido
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmDefinitiveCancellation('Tempo de Espera Muito Alto')}
+                          className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] uppercase rounded-xl transition-all shadow-md flex items-center justify-center gap-1"
+                        >
+                          ❌ Cancelar por Demora
+                        </button>
+                      </div>
+                    </div>
+                  ) : refusalReasonOption === 'Preço Demasiado Alto' ? (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-slate-300 font-bold">Valor Proposto pelo Motorista:</span>
+                        <span className="text-amber-400 font-black font-mono">
+                          {(negotiatedPrice || Number(activeRideRecord?.price || 2000)).toLocaleString()} Kz
+                        </span>
+                      </div>
+
+                      <p className="text-[9.5px] text-amber-200/90 leading-normal">
+                        Notificar o motorista que o preço é elevado para que ele possa oferecer um valor reduzido com desconto.
+                      </p>
+
+                      <button
+                        disabled={isSubmittingDiscount}
+                        onClick={handleSendDiscountRequest}
+                        className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-lg uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                      >
+                        🙋 Solicitar Desconto ao Motorista
+                      </button>
+
+                      <div className="pt-2 border-t border-amber-500/20 text-center">
+                        <button
+                          onClick={() => handleConfirmDefinitiveCancellation('Preço Demasiado Alto')}
+                          className="text-[9.5px] text-rose-400 hover:underline font-bold uppercase"
+                        >
+                          Cancelar corrida definitivamente
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pt-2 flex gap-2">
+                      <button
+                        onClick={() => setShowRefusalModal(false)}
+                        className="flex-1 py-2.5 bg-white/10 hover:bg-white/15 text-slate-300 font-bold text-xs uppercase rounded-xl"
+                      >
+                        Voltar
+                      </button>
+                      <button
+                        onClick={() => handleConfirmDefinitiveCancellation()}
+                        className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase rounded-xl shadow-lg"
+                      >
+                        Confirmar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
           </div>
           

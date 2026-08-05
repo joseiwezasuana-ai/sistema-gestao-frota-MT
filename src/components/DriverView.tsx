@@ -37,6 +37,8 @@ import {
   Zap,
   MessageSquare,
   Layout,
+  AlertCircle,
+  Lock,
 } from "lucide-react";
 import RevenueManagement from "./RevenueManagement";
 import PermissionManager from "./PermissionManager";
@@ -57,6 +59,7 @@ import {
   orderBy,
   limit,
   doc,
+  setDoc,
   updateDoc,
   serverTimestamp,
   arrayUnion,
@@ -75,14 +78,20 @@ import "leaflet/dist/leaflet.css";
 import { geminiService } from "../services/geminiService";
 import { sendPassengerPushNotification } from "../lib/fcmService";
 
-// Fix for Leaflet default icon issues
-// @ts-ignore
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
+// Fix for Leaflet default icon issues safely
+try {
+  if (typeof window !== 'undefined' && L && L.Icon && L.Icon.Default && L.Icon.Default.prototype) {
+    // @ts-ignore
+    delete L.Icon.Default.prototype._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+    });
+  }
+} catch (e) {
+  console.warn("Leaflet icon setup skipped:", e);
+}
 
 // Custom markers for Driver and Passenger
 const driverMapIcon = typeof window !== 'undefined' ? L.divIcon({
@@ -199,11 +208,45 @@ function parseDateSafely(val: any): Date {
 }
 
 function MapUpdater({ center }: { center: [number, number] }) {
-  const map = useMap();
-  useEffect(() => {
-    map.setView(center, map.getZoom());
-  }, [center, map]);
+  try {
+    const map = useMap();
+    useEffect(() => {
+      if (map && center && typeof center[0] === 'number' && typeof center[1] === 'number') {
+        map.setView(center, map.getZoom ? map.getZoom() : 14);
+      }
+    }, [center, map]);
+  } catch (e) {
+    console.warn("MapUpdater notice:", e);
+  }
   return null;
+}
+
+class MapErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any) {
+    console.warn("Map component error caught safely:", error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-slate-950/90 rounded-2xl p-6 text-center border border-white/10 text-white space-y-1">
+          <p className="text-xs font-black text-amber-400 uppercase tracking-widest">
+            📍 Localização GPS Sincronizada (Luena)
+          </p>
+          <p className="text-[10px] text-slate-400 font-bold">
+            Rastreamento do veículo em funcionamento no sistema.
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 interface DriverViewProps {
@@ -224,6 +267,24 @@ export default function DriverView({ user }: DriverViewProps) {
   useEffect(() => {
     currentServiceRef.current = currentService;
   }, [currentService]);
+
+  // Toast notification state for driver view
+  const [notificationBanner, setNotificationBanner] = useState<{
+    title: string;
+    message: string;
+    visible: boolean;
+    type?: 'info' | 'success' | 'warning';
+  }>({ title: '', message: '', visible: false, type: 'info' });
+
+  // Toast self-cleanup effect
+  useEffect(() => {
+    if (notificationBanner.visible) {
+      const t = setTimeout(() => {
+        setNotificationBanner(prev => ({ ...prev, visible: false }));
+      }, 10000); // 10 seconds auto-dismiss
+      return () => clearTimeout(t);
+    }
+  }, [notificationBanner.visible]);
   const [lastCancelledService, setLastCancelledService] = useState<any | null>(null);
   const [otherDrivers, setOtherDrivers] = useState<any[]>([]);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -231,6 +292,8 @@ export default function DriverView({ user }: DriverViewProps) {
   const [isNewCallTransferModalOpen, setIsNewCallTransferModalOpen] = useState(false);
   const [proposedPrice, setProposedPrice] = useState("");
   const [mapMode, setMapMode] = useState<"radar" | "real">("real");
+  const [showOperationalMap, setShowOperationalMap] = useState(false);
+  const [showTripDetailsInConsole, setShowTripDetailsInConsole] = useState<boolean>(false);
   const [driverLiveCoords, setDriverLiveCoords] = useState<[number, number]>([-11.7833, 19.9167]);
 
   // Notification Permission Check & Explanatory Modal for Drivers
@@ -238,18 +301,22 @@ export default function DriverView({ user }: DriverViewProps) {
   const [notifPermissionStatus, setNotifPermissionStatus] = useState<NotificationPermission>('default');
 
   const checkDriverNotificationPermissions = React.useCallback(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      const status = Notification.permission;
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification) {
+      const status = window.Notification.permission;
       setNotifPermissionStatus(status);
       if (status === 'denied') {
         setShowDeniedNotifModal(true);
-      } else if (status === 'default') {
-        Notification.requestPermission().then((res) => {
-          setNotifPermissionStatus(res);
-          if (res === 'denied') {
-            setShowDeniedNotifModal(true);
-          }
-        }).catch(() => {});
+      } else if (status === 'default' && typeof window.Notification.requestPermission === 'function') {
+        try {
+          window.Notification.requestPermission().then((res) => {
+            setNotifPermissionStatus(res);
+            if (res === 'denied') {
+              setShowDeniedNotifModal(true);
+            }
+          }).catch(() => {});
+        } catch {
+          // Ignore
+        }
       }
     }
   }, []);
@@ -276,34 +343,29 @@ export default function DriverView({ user }: DriverViewProps) {
   }, []);
 
   const triggerNativeDriverNotification = (callData: any) => {
-    if (typeof window !== "undefined" && "Notification" in window) {
-      if (Notification.permission === "granted") {
+    if (typeof window !== "undefined" && "Notification" in window && window.Notification) {
+      if (window.Notification.permission === "granted") {
         const title = `🚕 NOVO SERVIÇO: ${callData.passengerName || callData.customerName || "Passageiro"}`;
         const body = `De: ${callData.originName || "Localização Atual"}\nPara: ${callData.destinationName || "Não especificado"}\nAbra o SUPER Taxi Control para aceitar!`;
         
-        try {
-          const notif = new Notification(title, {
-            body,
-            icon: "/icon-192.png",
-            tag: `driver-service-${callData.id}`,
-            requireInteraction: true
-          });
-          notif.onclick = () => {
-            window.focus();
-          };
-        } catch (e) {
-          console.warn("Standard notification failed, trying ServiceWorker:", e);
-          navigator.serviceWorker?.ready.then(registration => {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(registration => {
             registration.showNotification(title, {
               body,
               icon: "/icon-192.png",
               tag: `driver-service-${callData.id}`,
               requireInteraction: true
             });
-          }).catch(swErr => console.error("SW notification registration failed:", swErr));
+          }).catch(() => {
+            // Fallback: do not invoke direct new Notification to avoid Illegal constructor in iframe
+          });
         }
-      } else if (Notification.permission === "default") {
-        Notification.requestPermission();
+      } else if (window.Notification.permission === "default" && typeof window.Notification.requestPermission === 'function') {
+        try {
+          window.Notification.requestPermission();
+        } catch {
+          // Ignore
+        }
       }
     }
   };
@@ -440,7 +502,7 @@ export default function DriverView({ user }: DriverViewProps) {
         0,
       );
       setEarnings(total);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "revenue_logs"));
+    }, (error) => console.warn("Revenue logs snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.uid]);
@@ -475,7 +537,7 @@ export default function DriverView({ user }: DriverViewProps) {
           where("driverName", "==", user.name || ""),
           where("driverId", "==", user.uid || "")
         ),
-        where("status", "in", ["completed", "pending", "connected", "price_sent", "confirmed", "arrived", "active"])
+        where("status", "in", ["completed", "pending", "connected", "price_sent", "price_negotiation_requested", "confirmed", "arrived", "active"])
       ),
       limit(100),
     );
@@ -486,7 +548,7 @@ export default function DriverView({ user }: DriverViewProps) {
         .filter((trip) => trip.approvedByOperator !== true) // Filter out approved trips so they disappear from history once approved
         .sort((a: any, b: any) => parseDateSafely(b.timestamp).getTime() - parseDateSafely(a.timestamp).getTime());
       setTripHistory(sorted);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "calls"));
+    }, (error) => console.warn("Calls snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.name, user?.uid]);
@@ -577,37 +639,71 @@ export default function DriverView({ user }: DriverViewProps) {
   ];
 
   const speakNotification = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance("Atenção motorista: Pedido de Super Táxi em linha! Pedido de Super Táxi em linha!");
-      utterance.lang = "pt-PT";
-      utterance.rate = 1.0;
-      utterance.pitch = 1.15;
-      
-      const voices = window.speechSynthesis.getVoices();
-      const ptVoice = voices.find(v => v.lang.startsWith("pt"));
-      if (ptVoice) {
-        utterance.voice = ptVoice;
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) {
+        window.speechSynthesis.cancel();
+        const UtteranceClass = (window as any).SpeechSynthesisUtterance;
+        if (typeof UtteranceClass === 'function') {
+          const utterance = new UtteranceClass("Atenção motorista: Pedido de Super Táxi em linha! Pedido de Super Táxi em linha!");
+          utterance.lang = "pt-PT";
+          utterance.rate = 1.0;
+          utterance.pitch = 1.15;
+          
+          const voices = window.speechSynthesis.getVoices();
+          const ptVoice = voices.find(v => v.lang.startsWith("pt"));
+          if (ptVoice) {
+            utterance.voice = ptVoice;
+          }
+          window.speechSynthesis.speak(utterance);
+        }
       }
-      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("SpeechSynthesis error:", e);
     }
   };
 
   const playPreview = (url: string, ringId?: string) => {
-    if (audioRef.current) {
-      audioRef.current.pause();
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (ringId === 'voice_supertaxi') {
+        speakNotification();
+        return;
+      }
+      if (typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
+        const AudioClass = (window as any).Audio;
+        audioRef.current = new AudioClass(url);
+        audioRef.current.play().catch(e => console.warn(e));
+      }
+    } catch (e) {
+      console.warn("Audio preview error:", e);
     }
-    if (ringId === 'voice_supertaxi') {
-      speakNotification();
-      return;
-    }
-    audioRef.current = new Audio(url);
-    audioRef.current.play().catch(e => console.warn(e));
   };
   const [showPanicModal, setShowPanicModal] = useState(false);
   const [localPassengerOffline, setLocalPassengerOffline] = useState(false);
   const [activePanicAlert, setActivePanicAlert] = useState<any | null>(null);
   const [panicLoading, setPanicLoading] = useState(false);
+  const [driverAppConfig, setDriverAppConfig] = useState<any>({ webrtcEnabled: true });
+  const [passengerAppConfig, setPassengerAppConfig] = useState<any>({ webrtcEnabled: true });
+  const [driverCustomDiscountInput, setDriverCustomDiscountInput] = useState<string>('');
+
+  useEffect(() => {
+    const unsubDriver = onSnapshot(doc(db, 'settings', 'driver_app'), (snap) => {
+      if (snap.exists()) {
+        setDriverAppConfig(snap.data());
+      }
+    });
+    const unsubPassenger = onSnapshot(doc(db, 'settings', 'passenger_app'), (snap) => {
+      if (snap.exists()) {
+        setPassengerAppConfig(snap.data());
+      }
+    });
+    return () => {
+      unsubDriver();
+      unsubPassenger();
+    };
+  }, []);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [contractLoading, setContractLoading] = useState(false);
   const [contractFormData, setContractFormData] = useState({
@@ -688,7 +784,7 @@ export default function DriverView({ user }: DriverViewProps) {
           return tB - tA;
         });
       setUnreadMessages(unreadFiltered);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "messages"));
+    }, (error) => console.warn("Messages snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.uid]);
@@ -712,7 +808,7 @@ export default function DriverView({ user }: DriverViewProps) {
         setActivePanicAlert(null);
         setShowPanicModal(false);
       }
-    }, (error) => handleFirestoreError(error, OperationType.GET, "panic_alerts"));
+    }, (error) => console.warn("Panic alerts snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.uid]);
@@ -771,7 +867,7 @@ export default function DriverView({ user }: DriverViewProps) {
           setViewContractsPrefix(user?.prefix && user.prefix !== "N/A" ? user.prefix : null);
         }
       }
-    }, (error) => handleFirestoreError(error, OperationType.GET, "drivers"));
+    }, (error) => console.warn("Drivers snapshot error:", error));
     return () => unsubscribe();
   }, [user?.name, user?.uid, viewContractsDate, user?.prefix]);
 
@@ -809,7 +905,7 @@ export default function DriverView({ user }: DriverViewProps) {
         );
       });
       setVehicleContracts(filtered);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "internal_contracts"));
+    }, (error) => console.warn("Internal contracts snapshot error:", error));
 
     return () => unsubscribe();
   }, [viewContractsPrefix]);
@@ -835,7 +931,7 @@ export default function DriverView({ user }: DriverViewProps) {
         }
       });
       setTodayAttendance(attendanceMap);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "contract_attendance"));
+    }, (error) => console.warn("Contract attendance snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.uid, viewContractsDate]);
@@ -933,7 +1029,7 @@ export default function DriverView({ user }: DriverViewProps) {
       }
 
       setLoadingShiftCheck(false);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "driver_scales"));
+    }, (error) => console.warn("Driver scales snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.uid]);
@@ -950,7 +1046,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setTodayRevenueSubmitted(!snapshot.empty);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "revenue_logs"));
+    }, (error) => console.warn("Today revenue snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.uid]);
@@ -976,7 +1072,7 @@ export default function DriverView({ user }: DriverViewProps) {
       const filtered = all.filter(r => ["pending_approval", "rejected_by_operator", "rejected_by_accountant"].includes(r.status));
       setPendingRevenues(filtered.filter(r => r.status === 'pending_approval'));
       setRejectedRevenues(filtered.filter(r => r.status !== 'pending_approval'));
-    }, (error) => handleFirestoreError(error, OperationType.GET, "revenue_logs"));
+    }, (error) => console.warn("Pending revenue snapshot error:", error));
 
     return () => unsubscribe();
   }, [user?.uid]);
@@ -1207,7 +1303,7 @@ export default function DriverView({ user }: DriverViewProps) {
     // Listen to active and terminal statuses to handle cancellations and completions in real-time
     const q = query(
       collection(db, "calls"),
-      where("status", "in", ["pending", "connected", "price_sent", "confirmed", "arrived", "active", "completed", "cancelled", "rejected", "ignored"])
+      where("status", "in", ["pending", "connected", "price_sent", "price_negotiation_requested", "confirmed", "arrived", "active", "completed", "cancelled", "rejected", "ignored"])
     );
 
     const handleSync = (snapshot: any) => {
@@ -1222,6 +1318,11 @@ export default function DriverView({ user }: DriverViewProps) {
           .trim();
       };
 
+      const cleanPlate = (p: string) => {
+        if (!p) return "";
+        return p.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      };
+
       // Try tracking current active service first or locate newest valid pending service
       const ourMatchedDoc = snapshot.docs.find((doc: any) => {
         if (currentServiceRef.current?.id && doc.id === currentServiceRef.current.id) {
@@ -1234,10 +1335,21 @@ export default function DriverView({ user }: DriverViewProps) {
 
         const callDriverNameClean = cleanName(d.driverName || "");
         const loggedDriverNameClean = cleanName(user?.name || "");
-        const isNameMatch = callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean === loggedDriverNameClean;
+        const vehicleDriverNameClean = cleanName(assignedVehicle?.driverName || "");
+
+        const isNameMatch = (
+          (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean === loggedDriverNameClean) ||
+          (callDriverNameClean !== "" && vehicleDriverNameClean !== "" && callDriverNameClean === vehicleDriverNameClean) ||
+          (callDriverNameClean !== "" && loggedDriverNameClean !== "" && (callDriverNameClean.includes(loggedDriverNameClean) || loggedDriverNameClean.includes(callDriverNameClean)))
+        );
+
+        const callPlateClean = cleanPlate(d.vehiclePlate || "");
+        const assignedPlateClean = cleanPlate(assignedVehicle?.plate || "");
+        const isPlateMatch = callPlateClean !== "" && assignedPlateClean !== "" && callPlateClean === assignedPlateClean;
 
         return (
           isNameMatch ||
+          isPlateMatch ||
           (d.driverId && d.driverId === user?.uid) ||
           (assignedVehicle?.id && d.driverId === assignedVehicle.id) ||
           (assignedVehicle?.driverId && d.driverId === assignedVehicle.driverId)
@@ -1259,8 +1371,49 @@ export default function DriverView({ user }: DriverViewProps) {
           // Sync current active service state
           console.log("Serviço sincronizado:", callData);
           
-          // Trigger native driver notification if it is newly pending
           const prevService = currentServiceRef.current;
+
+          // Real-time interactive notifications from passenger to driver:
+          if (prevService && prevService.id === callData.id) {
+            // 1) Passenger accepted ETA
+            if (callData.passengerAcceptedEta && !prevService.passengerAcceptedEta) {
+              setNotificationBanner({
+                title: "✅ PREVISÃO ACEITE",
+                message: `O passageiro confirmou que aguarda os ${callData.driverEtaResponse || 'minutos informados'}!`,
+                type: "success",
+                visible: true
+              });
+            }
+            // 2) Passenger considers wait time too high
+            if (callData.passengerEtaFeedback === 'tempo_alto' && prevService.passengerEtaFeedback !== 'tempo_alto') {
+              setNotificationBanner({
+                title: "⚠️ ESPERA ALTA",
+                message: "O passageiro achou o tempo estimado muito alto. Se possível, agilize o percurso!",
+                type: "warning",
+                visible: true
+              });
+            }
+            // 3) Passenger asked for ETA
+            if (callData.passengerAskedEta && !prevService.passengerAskedEta) {
+              setNotificationBanner({
+                title: "💬 PERGUNTA DE ETA",
+                message: `O passageiro perguntou: "${callData.passengerEtaQuestion || 'Quanto tempo demora a chegar?'}"`,
+                type: "info",
+                visible: true
+              });
+            }
+            // 4) Passenger requested custom negotiation
+            if (callData.status === "price_negotiation_requested" && prevService.status !== "price_negotiation_requested") {
+              setNotificationBanner({
+                title: "🏷️ NEGOCIAÇÃO DE TARIFA",
+                message: "O passageiro solicitou uma renegociação ou desconto no valor da corrida!",
+                type: "warning",
+                visible: true
+              });
+            }
+          }
+          
+          // Trigger native driver notification if it is newly pending
           const isNewlyPending = callData.status === "pending" && (!prevService || prevService.id !== callData.id || prevService.status !== "pending");
           if (isNewlyPending) {
             triggerNativeDriverNotification(callData);
@@ -1268,14 +1421,19 @@ export default function DriverView({ user }: DriverViewProps) {
 
           setCurrentService(callData);
           
-          if (["pending", "connected", "price_sent", "confirmed"].includes(callData.status)) {
+          if (["pending", "connected", "price_sent", "price_negotiation_requested", "confirmed"].includes(callData.status)) {
             setShowNotification(true);
           } else {
             setShowNotification(false);
           }
         }
       } else {
-        // Clear if not found
+        // Protect active call state from transient query drops
+        if (currentServiceRef.current?.id && !["completed", "cancelled", "rejected", "ignored"].includes(currentServiceRef.current.status)) {
+          console.log("Preserving current active service in DriverView:", currentServiceRef.current);
+          return;
+        }
+        // Clear if not found and no active call
         setCurrentService(null);
         setShowNotification(false);
       }
@@ -1320,7 +1478,7 @@ export default function DriverView({ user }: DriverViewProps) {
           return activeStatuses.includes(status);
         });
       setOtherDrivers(driversList);
-    }, (error) => handleFirestoreError(error, OperationType.GET, "drivers"));
+    }, (error) => console.warn("Error listening to other drivers:", error));
 
     return () => unsubscribe();
   }, [user?.uid, user?.name]);
@@ -1458,10 +1616,15 @@ export default function DriverView({ user }: DriverViewProps) {
       if (audioRef.current) {
         audioRef.current.pause();
       }
-      if (selectedRingtone !== 'voice_supertaxi') {
-        audioRef.current = new Audio(ringtone.url);
-        audioRef.current.loop = true;
-        audioRef.current.play().catch(e => console.warn("Audio play failed:", e));
+      if (selectedRingtone !== 'voice_supertaxi' && typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
+        try {
+          const AudioClass = (window as any).Audio;
+          audioRef.current = new AudioClass(ringtone.url);
+          audioRef.current.loop = true;
+          audioRef.current.play().catch(e => console.warn("Audio play failed:", e));
+        } catch (e) {
+          console.warn("Audio instantiation error:", e);
+        }
       }
 
       if (selectedRingtone === 'voice_supertaxi') {
@@ -1724,7 +1887,12 @@ export default function DriverView({ user }: DriverViewProps) {
         await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "ocupado" });
       }
     } catch (error: any) {
-      alert("Erro ao aceitar chamada no sistema: " + (error?.message || String(error)));
+      setNotificationBanner({
+        title: "⚠️ ERRO DE ACEITAÇÃO",
+        message: "Erro ao aceitar chamada no sistema: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
       console.error(error);
     }
   };
@@ -1759,7 +1927,12 @@ export default function DriverView({ user }: DriverViewProps) {
         await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
       }
     } catch (error: any) {
-      alert("Erro ao recusar chamada no sistema: " + (error?.message || String(error)));
+      setNotificationBanner({
+        title: "⚠️ ERRO DE REJEIÇÃO",
+        message: "Erro ao recusar chamada no sistema: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
       console.error(error);
     }
   };
@@ -1794,9 +1967,19 @@ export default function DriverView({ user }: DriverViewProps) {
       if (assignedVehicle?.id) {
         await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
       }
-      alert("Corrida cancelada com sucesso!");
+      setNotificationBanner({
+        title: "❌ CORRIDA CANCELADA",
+        message: "A corrida foi cancelada com sucesso no sistema.",
+        type: "info",
+        visible: true
+      });
     } catch (error: any) {
-      alert("Erro ao cancelar corrida: " + (error?.message || String(error)));
+      setNotificationBanner({
+        title: "⚠️ ERRO DE CANCELAMENTO",
+        message: "Erro ao cancelar corrida: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
       console.error(error);
     }
   };
@@ -1828,10 +2011,20 @@ export default function DriverView({ user }: DriverViewProps) {
         notificationType: "driver_arrived"
       }).catch(err => console.warn("[DriverView] FCM Push error:", err));
 
-      alert("Passageiro notificado da sua chegada!");
+      setNotificationBanner({
+        title: "✨ MOTORISTA CHEGOU",
+        message: "O passageiro foi notificado da sua chegada ao ponto de recolha!",
+        type: "success",
+        visible: true
+      });
     } catch (err) {
       console.error(err);
-      alert("Erro ao notificar chegada.");
+      setNotificationBanner({
+        title: "⚠️ ERRO AO NOTIFICAR",
+        message: "Ocorreu um erro ao notificar o passageiro. Verifique a sua conexão.",
+        type: "warning",
+        visible: true
+      });
     }
   };
 
@@ -1865,7 +2058,12 @@ export default function DriverView({ user }: DriverViewProps) {
         await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
       }
     } catch (error: any) {
-      alert("Erro ao finalizar chamada no sistema: " + (error?.message || String(error)));
+      setNotificationBanner({
+        title: "⚠️ ERRO DE SISTEMA",
+        message: "Erro ao finalizar chamada no sistema: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
       console.error(error);
     }
   };
@@ -2008,6 +2206,46 @@ export default function DriverView({ user }: DriverViewProps) {
 
   return (
     <div className="flex flex-col w-full h-screen h-[100dvh] bg-slate-50 relative overflow-hidden font-sans">
+      {/* TOAST NOTIFICATION BANNER SINCRO SUPER TAXI (JIS) - FLUTUANTE COM Z-INDEX IMPEDIDOR DE OVERLAY COVERING */}
+      <AnimatePresence>
+        {notificationBanner.visible && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className={`absolute top-4 left-4 right-4 p-4 rounded-2xl shadow-2xl z-[100] flex items-start gap-3.5 backdrop-blur-md border-2 transition-all ${
+              notificationBanner.type === 'warning'
+                ? 'bg-slate-950/95 border-rose-500 shadow-rose-500/25'
+                : 'bg-slate-900/95 border-brand-primary shadow-brand-primary/20'
+            }`}
+          >
+            <div className={`p-2.5 rounded-xl shrink-0 shadow-inner ${
+              notificationBanner.type === 'warning'
+                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                : 'bg-brand-primary/20 text-brand-primary border border-brand-primary/30'
+            }`}>
+              <Bell size={20} className={notificationBanner.type === 'warning' ? "animate-bounce" : "animate-pulse"} />
+            </div>
+            <div className="text-left leading-tight min-w-0 flex-1">
+              <h5 className={`text-xs sm:text-sm font-black uppercase tracking-widest ${
+                notificationBanner.type === 'warning' ? 'text-rose-400' : 'text-brand-primary'
+              }`}>
+                {notificationBanner.title}
+              </h5>
+              <p className="text-xs sm:text-sm text-slate-100 mt-1 leading-snug font-bold">
+                {notificationBanner.message}
+              </p>
+            </div>
+            <button 
+              onClick={() => setNotificationBanner(prev => ({ ...prev, visible: false }))}
+              className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors shrink-0 active:scale-95"
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Non-scrollable header and status bar zone */}
       <div className="bg-slate-50 shrink-0 z-40 border-b border-slate-100">
 
@@ -2356,7 +2594,7 @@ export default function DriverView({ user }: DriverViewProps) {
               )}
             </AnimatePresence>
 
-            {currentService && currentService.status !== "pending" ? (
+            {currentService ? (
               // INTERFACE ÚNICA DE INTERAÇÃO DO SERVIÇO (DEDICATED FULL SCREEN CALL UI)
               <div className="space-y-6 max-w-2xl mx-auto py-2">
                 <div className="bg-slate-900 text-white rounded-[2.5rem] border-4 border-slate-950 p-6 sm:p-8 space-y-6 shadow-2xl overflow-hidden relative">
@@ -2378,12 +2616,14 @@ export default function DriverView({ user }: DriverViewProps) {
                         currentService.status === "pending" && "bg-amber-500 text-slate-950 animate-pulse",
                         currentService.status === "connected" && "bg-amber-400 text-slate-950 animate-pulse",
                         currentService.status === "price_sent" && "bg-blue-500 text-white",
+                        currentService.status === "price_negotiation_requested" && "bg-amber-500 text-slate-950 animate-pulse",
                         currentService.status === "confirmed" && "bg-emerald-500 text-white",
                         currentService.status === "active" && "bg-emerald-500 text-white"
                       )}>
                         {currentService.status === "pending" && "📞 CHAMADA PENDENTE"}
                         {currentService.status === "connected" && "🎙️ VOZ ESTABELECIDA"}
                         {currentService.status === "price_sent" && "💬 PROPOSTA ENVIADA"}
+                        {currentService.status === "price_negotiation_requested" && "🙋 PEDIDO DE DESCONTO DO PASSAGEIRO"}
                         {currentService.status === "confirmed" && "✨ PREÇO CONFIRMADO"}
                         {currentService.status === "active" && "🚀 VIAGEM EM CURSO"}
                       </span>
@@ -2415,6 +2655,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       {currentService.status === "pending" && "Recebendo Pedido..."}
                       {currentService.status === "connected" && "Conversando em Tempo Real"}
                       {currentService.status === "price_sent" && "Aguardando Confirmação"}
+                      {currentService.status === "price_negotiation_requested" && "Passageiro Solicita Desconto"}
                       {currentService.status === "confirmed" && "Embarque Autorizado"}
                       {currentService.status === "active" && "Viagem Selecionada"}
                     </h3>
@@ -2423,109 +2664,318 @@ export default function DriverView({ user }: DriverViewProps) {
                     </p>
                   </div>
 
-                  {/* Toggle Map Mode buttons */}
-                  <div className="flex items-center justify-between bg-slate-950/40 p-1.5 rounded-2xl border border-white/5 relative z-10">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest pl-2">
-                      VISUALIZADOR OPERACIONAL
-                    </span>
-                    <div className="flex gap-1.5">
+                  {/* Barra de Perfil do Passageiro - Sempre visível até ao fim da corrida */}
+                  <div className="space-y-3 bg-white/5 p-4 rounded-3xl border border-white/5 relative z-10">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <PassengerAvatar 
+                          src={currentService?.passengerPhoto} 
+                          name={currentService?.customerName || currentService?.passengerName || "Cliente Particular"} 
+                          size="md" 
+                        />
+                        <div className="text-left">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Passageiro Oficial</p>
+                          <span className="text-sm font-black text-white uppercase italic leading-none block">
+                            {currentService?.customerName || currentService?.passengerName || "Cliente Particular"}
+                          </span>
+                        </div>
+                      </div>
+                      
                       <button
                         type="button"
-                        onClick={() => setMapMode("real")}
+                        onClick={() => setShowTripDetailsInConsole(!showTripDetailsInConsole)}
                         className={cn(
-                          "px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
-                          mapMode === "real" 
-                            ? "bg-brand-primary text-slate-950 shadow" 
-                            : "bg-transparent text-slate-400 hover:text-white"
+                          "px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-xl border transition-all active:scale-95 flex items-center gap-1.5",
+                          showTripDetailsInConsole
+                            ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                            : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
                         )}
                       >
-                        🗺️ Mapa Real
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMapMode("radar")}
-                        className={cn(
-                          "px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
-                          mapMode === "radar" 
-                            ? "bg-brand-primary text-slate-950 shadow" 
-                            : "bg-transparent text-slate-400 hover:text-white"
-                        )}
-                      >
-                        📡 Radar HUD
+                        {showTripDetailsInConsole ? "Ocultar Detalhes 🗺️" : "Ver Detalhes 🗺️"}
                       </button>
                     </div>
+
+                    {/* Collapsible Trip Details Grid */}
+                    {showTripDetailsInConsole && (
+                      <div className="space-y-3 pt-3 border-t border-white/5 animate-fadeIn">
+                        <div className="grid grid-cols-2 gap-3 text-left">
+                          <div>
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">PONTO DE RECOLHA</p>
+                            <p className="text-xs font-semibold text-slate-200 leading-tight">
+                              {currentService?.pickupAddress || currentService?.pickup || "Luena Central"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">PONTO DE DESTINO</p>
+                            <p className="text-xs font-semibold text-slate-200 leading-tight">
+                              {currentService?.destinationAddress || currentService?.destination || "Bairro Kamanongue"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                            👥 QUANTIDADE DE PASSAGEIROS
+                          </span>
+                          <span className="text-xs font-black text-amber-400 font-mono bg-amber-500/10 px-2.5 py-0.5 rounded border border-amber-500/20">
+                            {currentService?.passengerCount || currentService?.passengersCount || currentService?.numPassengers || 1} { (Number(currentService?.passengerCount || currentService?.passengersCount || currentService?.numPassengers || 1) === 1 ? 'Passageiro' : 'Passageiros') }
+                          </span>
+                        </div>
+
+                        {currentService.price && (
+                          <div className="flex justify-between items-center pt-2 border-t border-white/5">
+                            <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Preço Definido</span>
+                            <span className="text-xs font-black text-emerald-400 font-mono">
+                              {Number(currentService.price).toLocaleString()} Kz
+                            </span>
+                          </div>
+                        )}
+
+                        {currentService.boardingToken && (
+                          <div className="flex justify-between items-center pt-2 border-t border-white/5 bg-emerald-950/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/10">
+                            <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">TOKEN DE EMBARQUE:</span>
+                            <span className="text-xs font-mono font-black text-emerald-400 tracking-wider">
+                              {currentService.boardingToken}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Interactive Map Container or Cinematic Radar SVG */}
-                  {mapMode === "real" ? (
-                    <div className="space-y-2">
-                      <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-64 w-full z-20">
-                        {/* @ts-ignore */}
-                        <MapContainer
-                          center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
-                          zoom={14}
-                          style={{ height: '100%', width: '100%' }}
-                          zoomControl={false}
-                        >
-                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                          
-                          {/* Driver Marker */}
-                          {driverLiveCoords && (
-                            <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
-                              <Popup>
-                                <div className="text-slate-900 font-sans p-1">
-                                  <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
-                                  <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
-                                </div>
-                              </Popup>
-                            </Marker>
+                  {/* Live Real-Time Passenger Waiting Time - Hidden when ride is active */}
+                  {currentService.status !== 'active' && (
+                    <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 flex justify-between items-center relative z-10 animate-fadeIn">
+                      <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Clock size={12} className="animate-spin text-amber-400" /> TEMPO DE ESPERA DO PASSAGEIRO:
+                      </span>
+                      <WaitingTimer timestamp={currentService?.timestamp || currentService?.createdAt || currentService?.acceptedAt} className="text-xs font-mono font-black text-amber-400" />
+                    </div>
+                  )}
+
+                  {/* Driver ETA Response Bar - Shown when passenger asks, driver responded or ride is active, BUT hidden when ride is active */}
+                  {Boolean(currentService.status !== 'active' && (currentService.status === 'confirmed' || currentService.status === 'arrived' || currentService.passengerAskedEta || currentService.driverEtaResponse)) && (
+                    <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-3xl space-y-3 text-left relative z-10 animate-fadeIn">
+                      <div className="flex items-center justify-between text-[10px] text-blue-400 font-black uppercase">
+                        <span className="flex items-center gap-1.5">
+                          <Clock size={13} />
+                          Previsão de Chegada (ETA):
+                          <span className="text-[8px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-extrabold uppercase ml-1">
+                            OPCIONAL
+                          </span>
+                        </span>
+                        {currentService.driverEtaResponse && (
+                          <span className="text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-lg border border-emerald-500/30 text-[9px] font-bold">
+                            Tempo: {currentService.driverEtaResponse}
+                          </span>
+                        )}
+                      </div>
+
+                      {currentService.passengerAcceptedEta ? (
+                        /* Hide all questions, warnings and buttons when passenger accepts ETA */
+                        <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-center space-y-1 animate-fadeIn">
+                          <p className="text-[11px] font-black uppercase text-emerald-300 flex items-center justify-center gap-1.5">
+                            ✅ O Passageiro Confirmou o Tempo ({currentService.driverEtaResponse || currentService.driverEta || 'Acordado'})!
+                          </p>
+                          <p className="text-[9px] text-emerald-200/80 font-medium">
+                            O tempo de espera foi aceite pelo passageiro.
+                          </p>
+                        </div>
+                      ) : (
+                        /* Normal flow before passenger accepts */
+                        <>
+                          {currentService.passengerAskedEta && (
+                            <p className="text-xs text-white font-bold bg-black/40 p-2.5 rounded-xl border border-white/10">
+                              💬 Pergunta do Passageiro: "{currentService.passengerEtaQuestion || 'Quanto tempo demora a chegar?'}"
+                            </p>
                           )}
 
-                          {/* Passenger Marker */}
-                          <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
-                            <Popup>
-                              <div className="text-slate-900 font-sans p-1">
-                                <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
-                                <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
-                              </div>
-                            </Popup>
-                          </Marker>
+                          {currentService.passengerEtaFeedback === 'tempo_alto' && (
+                            <div className="p-2 bg-amber-500/20 border border-amber-500/40 rounded-xl text-center my-1 animate-pulse">
+                              <p className="text-[10px] font-black uppercase text-amber-300">
+                                ⚠️ O passageiro considerou o tempo de espera muito alto! Tente chegar o mais rápido possível.
+                              </p>
+                            </div>
+                          )}
 
-                          <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
-                        </MapContainer>
-                        
-                        {/* Float controls inside the map */}
-                        <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1">
-                          <div className="bg-slate-950/95 backdrop-blur-sm px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1">
-                            <div className="w-1 h-1 bg-emerald-500 rounded-full animate-ping" />
-                            GPS Sincro Passageiro
+                          <p className="text-[9px] text-slate-300 uppercase font-black">
+                            Clique para enviar o tempo estimado ao passageiro (Opcional):
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 font-sans">
+                            {["3 min", "5 min", "10 min", "15 min", "20 min", "Já estou no local!"].map((resp) => (
+                              <button
+                                key={resp}
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const rideRef = doc(db, 'calls', currentService.id);
+                                    await setDoc(rideRef, { 
+                                      driverEtaResponse: resp,
+                                      driverEta: resp,
+                                      eta: resp,
+                                      passengerEtaFeedback: null,
+                                      driverEtaResponseAt: new Date().toISOString(),
+                                      passengerAcceptedEta: false
+                                    }, { merge: true });
+                                    setCurrentService((prev: any) => ({ 
+                                      ...prev, 
+                                      driverEtaResponse: resp, 
+                                      driverEta: resp, 
+                                      eta: resp, 
+                                      passengerEtaFeedback: null,
+                                      driverEtaResponseAt: new Date().toISOString(),
+                                      passengerAcceptedEta: false
+                                    }));
+                                    setNotificationBanner({
+                                      title: "⚡ PREVISÃO ENVIADA",
+                                      message: `Previsão de ${resp} enviada ao passageiro com sucesso!`,
+                                      type: "success",
+                                      visible: true
+                                    });
+                                  } catch (err) {
+                                    console.error("Erro ao enviar ETA:", err);
+                                  }
+                                }}
+                                className="px-3 py-2 bg-blue-500/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-[9.5px] font-black uppercase transition-all active:scale-95"
+                              >
+                                ⚡ {resp}
+                              </button>
+                            ))}
                           </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Collapsed / Toggle Button for VISUALIZADOR OPERACIONAL */}
+                  {!showOperationalMap ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowOperationalMap(true)}
+                      className="w-full flex items-center justify-between bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10"
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
+                        <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest">
+                          VISUALIZADOR OPERACIONAL
+                        </span>
+                      </div>
+                      <span className="text-[9.5px] font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all flex items-center gap-1.5">
+                        🗺️ Abrir Mapa <ChevronDown size={12} />
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="space-y-2 animate-fadeIn relative z-10">
+                      {/* Toggle Map Mode buttons & VISUALIZADOR OPERACIONAL Header */}
+                      <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-2xl border border-white/10">
+                        <button
+                          type="button"
+                          onClick={() => setShowOperationalMap(false)}
+                          className="flex items-center gap-2 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-widest pl-2"
+                        >
+                          <MapPin size={14} className="text-amber-400" />
+                          VISUALIZADOR OPERACIONAL
+                          <ChevronUp size={12} className="text-amber-400" />
+                        </button>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setMapMode("real")}
+                            className={cn(
+                              "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                              mapMode === "real" 
+                                ? "bg-brand-primary text-slate-950 shadow" 
+                                : "bg-transparent text-slate-400 hover:text-white"
+                            )}
+                          >
+                            🗺️ Mapa Real
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMapMode("radar")}
+                            className={cn(
+                              "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                              mapMode === "radar" 
+                                ? "bg-brand-primary text-slate-950 shadow" 
+                                : "bg-transparent text-slate-400 hover:text-white"
+                            )}
+                          >
+                            📡 Radar HUD
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex flex-col sm:flex-row gap-2 relative z-10 font-sans">
-                        <a
-                          href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 bg-brand-primary hover:bg-amber-500 text-slate-950 font-black text-[10px] uppercase tracking-wider py-3 px-4 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-all"
-                        >
-                          <Navigation size={12} /> Abrir Rota no Google Maps
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (currentService.pickupLat && currentService.pickupLng) {
-                              setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
-                            }
-                          }}
-                          className="bg-slate-800 hover:bg-slate-700 text-white font-black text-[10px] uppercase tracking-wider py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all border border-white/5"
-                        >
-                          <MapPin size={12} /> Focar Cliente
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
+                      {/* Interactive Map Container or Cinematic Radar SVG */}
+                      {mapMode === "real" ? (
+                        <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative h-72 w-full z-20">
+                          <MapErrorBoundary>
+                            {/* @ts-ignore */}
+                            <MapContainer
+                              center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
+                              zoom={14}
+                              style={{ height: '100%', width: '100%' }}
+                              zoomControl={false}
+                            >
+                              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                              
+                              {/* Driver Marker */}
+                              {driverLiveCoords && (
+                                <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
+                                  <Popup>
+                                    <div className="text-slate-900 font-sans p-1">
+                                      <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
+                                      <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
+                                    </div>
+                                  </Popup>
+                                </Marker>
+                              )}
+
+                              {/* Passenger Marker */}
+                              <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
+                                <Popup>
+                                  <div className="text-slate-900 font-sans p-1">
+                                    <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
+                                    <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
+                                  </div>
+                                </Popup>
+                              </Marker>
+
+                              <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
+                            </MapContainer>
+                          </MapErrorBoundary>
+                          
+                          {/* Float controls top left inside the map */}
+                          <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1 pointer-events-none">
+                            <div className="bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1.5">
+                              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                              GPS Sincro Passageiro
+                            </div>
+                          </div>
+
+                          {/* Float buttons INSIDE the map container at the bottom */}
+                          <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[400] flex gap-2 font-sans">
+                            <a
+                              href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xl transition-all border border-amber-400/40"
+                            >
+                              <Navigation size={12} /> Abrir Rota no Google Maps
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (currentService.pickupLat && currentService.pickupLng) {
+                                  setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
+                                }
+                              }}
+                              className="bg-slate-950/90 hover:bg-slate-900 text-white font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-white/20 shadow-xl backdrop-blur-md"
+                            >
+                              <MapPin size={12} /> Focar Cliente
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
                     <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
                       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
                       <div className="absolute inset-x-0 bottom-2 text-center z-10">
@@ -2574,57 +3024,8 @@ export default function DriverView({ user }: DriverViewProps) {
                       </svg>
                     </div>
                   )}
-
-                  {/* Customer Block and Trip Info */}
-                  <div className="space-y-4 bg-white/5 p-6 rounded-3xl border border-white/5 relative z-10">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                        Passageiro / Nome
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <PassengerAvatar 
-                          src={currentService?.passengerPhoto} 
-                          name={currentService?.customerName || currentService?.passengerName || "Cliente Particular"} 
-                          size="sm" 
-                        />
-                        <span className="text-sm font-black text-white uppercase italic">
-                          {currentService?.customerName || currentService?.passengerName || "Cliente Particular"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-white/5">
-                      <p className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest mb-1">PONTO DE RECOLHA</p>
-                      <p className="text-xs font-semibold text-slate-200 leading-tight">
-                        {currentService?.pickupAddress || currentService?.pickup || "Luena Central"}
-                      </p>
-                    </div>
-
-                    <div className="pt-2 border-t border-white/5">
-                      <p className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest mb-1">PONTO DE DESTINO</p>
-                      <p className="text-xs font-semibold text-slate-200 leading-tight">
-                        {currentService?.destinationAddress || currentService?.destination || "Bairro Kamanongue"}
-                      </p>
-                    </div>
-
-                    {currentService.price && (
-                      <div className="pt-2 border-t border-white/5 flex justify-between items-center">
-                        <span className="text-[8.5px] font-black text-emerald-400 uppercase tracking-widest">Preço Definido</span>
-                        <span className="text-base font-black text-emerald-400 font-mono">
-                          {Number(currentService.price).toLocaleString()} Kz
-                        </span>
-                      </div>
-                    )}
-
-                    {currentService.boardingToken && (
-                      <div className="pt-2 border-t border-white/5 flex justify-between items-center bg-emerald-950/20 px-3 py-2 rounded-xl border border-emerald-500/10">
-                        <span className="text-[8.5px] font-black text-emerald-400 uppercase tracking-widest">TOKEN DE EMBARQUE:</span>
-                        <span className="text-sm font-mono font-black text-emerald-400 tracking-wider">
-                          {currentService.boardingToken}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                </div>
+              )}
 
                   {/* Operational Controls by Status */}
                   <div className="space-y-4 pt-2 relative z-10 border-t border-dashed border-white/10">
@@ -2743,6 +3144,116 @@ export default function DriverView({ user }: DriverViewProps) {
                       </div>
                     )}
 
+                    {currentService.status === "price_negotiation_requested" && (
+                      <div className="space-y-3 bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl text-left">
+                        <div className="flex items-center gap-2 text-amber-400 font-black text-xs uppercase tracking-wider">
+                          <AlertCircle size={16} />
+                          O Passageiro Solicitou um Desconto!
+                        </div>
+                        <p className="text-[10px] text-slate-300 leading-normal">
+                          O passageiro considerou o valor inicial de <strong className="text-amber-400 font-mono">{(currentService.price || 2000).toLocaleString()} Kz</strong> elevado. Escolha ou defina um desconto para oferecer ao passageiro:
+                        </p>
+
+                        <div className="space-y-2 pt-1">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+                            Aplicar Desconto ao Passageiro:
+                          </span>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { pct: 10, label: '-10%' },
+                              { pct: 15, label: '-15%' },
+                              { pct: 20, label: '-20%' },
+                            ].map((d) => {
+                              const basePrice = currentService.originalPrice || currentService.price || 2000;
+                              const discounted = Math.round(basePrice * (1 - d.pct / 100));
+                              return (
+                                <button
+                                  key={d.pct}
+                                  onClick={async () => {
+                                    try {
+                                      const rideRef = doc(db, 'calls', currentService.id);
+                                      await setDoc(rideRef, { 
+                                        status: 'price_sent', 
+                                        price: discounted,
+                                        originalPrice: basePrice,
+                                        discountPercent: `${d.pct}%`,
+                                        discountAppliedAt: new Date().toISOString()
+                                      }, { merge: true });
+                                      setCurrentService((prev: any) => ({
+                                        ...prev,
+                                        status: 'price_sent',
+                                        price: discounted,
+                                        originalPrice: basePrice,
+                                        discountPercent: `${d.pct}%`
+                                      }));
+                                      setShowNotification(false);
+                                      alert(`Proposta de ${discounted.toLocaleString()} Kz (-${d.pct}%) enviada ao passageiro!`);
+                                    } catch (e) {
+                                      console.error(e);
+                                    }
+                                  }}
+                                  className="py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[10.5px] rounded-xl shadow uppercase flex flex-col items-center justify-center transition-transform active:scale-95"
+                                >
+                                  <span>{d.label}</span>
+                                  <span className="text-[8.5px] font-mono font-bold opacity-80">{discounted.toLocaleString()} Kz</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex gap-2 items-center pt-1">
+                            <input
+                              type="number"
+                              placeholder="Outro valor em Kz..."
+                              value={driverCustomDiscountInput}
+                              onChange={(e) => setDriverCustomDiscountInput(e.target.value)}
+                              className="flex-1 p-2 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-white outline-none focus:border-amber-400"
+                            />
+                            <button
+                              disabled={!driverCustomDiscountInput}
+                              onClick={async () => {
+                                try {
+                                  const val = Number(driverCustomDiscountInput);
+                                  if (!val || val <= 0) return;
+                                  const basePrice = currentService.originalPrice || currentService.price || 2000;
+                                  const rideRef = doc(db, 'calls', currentService.id);
+                                  await setDoc(rideRef, { 
+                                    status: 'price_sent', 
+                                    price: val,
+                                    originalPrice: basePrice,
+                                    discountPercent: 'Personalizado',
+                                    discountAppliedAt: new Date().toISOString()
+                                  }, { merge: true });
+                                  setCurrentService((prev: any) => ({
+                                    ...prev,
+                                    status: 'price_sent',
+                                    price: val,
+                                    originalPrice: basePrice,
+                                    discountPercent: 'Personalizado'
+                                  }));
+                                  setDriverCustomDiscountInput('');
+                                  setShowNotification(false);
+                                  alert(`Proposta de ${val.toLocaleString()} Kz enviada ao passageiro!`);
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                              className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl uppercase disabled:opacity-50"
+                            >
+                              Enviar
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={rejectService}
+                          className="w-full py-2.5 bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white border border-white/5 rounded-xl text-[9px] uppercase font-bold tracking-wider transition-colors mt-2"
+                        >
+                          Cancelar Serviço
+                        </button>
+                      </div>
+                    )}
+
                     {currentService.status === "confirmed" && (
                       <div className="space-y-4">
                         <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl text-center space-y-1">
@@ -2750,22 +3261,43 @@ export default function DriverView({ user }: DriverViewProps) {
                             A CAMINHO DO PASSAGEIRO
                           </p>
                           <p className="text-[9px] text-slate-400 uppercase font-bold">
-                            Desloque-se ao ponto de encontro acordado no Luena.
+                            Desloque-se ao ponto de encontro acordado. Ao chegar, marque "Cheguei ao Ponto de Recolha".
                           </p>
                         </div>
+
                         <button
                           onClick={handleDriverArrived}
-                          className="w-full py-4 bg-amber-500 hover:bg-amber-600 transition-all text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-amber-500/20 active:scale-95"
+                          className="w-full py-4 bg-amber-500 hover:bg-amber-600 transition-all text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-amber-500/20 active:scale-95 animate-pulse"
                         >
-                          <MapPin size={14} />
-                          Cheguei ao Ponto de Recolha
+                          <MapPin size={16} />
+                          📍 Cheguei ao Ponto de Recolha
                         </button>
+
                         <button
-                          onClick={cancelService}
-                          className="w-full py-3 bg-rose-600/15 hover:bg-rose-600 hover:text-white border border-rose-500/20 rounded-2xl text-xs uppercase font-black tracking-widest transition-colors flex items-center justify-center gap-1.5"
+                          disabled={true}
+                          onClick={() => alert("Por favor, clique primeiro em 'Cheguei ao Ponto de Recolha' quando estiver no local para ativar a corrida!")}
+                          className="w-full bg-slate-800/80 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest border border-white/10 opacity-60 cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                          <XCircle size={14} />
-                          Cancelar Serviço
+                          <PhoneCall size={14} />
+                          INICIAR CORRIDA ACORDADA ({currentService.price ? Number(currentService.price).toLocaleString() : 0} Kz)
+                          <span className="text-[8px] block font-mono font-normal lowercase">(inativo até chegar)</span>
+                        </button>
+                        
+                        <div className="p-2.5 bg-slate-950 border border-white/5 rounded-xl text-center">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider flex items-center justify-center gap-1.5">
+                            <Lock size={12} className="text-amber-400" />
+                            Corrida Confirmada (Cancelamento Bloqueado)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowNotification(false);
+                            setIsTransferModalOpen(true);
+                          }}
+                          className="w-full py-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                        >
+                          <Users size={14} />
+                          Encaminhar a Outro Colega
                         </button>
                       </div>
                     )}
@@ -2788,11 +3320,14 @@ export default function DriverView({ user }: DriverViewProps) {
                           INICIAR CORRIDA ACORDADA ({currentService.price?.toLocaleString()} Kz)
                         </button>
                         <button
-                          onClick={cancelService}
-                          className="w-full py-3 bg-rose-600/15 hover:bg-rose-600 hover:text-white border border-rose-500/20 rounded-2xl text-xs uppercase font-black tracking-widest transition-colors flex items-center justify-center gap-1.5"
+                          onClick={() => {
+                            setShowNotification(false);
+                            setIsTransferModalOpen(true);
+                          }}
+                          className="w-full py-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
                         >
-                          <XCircle size={14} />
-                          Cancelar Serviço
+                          <Users size={14} />
+                          Encaminhar a Outro Colega
                         </button>
                       </div>
                     )}
@@ -2811,11 +3346,14 @@ export default function DriverView({ user }: DriverViewProps) {
                           Encerrar Viagem & Carregar Renda ({currentService.price?.toLocaleString()} Kz)
                         </button>
                         <button
-                          onClick={cancelService}
-                          className="w-full py-3 bg-rose-600/15 hover:bg-rose-600 hover:text-white border border-rose-500/20 rounded-2xl text-xs uppercase font-black tracking-widest transition-colors flex items-center justify-center gap-1.5"
+                          onClick={() => {
+                            setShowNotification(false);
+                            setIsTransferModalOpen(true);
+                          }}
+                          className="w-full bg-slate-950 border border-white/5 hover:bg-slate-900 text-slate-300 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
                         >
-                          <XCircle size={14} />
-                          Cancelar Serviço
+                          <Users size={13} className="text-slate-500" />
+                          DELEGAR / ESCALAR MOTORISTA
                         </button>
                       </div>
                     )}
@@ -2856,15 +3394,15 @@ export default function DriverView({ user }: DriverViewProps) {
                           </button>
                         </div>
                       </div>
-                    ) : (
+                    ) : (driverAppConfig?.webrtcEnabled !== false && passengerAppConfig?.webrtcEnabled !== false) ? (
                       <WebRTCAudioCall
                         callId={currentService.id}
                         role="driver"
                         callStatus={currentService.status}
-                        partnerName={currentService.customerName || "Passageiro"}
-                        partnerPhone={currentService.customerPhone || currentService.passengerPhone}
+                        partnerName={currentService.customerName || currentService.passengerName || "Passageiro"}
+                        partnerPhone={currentService.customerPhone || currentService.passengerPhone || currentService.phone}
                       />
-                    )}
+                    ) : null}
                   </div>
 
                 </div>
@@ -3160,410 +3698,27 @@ export default function DriverView({ user }: DriverViewProps) {
                 </div>
 
                   {/* Current Ride / Map Placeholder */}
-                  {(isOnline || currentService) && (
+                  {!currentService && isOnline && (
                     <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
                       <div className="h-48 bg-slate-100 relative group overflow-hidden">
                         {/* Fake Map */}
                         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-100 to-indigo-50" />
                         <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/map/400/400')] bg-cover" />
 
-                        {currentService && currentService.status === "pending" ? (
-                          <div className="absolute inset-0 bg-slate-900 text-white flex items-center justify-between p-6 relative">
-                            {/* Animated sound wave background */}
-                            <div className="absolute inset-0 bg-emerald-500/5 animate-pulse pointer-events-none" />
-                            <div className="flex items-center gap-4 z-10">
-                              {/* Passenger profile picture */}
-                              <div className="relative flex-shrink-0">
-                                <PassengerAvatar 
-                                  src={currentService.passengerPhoto} 
-                                  name={currentService.customerName || currentService.passengerName} 
-                                  size="lg" 
-                                />
-                                <span className="absolute -bottom-1 -right-1 flex h-4 w-4">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border border-slate-900"></span>
-                                </span>
-                              </div>
-
-                              <div className="text-left space-y-1">
-                                <span className="text-[9px] font-black uppercase text-amber-400 tracking-wider animate-pulse flex items-center gap-1">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                                  Recebendo Pedido...
-                                </span>
-                                <h4 className="font-extrabold text-xs sm:text-sm text-white tracking-tight uppercase leading-none">
-                                  {currentService.customerName || "Passageiro"}
-                                </h4>
-                                <p className="text-[10px] text-slate-400 font-mono tracking-tight leading-none">
-                                  {currentService.customerPhone || "Sem Número"}
-                                </p>
-                                <p className="text-[8.5px] font-bold text-slate-500 uppercase tracking-wider">
-                                  Negociação de Super Táxi 🚕
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Small decorative pulsing call widget */}
-                            <div className="hidden sm:flex flex-col items-end gap-1.5 text-right z-10">
-                              <span className="px-2.5 py-1 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-[8px] font-black uppercase tracking-widest animate-pulse">
-                                CENTRAL DE CHAMADAS
-                              </span>
-                              <span className="text-[8px] text-slate-400 font-bold uppercase">
-                                LUENA-MOXICO
-                              </span>
-                            </div>
-                          </div>
-                        ) : currentService ? (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="relative">
-                              <motion.div
-                                initial={{ scale: 0.8, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                className="bg-brand-primary text-white p-3 rounded-2xl shadow-xl z-10 relative"
-                              >
-                                <Navigation size={24} className="rotate-45" />
-                              </motion.div>
-                              <div className="absolute inset-x-0 top-full h-20 w-1 bg-gradient-to-b from-brand-primary to-transparent mx-auto mt-1" />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
-                            <div>
-                              <MapPin
-                                size={32}
-                                className="text-slate-300 mx-auto mb-2"
-                              />
-                              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-normal">
-                                A aguardar por
-                                <br />
-                                serviços da central...
-                              </p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {currentService && (
-                        <div className={cn(
-                          "p-6 space-y-5 border-t border-slate-200 dark:border-white/10 rounded-2xl transition-all duration-500",
-                          currentService.status === "pending" && "border-amber-500/40 bg-slate-900 text-white shadow-xl shadow-amber-500/5",
-                          currentService.status === "connected" && "border-amber-500/40 bg-slate-900 text-white shadow-xl shadow-amber-500/5",
-                          currentService.status === "price_sent" && "border-blue-500/40 bg-slate-900 text-white shadow-xl",
-                          currentService.status === "confirmed" && "border-emerald-500/40 bg-slate-900 text-white shadow-xl shadow-emerald-500/10 animate-pulse",
-                          currentService.status === "active" && "border-emerald-500/40 bg-slate-900 text-white shadow-xl"
-                        )}>
-                          
-                          {/* Header Call state */}
-                          <div className="flex items-center justify-between border-b border-dashed border-white/10 pb-3">
-                            <span className={cn(
-                              "px-2.5 py-1 font-black text-[9px] rounded-lg uppercase tracking-wider",
-                              currentService.status === "pending" && "bg-amber-500 text-slate-950 animate-pulse",
-                              currentService.status === "connected" && "bg-amber-500 text-slate-950 animate-pulse",
-                              currentService.status === "price_sent" && "bg-blue-500 text-white",
-                              currentService.status === "confirmed" && "bg-emerald-500 text-white",
-                              currentService.status === "active" && "bg-emerald-500 text-white"
-                            )}>
-                              {currentService.status === "pending" && "Recebendo Pedido... Negociação de Super Táxi"}
-                              {currentService.status === "connected" && "📞 TELEFONEMA ESTABELECIDO"}
-                              {currentService.status === "price_sent" && "💬 PROPOSTA ENVIADA"}
-                              {currentService.status === "confirmed" && "✨ PREÇO CONFIRMADO!"}
-                              {currentService.status === "active" && "🚀 VIAGEM EM ANDAMENTO"}
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <span className="relative flex h-2.5 w-2.5">
-                                <span className={cn(
-                                  "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-                                  ["confirmed", "active"].includes(currentService.status) ? "bg-emerald-400" : "bg-amber-400"
-                                )}></span>
-                                <span className={cn(
-                                  "relative inline-flex rounded-full h-2.5 w-2.5",
-                                  ["confirmed", "active"].includes(currentService.status) ? "bg-emerald-500" : "bg-amber-500"
-                                )}></span>
-                              </span>
-                              <span className="text-[10px] font-mono font-black text-slate-400 uppercase tracking-widest">
-                                SIMULAÇÃO DOCK ACTIVE
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Passenger and Service details */}
-                          <div className="text-xs space-y-2.5 bg-white/5 p-4 rounded-xl border border-white/5">
-                            <div className="flex justify-between border-b border-white/5 pb-1.5">
-                              <span className="text-slate-400 uppercase font-black text-[9px]">Passageiro:</span>
-                              <span className="text-white font-black">
-                                {currentService.customerName || currentService.passengerName || "Passageiro de Teste"}
-                              </span>
-                            </div>
-                            <div className="flex justify-between border-b border-white/5 pb-1.5 col-span-2">
-                              <span className="text-slate-400 uppercase font-black text-[9px]">Contacto:</span>
-                              <span className="text-white font-mono font-bold">
-                                {currentService.customerPhone || currentService.passengerPhone || "+244 9XX XXX XXX"}
-                              </span>
-                            </div>
-                            <div className="flex justify-between border-b border-white/5 pb-1.5">
-                              <span className="text-slate-400 uppercase font-black text-[9px]">Partida (Moxico):</span>
-                              <span className="text-white font-extrabold truncate max-w-[180px]">
-                                {currentService.pickupAddress || currentService.pickup || "Luena Central"}
-                              </span>
-                            </div>
-                            <div className="flex justify-between border-b border-white/5 pb-1.5">
-                              <span className="text-slate-400 uppercase font-black text-[9px]">Destino Final:</span>
-                              <span className="text-white font-extrabold truncate max-w-[180px]">
-                                {currentService.destinationAddress || currentService.destination || "Bairro Kamanongue"}
-                              </span>
-                            </div>
-                            
-                            {currentService.price && (
-                              <div className="flex justify-between border-b border-white/5 pb-1.5">
-                                <span className="text-emerald-400 uppercase font-black text-[9px]">Valor Oferecido:</span>
-                                <span className="text-emerald-400 font-black text-sm font-mono leading-none">
-                                  {Number(currentService.price).toLocaleString()} Kz
-                                </span>
-                              </div>
-                            )}
-
-                            {currentService.boardingToken && (
-                              <div className="flex justify-between bg-emerald-500/10 p-2.5 rounded-lg border border-emerald-500/20 items-center">
-                                <span className="text-emerald-400 uppercase font-black text-[8px] tracking-wider">Código de Embarque (Segurança):</span>
-                                <span className="text-emerald-400 font-mono font-black text-sm tracking-widest">{currentService.boardingToken}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Call state actions - Simulation style */}
-                          <div className="space-y-3.5 pt-1">
-                            
-                            {/* PENDING State: Calling... */}
-                            {currentService.status === "pending" && (
-                              <div className="space-y-4">
-                                <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/20 flex flex-col items-center text-center gap-1">
-                                  <PhoneCall size={20} className="text-amber-500 animate-bounce" />
-                                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest animate-pulse">
-                                    Recebendo Pedido...
-                                  </p>
-                                  <p className="text-[8.5px] text-slate-400 uppercase tracking-wider">
-                                    Negociação de Super Táxi
-                                  </p>
-                                </div>
-
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={rejectService}
-                                    className="flex-1 py-3 px-4 bg-rose-600/20 hover:bg-rose-600 transition-colors text-white hover:text-white border border-rose-500/30 rounded-xl font-black text-[10px] uppercase tracking-wider"
-                                  >
-                                    Recusar
-                                  </button>
-                                  <button
-                                    onClick={attendCall}
-                                    className="flex-[2] py-3 px-4 bg-emerald-500 hover:bg-emerald-600 transition-all text-slate-950 font-black text-[10px] uppercase tracking-widest rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-1.5 animate-pulse"
-                                  >
-                                    <PhoneCall size={12} className="animate-bounce" />
-                                    Atender Chamada
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* CONNECTED state: established, can offer price */}
-                            {(currentService.status === "connected") && (
-                              <div className="space-y-3">
-                                {currentService.usedBonus === true ? (
-                                  <div className="bg-amber-500/10 border border-amber-500/35 p-4 rounded-xl text-center space-y-3">
-                                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest animate-pulse">🌟 VIAGEM DE BÓNUS SOLICITADA 🌟</p>
-                                    <p className="text-[9px] text-slate-300 leading-relaxed">
-                                      Este passageiro solicitou pagar a viagem utilizando os seus bónus acumulados. O valor proposto por si será integralmente debitado do saldo de bónus do passageiro.
-                                    </p>
-                                    <div className="border-t border-white/5 pt-3">
-                                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Propor Preço da Viagem (AKZ):</p>
-                                      <div className="flex gap-2">
-                                        <input
-                                          type="number"
-                                          placeholder="Ex: 2500"
-                                          value={proposedPrice}
-                                          onChange={(e) => setProposedPrice(e.target.value)}
-                                          className="flex-1 bg-black text-white border border-white/10 rounded-lg px-3 py-2 text-xs font-black focus:outline-none focus:border-brand-primary"
-                                        />
-                                        <button
-                                          onClick={() => sendPriceOffer()}
-                                          className="px-4 py-2 bg-[#10b981] hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase rounded-lg transition-all"
-                                        >
-                                          PROPOR
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-center space-y-1">
-                                      <div className="flex items-center justify-center gap-2">
-                                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-                                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Telefonema Estabelecido (Voz Ativa)</span>
-                                      </div>
-                                      <p className="text-[8.5px] text-slate-400 uppercase">Proponha o valor adequado para esta viagem abaixo.</p>
-                                    </div>
-
-                                    <div className="space-y-3 bg-white/5 p-4 rounded-xl border border-white/5">
-                                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-center">
-                                        Propor Preço da Viagem (AKZ)
-                                      </p>
-                                      <div className="flex gap-2">
-                                        <input
-                                          type="number"
-                                          placeholder="Ex: 2500"
-                                          value={proposedPrice}
-                                          onChange={(e) => setProposedPrice(e.target.value)}
-                                          className="flex-1 bg-black text-white border border-white/10 rounded-lg px-3 py-2 text-xs font-black focus:outline-none focus:border-brand-primary"
-                                        />
-                                        <button
-                                          onClick={() => sendPriceOffer()}
-                                          className="px-5 py-2 bg-[#10b981] text-slate-950 font-black text-[10px] uppercase rounded-lg transition-all hover:bg-emerald-600"
-                                        >
-                                          Propor
-                                        </button>
-                                      </div>
-                                      <div className="flex gap-1.5 justify-between">
-                                        {[1500, 2000, 2500, 3000].map((val) => (
-                                          <button
-                                            key={val}
-                                            onClick={() => sendPriceOffer(val)}
-                                            className="flex-1 bg-white/5 hover:bg-white/10 border border-white/5 py-1.5 rounded-lg text-[9px] text-white font-black transition-all"
-                                          >
-                                            {val.toLocaleString()}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </>
-                                )}
-
-                                <button
-                                  onClick={rejectService}
-                                  className="w-full py-2.5 bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white border border-white/5 rounded-xl text-[9px] uppercase font-bold tracking-wider transition-colors"
-                                >
-                                  Cancelar Serviço
-                                </button>
-                              </div>
-                            )}
-
-                            {/* PRICE SENT state: Waiting for passenger approval */}
-                            {currentService.status === "price_sent" && (
-                              <div className="space-y-3">
-                                <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl flex items-center justify-center gap-3">
-                                  <RefreshCw size={15} className="text-blue-400 animate-spin shrink-0" />
-                                  <div className="text-left leading-tight">
-                                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-wider">
-                                      Proposta de Preço Enviada
-                                    </p>
-                                    <p className="text-[8.5px] text-slate-400 uppercase mt-0.5">
-                                      A aguardar que o passageiro aprove os {currentService.price?.toLocaleString()} Kz...
-                                    </p>
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={rejectService}
-                                  className="w-full bg-slate-950 hover:bg-slate-900 border border-white/5 text-slate-400 py-3 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all"
-                                >
-                                  Cancelar Serviço
-                                </button>
-                              </div>
-                            )}
-
-                            {/* CONFIRMED state: Driver heading to pickup */}
-                            {currentService.status === "confirmed" && (
-                              <div className="space-y-3">
-                                <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-xl flex flex-col items-center text-center gap-1">
-                                  <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
-                                    A CAMINHO DO PASSAGEIRO
-                                  </p>
-                                  <p className="text-[8.5px] text-slate-400 uppercase">
-                                    Desloque-se ao ponto de encontro acordado no Luena.
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={handleDriverArrived}
-                                  className="w-full py-4 bg-amber-500 hover:bg-amber-600 transition-all text-slate-950 font-black text-[11px] uppercase tracking-widest rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 active:scale-95"
-                                >
-                                  <MapPin size={12} />
-                                  Cheguei ao Ponto de Recolha
-                                </button>
-                                <button
-                                  onClick={cancelService}
-                                  className="w-full py-2.5 bg-rose-600/15 hover:bg-rose-600 text-white border border-rose-500/20 rounded-xl text-[10px] uppercase font-black tracking-widest transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <XCircle size={12} />
-                                  Cancelar Serviço
-                                </button>
-                              </div>
-                            )}
-
-                            {/* ARRIVED state: Driver at pickup waiting for passenger */}
-                            {currentService.status === "arrived" && (
-                              <div className="space-y-3">
-                                <div className="bg-emerald-500/10 border border-[#10b981]/30 p-4 rounded-xl flex flex-col items-center text-center gap-1">
-                                  <div className="w-1.5 h-1.5 bg-[#10b981] rounded-full animate-ping" />
-                                  <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
-                                    MOTORISTA NO LOCAL
-                                  </p>
-                                  <p className="text-[8.5px] text-slate-400 uppercase">
-                                    O preço de {currentService.price?.toLocaleString()} Kz foi acordado. Inicie a viagem quando o passageiro embarcar.
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={acceptService}
-                                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 py-4 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-1.5 animate-pulse"
-                                >
-                                  <PhoneCall size={12} />
-                                  INICIAR CORRIDA ACORDADA ({currentService.price?.toLocaleString()} Kz)
-                                </button>
-                                <button
-                                  onClick={cancelService}
-                                  className="w-full py-2.5 bg-rose-600/15 hover:bg-rose-600 text-white border border-rose-500/20 rounded-xl text-[10px] uppercase font-black tracking-widest transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <XCircle size={12} />
-                                  Cancelar Serviço
-                                </button>
-                              </div>
-                            )}
-
-                            {/* ACTIVE state: Ride in progress */}
-                            {currentService.status === "active" && (
-                              <div className="space-y-4">
-                                <div className="bg-[#10b981]/15 p-4 rounded-xl border border-emerald-500/30 text-center space-y-1">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
-                                    <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Viagem de Super Táxi Ativa</span>
-                                  </div>
-                                  <p className="text-[8.5px] text-slate-400 uppercase">Siga a rota GPS até ao destino pretendido do passageiro.</p>
-                                </div>
-
-                                <button
-                                  onClick={finishService}
-                                  className="w-full py-4 bg-emerald-500 hover:bg-[#059669] transition-all text-slate-950 font-black text-[11px] uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 active:scale-95 animate-pulse"
-                                >
-                                  <CheckCircle2 size={13} />
-                                  Encerrar Viagem & Carregar Renda ({currentService.price?.toLocaleString()} Kz)
-                                </button>
-
-                                <button
-                                  onClick={() => setIsTransferModalOpen(true)}
-                                  className="w-full bg-slate-950 border border-white/5 hover:bg-slate-900 text-slate-300 py-3 rounded-xl font-black text-[9.5px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                                >
-                                  <Users size={12} className="text-slate-500" />
-                                  DELEGAR / ESCALAR MOTORISTA
-                                </button>
-
-                                <button
-                                  onClick={cancelService}
-                                  className="w-full py-2.5 bg-rose-600/15 hover:bg-rose-600 text-white border border-rose-500/20 rounded-xl text-[10px] uppercase font-black tracking-widest transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <XCircle size={12} />
-                                  Cancelar Serviço
-                                </button>
-                              </div>
-                            )}
-
+                        <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
+                          <div>
+                            <MapPin
+                              size={32}
+                              className="text-slate-300 mx-auto mb-2"
+                            />
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-normal">
+                              A aguardar por
+                              <br />
+                              serviços da central...
+                            </p>
                           </div>
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
 
@@ -5022,16 +5177,20 @@ export default function DriverView({ user }: DriverViewProps) {
               <div className="pt-2 flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={() => {
-                    if (typeof window !== 'undefined' && 'Notification' in window) {
-                      Notification.requestPermission().then((res) => {
-                        setNotifPermissionStatus(res);
-                        if (res === 'granted') {
-                          setShowDeniedNotifModal(false);
-                          alert("✓ Notificações Ativadas com Sucesso! Agora receberá todos os alertas de chamadas de táxi.");
-                        } else {
-                          alert("Ainda não foi possível ativar automaticamente. Siga o guia passo a passo acima nas definições do navegador.");
-                        }
-                      }).catch(() => {});
+                    if (typeof window !== 'undefined' && 'Notification' in window && typeof window.Notification?.requestPermission === 'function') {
+                      try {
+                        window.Notification.requestPermission().then((res) => {
+                          setNotifPermissionStatus(res);
+                          if (res === 'granted') {
+                            setShowDeniedNotifModal(false);
+                            alert("✓ Notificações Ativadas com Sucesso! Agora receberá todos os alertas de chamadas de táxi.");
+                          } else {
+                            alert("Ainda não foi possível ativar automaticamente. Siga o guia passo a passo acima nas definições do navegador.");
+                          }
+                        }).catch(() => {});
+                      } catch {
+                        alert("Notificações não suportadas neste ambiente.");
+                      }
                     }
                   }}
                   className="flex-1 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"

@@ -19,39 +19,42 @@ import {
 } from '@/src/lib/firebase';
 import { auth, db, googleProvider, setActiveTenantId, getActiveTenantId } from './lib/firebase';
 import Layout from './components/Layout';
-import Dashboard from './components/Dashboard';
 import Login from './components/Login';
 import ProfileSetup from './components/ProfileSetup';
-import FleetManagement from './components/FleetManagement';
-import RealTimeMap from './components/RealTimeMap';
-import History from './components/History';
-import Settings from './components/Settings';
-import CompanyManagement from './components/CompanyManagement';
-import Messages from './components/Messages';
-import { WhatsAppMonitor } from './components/WhatsAppMonitor';
-import RealTimeMonitor from './components/RealTimeMonitor';
-import GPSTimeline from './components/GPSTimeline';
-import DriverView from './components/DriverView';
-import MechanicView from './components/MechanicView';
-import StaffMobileView from './components/StaffMobileView';
 import AlertNotificationManager from './components/AlertNotificationManager';
-import MaintenanceRegistry from './components/MaintenanceRegistry';
-import RevenueManagement from './components/RevenueManagement';
-import RecruitmentHub from './components/RecruitmentHub';
-import AccountingManager from './components/AccountingManager';
-import WarehouseManager from './components/WarehouseManager';
-import InternalClients from './components/InternalClients';
-import RentACar from './components/RentACar';
-import CompanyPhones from './components/CompanyPhones';
 import ProfileEdit from './components/ProfileEdit';
-import UserManual from './components/UserManual';
-import CallSmsDossier from './components/CallSmsDossier';
-import PassengerFlow from './components/PassengerFlow';
-import PassengerManagement from './components/PassengerManagement';
-import SystemErrorLogs from './components/SystemErrorLogs';
-import ShiftMonitor from './components/ShiftMonitor';
-import DriverDashboard from './components/DriverDashboard';
 import KeyboardShortcutManager from './components/KeyboardShortcutManager';
+
+// Code splitting / Lazy-loaded subcomponents for improved initial bundle size and performance
+const Dashboard = React.lazy(() => import('./components/Dashboard'));
+const FleetManagement = React.lazy(() => import('./components/FleetManagement'));
+const RealTimeMap = React.lazy(() => import('./components/RealTimeMap'));
+const History = React.lazy(() => import('./components/History'));
+const Settings = React.lazy(() => import('./components/Settings'));
+const CompanyManagement = React.lazy(() => import('./components/CompanyManagement'));
+const Messages = React.lazy(() => import('./components/Messages'));
+const WhatsAppMonitor = React.lazy(() => import('./components/WhatsAppMonitor').then(m => ({ default: m.WhatsAppMonitor })));
+const RealTimeMonitor = React.lazy(() => import('./components/RealTimeMonitor'));
+const GPSTimeline = React.lazy(() => import('./components/GPSTimeline'));
+const DriverView = React.lazy(() => import('./components/DriverView'));
+const MechanicView = React.lazy(() => import('./components/MechanicView'));
+const StaffMobileView = React.lazy(() => import('./components/StaffMobileView'));
+const MaintenanceRegistry = React.lazy(() => import('./components/MaintenanceRegistry'));
+const RevenueManagement = React.lazy(() => import('./components/RevenueManagement'));
+const RecruitmentHub = React.lazy(() => import('./components/RecruitmentHub'));
+const AccountingManager = React.lazy(() => import('./components/AccountingManager'));
+const WarehouseManager = React.lazy(() => import('./components/WarehouseManager'));
+const InternalClients = React.lazy(() => import('./components/InternalClients'));
+const RentACar = React.lazy(() => import('./components/RentACar'));
+const CompanyPhones = React.lazy(() => import('./components/CompanyPhones'));
+const UserManual = React.lazy(() => import('./components/UserManual'));
+const CallSmsDossier = React.lazy(() => import('./components/CallSmsDossier'));
+const PassengerFlow = React.lazy(() => import('./components/PassengerFlow'));
+const PassengerManagement = React.lazy(() => import('./components/PassengerManagement'));
+const SystemErrorLogs = React.lazy(() => import('./components/SystemErrorLogs'));
+const ShiftMonitor = React.lazy(() => import('./components/ShiftMonitor'));
+const DriverDashboard = React.lazy(() => import('./components/DriverDashboard'));
+const InvoiceDrafting = React.lazy(() => import('./components/InvoiceDrafting'));
 
 import { 
   AlertCircle, 
@@ -65,7 +68,6 @@ import {
   Car
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import InvoiceDrafting from './components/InvoiceDrafting';
 import { ThemeProvider } from './context/ThemeContext';
 import { ConnectivityBanner } from './components/ConnectivityBanner';
 
@@ -459,7 +461,14 @@ export default function App() {
       <ThemeProvider>
          <ConnectivityBanner user={userProfile || user} />
          <div className="h-screen h-[100dvh] relative w-full overflow-hidden bg-slate-950 flex flex-col items-center justify-center">
-            <PassengerFlow isPublicApp={true} />
+            <React.Suspense fallback={
+              <div className="flex flex-col items-center justify-center gap-4 text-white font-sans">
+                <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar aplicação...</span>
+              </div>
+            }>
+              <PassengerFlow isPublicApp={true} />
+            </React.Suspense>
          </div>
       </ThemeProvider>
     );
@@ -513,11 +522,18 @@ export default function App() {
         <ConnectivityBanner user={userProfile || user} />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-          <StaffMobileView 
-            user={userProfile} 
-            onLogout={() => signOut(auth)} 
-            onExitMobile={() => setViewPreference('desktop')}
-          />
+          <React.Suspense fallback={
+            <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar portal...</span>
+            </div>
+          }>
+            <StaffMobileView 
+              user={userProfile} 
+              onLogout={() => signOut(auth)} 
+              onExitMobile={() => setViewPreference('desktop')}
+            />
+          </React.Suspense>
         </div>
       </ThemeProvider>
     );
@@ -530,7 +546,14 @@ export default function App() {
         <ConnectivityBanner user={userProfile || user} />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-          <MechanicView user={userProfile} />
+          <React.Suspense fallback={
+            <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel mecânico...</span>
+            </div>
+          }>
+            <MechanicView user={userProfile} />
+          </React.Suspense>
         </div>
       </ThemeProvider>
     );
@@ -542,7 +565,14 @@ export default function App() {
         <ConnectivityBanner user={userProfile || user} />
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
           {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-          <DriverView user={userProfile} />
+          <React.Suspense fallback={
+            <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel motorista...</span>
+            </div>
+          }>
+            <DriverView user={userProfile} />
+          </React.Suspense>
         </div>
       </ThemeProvider>
     );
@@ -589,27 +619,34 @@ export default function App() {
               </button>
             </div>
           )}
-          {activeTab === 'dashboard' && <Dashboard user={userProfile} />}
-          {activeTab === 'driver_dashboard' && <DriverDashboard />}
-          {activeTab === 'recruitment' && (isAdmin ? <RecruitmentHub user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'fleet' && (isAdmin || isOperator || isMecanico || isContabilista ? <FleetManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'monitors' && <RealTimeMonitor user={userProfile} />}
-          {activeTab === 'revenue' && (isAdmin || isOperator || isContabilista ? <RevenueManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'passengers' && (isAdmin || isOperator ? <PassengerManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'map' && <RealTimeMap />}
-          {activeTab === 'gps_timeline' && <GPSTimeline />}
-          {activeTab === 'history' && <History />}
-          {activeTab === 'maintenance' && (isAdmin || isOperator || isMecanico || isContabilista ? <MaintenanceRegistry user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'accounting' && (isAdmin || isContabilista ? <AccountingManager user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'warehouse' && (isAdmin || isOperator || isMecanico ? <WarehouseManager user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'psm_phones' && (isAdmin || isOperator ? <CompanyPhones /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'manual' && <UserManual />}
-          {activeTab === 'settings' && (isAdmin ? <Settings /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'messages' && (isAdmin || isOperator ? <Messages isAdmin={isAdmin} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'call_sms_dossier' && (isAdmin || isOperator ? <CallSmsDossier /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'baileys_gateway' && (isAdmin || isOperator ? <WhatsAppMonitor isAdmin={isAdmin} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'system_logs' && (isAdmin ? <SystemErrorLogs user={userProfile} /> : <Dashboard user={userProfile} />)}
-          {activeTab === 'shift_monitor' && (isAdmin || isOperator || isMecanico ? <RealTimeMonitor user={userProfile} initialSubTab="shifts" /> : <Dashboard user={userProfile} />)}
+          <React.Suspense fallback={
+            <div className="p-12 flex flex-col items-center justify-center gap-4 text-slate-500 dark:text-slate-400 font-sans">
+              <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">A carregar módulo...</span>
+            </div>
+          }>
+            {activeTab === 'dashboard' && <Dashboard user={userProfile} />}
+            {activeTab === 'driver_dashboard' && <DriverDashboard />}
+            {activeTab === 'recruitment' && (isAdmin ? <RecruitmentHub user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'fleet' && (isAdmin || isOperator || isMecanico || isContabilista ? <FleetManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'monitors' && <RealTimeMonitor user={userProfile} />}
+            {activeTab === 'revenue' && (isAdmin || isOperator || isContabilista ? <RevenueManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'passengers' && (isAdmin || isOperator ? <PassengerManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'map' && <RealTimeMap />}
+            {activeTab === 'gps_timeline' && <GPSTimeline />}
+            {activeTab === 'history' && <History />}
+            {activeTab === 'maintenance' && (isAdmin || isOperator || isMecanico || isContabilista ? <MaintenanceRegistry user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'accounting' && (isAdmin || isContabilista ? <AccountingManager user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'warehouse' && (isAdmin || isOperator || isMecanico ? <WarehouseManager user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'psm_phones' && (isAdmin || isOperator ? <CompanyPhones /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'manual' && <UserManual />}
+            {activeTab === 'settings' && (isAdmin ? <Settings /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'messages' && (isAdmin || isOperator ? <Messages isAdmin={isAdmin} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'call_sms_dossier' && (isAdmin || isOperator ? <CallSmsDossier /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'baileys_gateway' && <WhatsAppMonitor isAdmin={isAdmin} />}
+            {activeTab === 'system_logs' && (isAdmin ? <SystemErrorLogs user={userProfile} /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'shift_monitor' && (isAdmin || isOperator || isMecanico ? <RealTimeMonitor user={userProfile} initialSubTab="shifts" /> : <Dashboard user={userProfile} />)}
+          </React.Suspense>
         </Layout>
       </div>
     </ThemeProvider>

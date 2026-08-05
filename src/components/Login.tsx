@@ -86,12 +86,16 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const settingsSnap = await withTimeout(getDoc(doc(db, 'settings', 'global')));
+        const settingsSnap = await withTimeout(getDoc(doc(db, 'settings', 'global')), 5000);
         if (settingsSnap.exists()) {
           setWhatsAppLink(settingsSnap.data().whatsAppLink || '');
         }
-      } catch (err) {
-        console.error("Error fetching settings:", err);
+      } catch (err: any) {
+        if (err?.message?.includes('offline') || err?.code === 'unavailable' || err?.message?.includes('ERRO_TIMEOUT')) {
+          console.warn("A carregar definições em modo offline/cache.");
+        } else {
+          console.warn("Não foi possível carregar definições:", err?.message || err);
+        }
       }
     };
     fetchSettings();

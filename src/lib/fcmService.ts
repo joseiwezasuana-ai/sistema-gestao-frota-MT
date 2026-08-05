@@ -163,14 +163,10 @@ export async function sendPassengerPushNotification({
         requireInteraction: true
       };
 
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      if ('serviceWorker' in navigator) {
         navigator.serviceWorker.ready.then(reg => {
-          reg.showNotification(title, options).catch(() => {
-            try { new Notification(title, options); } catch (e) {}
-          });
-        });
-      } else {
-        try { new Notification(title, options); } catch (e) {}
+          reg.showNotification(title, options).catch(() => {});
+        }).catch(() => {});
       }
     }
 

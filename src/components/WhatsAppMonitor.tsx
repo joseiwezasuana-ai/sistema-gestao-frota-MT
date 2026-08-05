@@ -180,9 +180,9 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
   // Sintetizador de Som de Toque Operacional (Beep Duplo Unitel via Web Audio API)
   const playRingtone = () => {
     try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
-      const ctx = new AudioContext();
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new (AudioContextClass as any)();
       
       const playBeep = (delay: number) => {
         const osc1 = ctx.createOscillator();

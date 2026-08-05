@@ -34,6 +34,7 @@ import { formatSafe } from '../lib/dateUtils';
 import ThresholdSettings from './ThresholdSettings';
 import WhatsAppWebhookConfig from './WhatsAppWebhookConfig';
 import FirebaseSetupHelper from './FirebaseSetupHelper';
+import BackupManager from './BackupManager';
 import { useTheme } from '../context/ThemeContext';
 
 export default function Settings() {
@@ -793,6 +794,9 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      {/* GESTÃO DE BACKUPS & RECUPERAÇÃO DE DESASTRES */}
+      <BackupManager />
 
       {/* MANUAL DE DEPLOY & CONFIGURAÇÃO SENSORIADA (JIS) */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">

@@ -59,37 +59,59 @@ export function WebRTCAudioCall({ callId, role, callStatus, partnerName, partner
 
         // Setup audio volume visualizer
         try {
-          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          audioContextRef.current = audioCtx;
-          const source = audioCtx.createMediaStreamSource(localStream);
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 32;
-          source.connect(analyser);
-          analyserRef.current = analyser;
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass && typeof AudioContextClass === 'function') {
+            const audioCtx = new (AudioContextClass as any)();
+            audioContextRef.current = audioCtx;
+            const source = audioCtx.createMediaStreamSource(localStream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 32;
+            source.connect(analyser);
+            analyserRef.current = analyser;
 
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          const updateVolume = () => {
-            if (analyserRef.current) {
-              analyserRef.current.getByteFrequencyData(dataArray);
-              let sum = 0;
-              for (let i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i];
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            const updateVolume = () => {
+              if (analyserRef.current) {
+                analyserRef.current.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                  sum += dataArray[i];
+                }
+                const avg = sum / dataArray.length;
+                if (isMounted) {
+                  setAudioVolume(Math.min(100, Math.round((avg / 128) * 100)));
+                }
               }
-              const avg = sum / dataArray.length;
-              if (isMounted) {
-                setAudioVolume(Math.min(100, Math.round((avg / 128) * 100)));
-              }
-            }
-            animationFrameRef.current = requestAnimationFrame(updateVolume);
-          };
-          updateVolume();
+              animationFrameRef.current = requestAnimationFrame(updateVolume);
+            };
+            updateVolume();
+          }
         } catch (e) {
           console.error("Visualizador de áudio não suportado:", e);
         }
 
-        // 2. Create RTCPeerConnection
-        const pc = new RTCPeerConnection(STUN_SERVERS);
-        peerConnectionRef.current = pc;
+        // 2. Create RTCPeerConnection safely
+        if (typeof window === 'undefined' || !('RTCPeerConnection' in window) || typeof (window as any).RTCPeerConnection !== 'function') {
+          if (isMounted) {
+            setConnectionStatus('failed');
+            setErrorMessage("Voz VoIP WebRTC não suportada neste dispositivo. Utilize a chamada GSM.");
+          }
+          return;
+        }
+
+        let pc: RTCPeerConnection;
+        try {
+          const PeerConnClass = (window as any).RTCPeerConnection;
+          pc = new PeerConnClass(STUN_SERVERS);
+          peerConnectionRef.current = pc;
+        } catch (err) {
+          console.warn("RTCPeerConnection initialization error:", err);
+          if (isMounted) {
+            setConnectionStatus('failed');
+            setErrorMessage("Não foi possível iniciar canal de áudio VoIP. Utilize a chamada GSM.");
+          }
+          return;
+        }
 
         // Add local audio tracks to peer connection
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
@@ -139,7 +161,7 @@ export function WebRTCAudioCall({ callId, role, callStatus, partnerName, partner
               const data = change.doc.data();
               if (data.sender !== role && data.candidate) {
                 try {
-                  await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+                  await pc.addIceCandidate(data.candidate);
                 } catch (e) {
                   console.error("Erro ao adicionar candidato ICE remoto:", e);
                 }
@@ -166,11 +188,15 @@ export function WebRTCAudioCall({ callId, role, callStatus, partnerName, partner
             if (snap.exists() && pc.signalingState !== 'stable') {
               const answerData = snap.data();
               if (answerData && answerData.sdp) {
-                await pc.setRemoteDescription(new RTCSessionDescription({
-                  sdp: answerData.sdp,
-                  type: answerData.type
-                }));
-                if (isMounted) setConnectionStatus('connected');
+                try {
+                  await pc.setRemoteDescription({
+                    sdp: answerData.sdp,
+                    type: answerData.type
+                  } as RTCSessionDescriptionInit);
+                  if (isMounted) setConnectionStatus('connected');
+                } catch (err) {
+                  console.warn("Erro ao aplicar resposta SDP remota:", err);
+                }
               }
             }
           });
@@ -185,19 +211,23 @@ export function WebRTCAudioCall({ callId, role, callStatus, partnerName, partner
             if (snap.exists() && !pc.currentRemoteDescription) {
               const offerData = snap.data();
               if (offerData && offerData.sdp) {
-                await pc.setRemoteDescription(new RTCSessionDescription({
-                  sdp: offerData.sdp,
-                  type: offerData.type
-                }));
+                try {
+                  await pc.setRemoteDescription({
+                    sdp: offerData.sdp,
+                    type: offerData.type
+                  } as RTCSessionDescriptionInit);
 
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                await setDoc(answerDocRef, {
-                  sdp: answer.sdp,
-                  type: answer.type,
-                  timestamp: Date.now()
-                });
-                if (isMounted) setConnectionStatus('connected');
+                  const answer = await pc.createAnswer();
+                  await pc.setLocalDescription(answer);
+                  await setDoc(answerDocRef, {
+                    sdp: answer.sdp,
+                    type: answer.type,
+                    timestamp: Date.now()
+                  });
+                  if (isMounted) setConnectionStatus('connected');
+                } catch (err) {
+                  console.warn("Erro ao aceitar oferta SDP remota:", err);
+                }
               }
             }
           });

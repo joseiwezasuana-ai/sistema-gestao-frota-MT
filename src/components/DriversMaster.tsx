@@ -168,7 +168,9 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
       // 1. Fetch Revenue Logs
       const revQ = query(collection(db, 'revenue_logs'), where('driverName', '==', driver.name));
       const revSnap = await getDocs(revQ);
-      const revList = revSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const revList = revSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter((log: any) => log.status !== 'archived');
       setDriverRevenueLogs(revList);
 
       // 2. Fetch Calls

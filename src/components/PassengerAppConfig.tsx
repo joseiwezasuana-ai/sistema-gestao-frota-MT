@@ -64,6 +64,7 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
   const [routeSharingEnabled, setRouteSharingEnabled] = useState(true);
   const [bonusClubEnabled, setBonusClubEnabled] = useState(true);
   const [bonusClubCashbackPercent, setBonusClubCashbackPercent] = useState(5);
+  const [webrtcEnabled, setWebrtcEnabled] = useState(true);
   
   // Parameters
   const [searchRadiusKm, setSearchRadiusKm] = useState(15);
@@ -100,6 +101,7 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
         setRouteSharingEnabled(data.routeSharingEnabled !== false);
         setBonusClubEnabled(data.bonusClubEnabled !== false);
         setBonusClubCashbackPercent(data.bonusClubCashbackPercent || 5);
+        setWebrtcEnabled(data.webrtcEnabled !== false);
         setSearchRadiusKm(data.searchRadiusKm || 15);
         setDriverWaitTimeSec(data.driverWaitTimeSec || 90);
         setBaseFareKz(data.baseFareKz || 500);
@@ -138,6 +140,7 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
         routeSharingEnabled,
         bonusClubEnabled,
         bonusClubCashbackPercent: Number(bonusClubCashbackPercent),
+        webrtcEnabled,
         searchRadiusKm: Number(searchRadiusKm),
         driverWaitTimeSec: Number(driverWaitTimeSec),
         baseFareKz: Number(baseFareKz),
@@ -334,7 +337,36 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
               </button>
             </div>
 
-            {/* 4. Panic S.O.S Button */}
+            {/* 4. Voz ao Vivo (WebRTC) */}
+            <div className="flex items-start justify-between p-3.5 bg-slate-50 dark:bg-slate-850 rounded-xl hover:bg-slate-100/50 dark:hover:bg-slate-800/40 transition-all border border-slate-100 dark:border-white/5">
+              <div className="flex items-start gap-3">
+                <div className="mt-1 p-1.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                  <Phone size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight">🎙️ Voz ao Vivo (WebRTC)</h4>
+                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">Voz Direta</span>
+                  </div>
+                  <p className="text-[11px] text-slate-550 dark:text-slate-400 leading-normal">Permite que o passageiro efetue chamadas de voz encriptadas em tempo real com o motorista.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWebrtcEnabled(!webrtcEnabled)}
+                className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  webrtcEnabled ? 'bg-brand-primary' : 'bg-slate-200 dark:bg-slate-700'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    webrtcEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* 5. Panic S.O.S Button */}
             <div className="flex items-start justify-between p-3.5 bg-slate-50 dark:bg-slate-850 rounded-xl hover:bg-slate-100/50 dark:hover:bg-slate-800/40 transition-all border border-slate-100 dark:border-white/5">
               <div className="flex items-start gap-3">
                 <div className="mt-1 p-1.5 bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-450 rounded-lg">

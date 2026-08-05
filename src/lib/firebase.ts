@@ -168,10 +168,10 @@ export function onSnapshot(...args: any[]): () => void {
 async function testConnection() {
   try {
     if (app && db) {
-      await getDocFromServer(originalDoc(db, 'settings', 'global'));
+      await withTimeout(getDocFromServer(originalDoc(db, 'settings', 'global')), 4000);
     }
-  } catch (error) {
-    if (error instanceof Error && (error.message.includes('offline') || error.message.includes('unavailable'))) {
+  } catch (error: any) {
+    if (error?.message?.includes('offline') || error?.message?.includes('unavailable') || error?.code === 'unavailable' || error?.message?.includes('ERRO_TIMEOUT')) {
       console.warn("[Firebase] Client operating in offline cache mode until Cloud Firestore backend is reached.");
     }
   }

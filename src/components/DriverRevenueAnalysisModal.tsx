@@ -45,6 +45,15 @@ export function DriverRevenueAnalysisModal({
   const [selectedDriverId, setSelectedDriverId] = useState<string>(initialDriverId || 'all');
   const [timeFilter, setTimeFilter] = useState<'all' | 'month' | 'today'>('month');
 
+  React.useEffect(() => {
+    const handleAccountingReset = () => {
+      setSelectedDriverId('all');
+      setTimeFilter('month');
+    };
+    window.addEventListener('accounting_hub_reset', handleAccountingReset);
+    return () => window.removeEventListener('accounting_hub_reset', handleAccountingReset);
+  }, []);
+
   if (!isOpen) return null;
 
   // Filter logs based on selected driver & time filter
@@ -55,6 +64,7 @@ export function DriverRevenueAnalysisModal({
   const targetDriver = drivers.find(d => d.id === selectedDriverId);
 
   const filteredLogs = revenues.filter(log => {
+    if (log.status === 'archived') return false;
     // Driver filter
     if (selectedDriverId !== 'all') {
       const matchId = log.driverId === selectedDriverId;
