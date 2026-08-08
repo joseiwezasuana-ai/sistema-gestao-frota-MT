@@ -1584,7 +1584,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
             });
 
             // --- CLUB BONUS SYSTEM (JIS) ---
-            if (passengerProfile) {
+            if (appConfig?.bonusClubEnabled !== false && passengerProfile) {
               const usedBonus = data.usedBonus === true || data.paidWithBonus === true;
               const initialBonus = Number(passengerProfile.bonusBalance || 0);
               let currentBonus = initialBonus;
@@ -2210,6 +2210,33 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
           // Fallback with setDoc merge
           setDoc(rideRef, { rating: star }, { merge: true });
         });
+
+        // Also update the driver's cumulative rating in 'drivers' collection if driverId exists
+        if (activeRideRecord.driverId) {
+          const driverRef = doc(db, 'drivers', activeRideRecord.driverId);
+          const driverSnap = await getDoc(driverRef);
+          if (driverSnap.exists()) {
+            const dData = driverSnap.data();
+            const currentTotal = Number(dData.totalRatings || 0);
+            const currentSum = Number(dData.ratingSum || 0);
+            const newTotal = currentTotal + 1;
+            const newSum = currentSum + star;
+            const newAvg = Number((newSum / newTotal).toFixed(1));
+            await updateDoc(driverRef, {
+              rating: newAvg,
+              stars: newAvg,
+              totalRatings: newTotal,
+              ratingSum: newSum,
+            }).catch(() => {
+              setDoc(driverRef, {
+                rating: newAvg,
+                stars: newAvg,
+                totalRatings: newTotal,
+                ratingSum: newSum,
+              }, { merge: true });
+            });
+          }
+        }
       } catch (err) {
         console.warn("Could not save rating to Firestore:", err);
       }
@@ -2238,14 +2265,25 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
     try {
       const rideRef = doc(db, 'calls', activeRideRecord.id);
-      await setDoc(rideRef, { 
+      const forwardPayload = { 
         status: 'calling', 
         forwarded: true,
+        isForwarded: true,
         vehiclePlate: selectedColleague.plate,
         driverName: selectedColleague.driverName,
         driverPhone: selectedColleague.phone,
-        vehicleModel: selectedColleague.model
-      }, { merge: true });
+        vehicleModel: selectedColleague.model,
+        forwardedAt: new Date().toISOString(),
+      };
+      await setDoc(rideRef, forwardPayload, { merge: true });
+
+      // Sync to 'reencaminhamentos' collection
+      await setDoc(doc(db, 'reencaminhamentos', activeRideRecord.id), {
+        callId: activeRideRecord.id,
+        ...activeRideRecord,
+        ...forwardPayload,
+        syncedAt: new Date().toISOString(),
+      }, { merge: true }).catch(e => console.warn("Sync to reencaminhamentos error:", e));
       
       setCallState('calling');
       setActiveRideRecord((prev: any) => ({

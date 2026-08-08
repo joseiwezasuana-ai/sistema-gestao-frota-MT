@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  LayoutDashboard, 
-  Truck, 
-  Activity, 
-  Wallet, 
-  LogOut, 
-  Bell, 
-  Menu, 
-  X, 
-  ChevronRight, 
+import {
+  LayoutDashboard,
+  Truck,
+  Activity,
+  Wallet,
+  LogOut,
+  Bell,
+  Menu,
+  X,
+  ChevronRight,
   Search,
   Phone,
   Car,
@@ -42,6 +42,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { geminiService } from '../services/geminiService';
+import { TeamCollaborativeChat } from './TeamCollaborativeChat';
 import { db, auth, handleFirestoreError, OperationType, collection, query, orderBy, onSnapshot, where, limit, doc, updateDoc, deleteDoc, addDoc, getDocs, serverTimestamp } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
@@ -116,7 +117,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     if (typeof window === 'undefined') return;
 
     // Check if already running as standalone (iOS/Android PWA)
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                         (window.navigator as any).standalone === true;
 
     if (isStandalone) {
@@ -139,7 +140,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     // Detect iOS devices running in Safari browser
     const isAppleDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    
+
     if (isAppleDevice && isSafari) {
       const promptClosed = sessionStorage.getItem('psm-pwa-prompt-closed') === 'true';
       if (!promptClosed) {
@@ -199,8 +200,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     if (typeof window !== 'undefined' && window.PublicKeyCredential) {
       try {
         const PK = window.PublicKeyCredential as any;
-        const isAvailable = PK.isUserVerifyingCredentialPresent 
-          ? await PK.isUserVerifyingCredentialPresent() 
+        const isAvailable = PK.isUserVerifyingCredentialPresent
+          ? await PK.isUserVerifyingCredentialPresent()
           : false;
 
         if (isAvailable) {
@@ -346,6 +347,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
+  const [isTeamChatOpen, setIsTeamChatOpen] = useState(false);
   const [isGatewayOpen, setIsGatewayOpen] = useState(false);
   const [isAiInsightsOpen, setIsAiInsightsOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -383,10 +385,59 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
   // Memoized stats calculation for better performance
   const derivedStats = useMemo(() => {
-    const missed = (calls || []).filter((c: any) => c.status === 'pending' || c.type === 'missed').length;
-    const received = (calls || []).filter((c: any) => c.status === 'completed' || c.type === 'received').length;
-    const forwarded = (calls || []).filter((c: any) => c.type === 'forwarded' || c.type === 'direct_forward').length;
-    
+    const list = calls || [];
+
+    const missed = list.filter((c: any) => {
+      const st = String(c?.status || '').toLowerCase();
+      const tp = String(c?.type || '').toLowerCase();
+      return (
+        st === 'cancelled' ||
+        st === 'cancelada' ||
+        st === 'rejected' ||
+        st === 'ignored' ||
+        st === 'missed' ||
+        st === 'failed' ||
+        st === 'expired' ||
+        tp === 'missed' ||
+        tp === 'cancelled' ||
+        (st === 'pending' && c?.timestamp && (Date.now() - new Date(c.timestamp).getTime() > 5 * 60 * 1000))
+      );
+    }).length;
+
+    const received = list.filter((c: any) => {
+      const st = String(c?.status || '').toLowerCase();
+      const tp = String(c?.type || '').toLowerCase();
+      return (
+        st === 'completed' ||
+        st === 'concluida' ||
+        st === 'concluída' ||
+        st === 'confirmed' ||
+        st === 'arrived' ||
+        st === 'active' ||
+        st === 'connected' ||
+        st === 'price_sent' ||
+        st === 'price_negotiation_requested' ||
+        tp === 'received'
+      );
+    }).length;
+
+    const forwarded = list.filter((c: any) => {
+      const st = String(c?.status || '').toLowerCase();
+      const tp = String(c?.type || '').toLowerCase();
+      return (
+        c?.isForwarded === true ||
+        c?.forwarded === true ||
+        st === 'forwarded' ||
+        st === 'transferred' ||
+        st === 'encaminhada' ||
+        tp === 'forwarded' ||
+        tp === 'direct_forward' ||
+        tp === 'direct_referral' ||
+        Boolean(c?.transferredBy) ||
+        Boolean(c?.forwardedBy)
+      );
+    }).length;
+
     return {
       missed,
       received,
@@ -409,7 +460,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   const [panicAlertsList, setPanicAlertsList] = useState<any[]>([]);
   const [isAlertsDrawerOpen, setIsAlertsDrawerOpen] = useState(false);
   const [opsSubTab, setOpsSubTab] = useState<'gateway' | 'map' | 'whatsapp'>('gateway');
-  
+
   const [stats, setStats] = useState({
     activeVehicles: 0,
     missedCalls: 0,
@@ -445,7 +496,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   const handleApproveRevenue = async (revenue: any) => {
     try {
       const docRef = doc(db, 'revenue_logs', revenue.id);
-      
+
       let newStatus = 'approved_by_operator';
       const currentStatus = revenue.status || 'pending_approval';
 
@@ -464,7 +515,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       } else if (user.role === 'operator') {
         newStatus = 'approved_by_operator';
       }
-      
+
       await updateDoc(docRef, {
         status: newStatus,
         validatedAt: new Date().toISOString(),
@@ -670,21 +721,74 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     const unsubVehicles = onSnapshot(collection(db, 'drivers'), (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setVehicles(docs);
-      const active = docs.filter((d: any) => 
+      const active = docs.filter((d: any) =>
         ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em servico', 'em curso'].includes(d.status?.toLowerCase())
       ).length;
       setStats(prev => ({ ...prev, activeVehicles: active }));
       setDataReady(prev => ({ ...prev, vehicles: true }));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'drivers'));
 
-    // Listen for calls - High Priority Snapshot
-    const qCalls = query(collection(db, 'calls'), orderBy('timestamp', 'desc'), limit(25));
+    // Listen for calls, chamadas & reencaminhamentos - High Priority Snapshots for Controlo Geral
+    let rawCalls: any[] = [];
+    let rawChamadas: any[] = [];
+    let rawReencaminhamentos: any[] = [];
+
+    const syncAllCalls = () => {
+      const callMap = new globalThis.Map<string, any>();
+
+      // 1. Base calls collection
+      rawCalls.forEach((c) => callMap.set(c.id, c));
+
+      // 2. Chamadas collection
+      rawChamadas.forEach((c) => {
+        if (!callMap.has(c.id)) {
+          callMap.set(c.id, c);
+        } else {
+          callMap.set(c.id, { ...callMap.get(c.id), ...c });
+        }
+      });
+
+      // 3. Reencaminhamentos collection
+      rawReencaminhamentos.forEach((r) => {
+        const idKey = r.callId || r.id;
+        const existing = callMap.get(idKey) || {};
+        callMap.set(idKey, {
+          ...existing,
+          ...r,
+          id: idKey,
+          isForwarded: true,
+          forwarded: true,
+        });
+      });
+
+      const mergedDocs = Array.from(callMap.values()).sort((a: any, b: any) => {
+        const timeA = new Date(a.timestamp || a.forwardedAt || 0).getTime();
+        const timeB = new Date(b.timestamp || b.forwardedAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      setCalls(mergedDocs);
+      localStorage.setItem('staff_cached_calls', JSON.stringify(mergedDocs));
+      setDataReady((prev) => ({ ...prev, calls: true }));
+    };
+
+    const qCalls = query(collection(db, 'calls'), orderBy('timestamp', 'desc'), limit(150));
     const unsubCalls = onSnapshot(qCalls, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setCalls(docs);
-      localStorage.setItem('staff_cached_calls', JSON.stringify(docs));
-      setDataReady(prev => ({ ...prev, calls: true }));
+      rawCalls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      syncAllCalls();
     }, (error) => handleFirestoreError(error, OperationType.GET, 'calls'));
+
+    const qChamadas = query(collection(db, 'chamadas'), limit(100));
+    const unsubChamadas = onSnapshot(qChamadas, (snapshot) => {
+      rawChamadas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      syncAllCalls();
+    }, (error) => console.warn("Chamadas collection sync warning:", error));
+
+    const qReencaminhamentos = query(collection(db, 'reencaminhamentos'), limit(100));
+    const unsubReencaminhamentos = onSnapshot(qReencaminhamentos, (snapshot) => {
+      rawReencaminhamentos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      syncAllCalls();
+    }, (error) => console.warn("Reencaminhamentos collection sync warning:", error));
 
     // Panic Alerts
     const qPanic = query(collection(db, 'panic_alerts'), where('status', '==', 'active'));
@@ -715,7 +819,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     // Masters for Modal
     const qDM = collection(db, 'drivers_master');
     const unsubDM = onSnapshot(qDM, (snap) => setDriversMaster(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    
+
     const qVM = collection(db, 'master_vehicles');
     const unsubVM = onSnapshot(qVM, (snap) => setVehiclesMaster(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -736,6 +840,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     return () => {
       unsubVehicles();
       unsubCalls();
+      unsubChamadas();
+      unsubReencaminhamentos();
       unsubPanic();
       unsubRev();
       unsubScales();
@@ -783,7 +889,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       // Direct referral info usually suggests it's a call
       const isCall = selectedRequest?.type === 'direct_referral' || !selectedRequest?.status || selectedRequest?.customerPhone;
       const collectionName = isCall ? 'calls' : 'taxi_requests';
-      
+
       await updateDoc(doc(db, collectionName, requestId), {
         status: 'accepted',
         driverId: driver.id,
@@ -812,27 +918,28 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     { icon: CalendarIcon, label: 'Escalas & Turnos', group: 'Navegação', onClick: () => { setActiveTab('fleet'); setFleetSubTab('scales'); } },
     { icon: Wallet, label: 'Contas & Rendas', group: 'Navegação', onClick: () => setActiveTab('wallet') },
     ...((user?.role === 'admin' || user?.role === 'gerente' || user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com') ? [{ icon: UserPlus, label: 'Portal de Recrutamento', group: 'Navegação', onClick: () => setIsRecruitmentOpen(true) }] : []),
-    
+
     { icon: Activity, label: 'Gateway Console', group: 'Monitores Live', onClick: () => setIsGatewayOpen(true) },
     { icon: MapPin, label: 'Mapa da Frota', group: 'Monitores Live', onClick: () => setIsMapOpen(true) },
+    { icon: MessageSquare, label: 'Chat da Equipa JIS', group: 'Monitores Live', onClick: () => setIsTeamChatOpen(true) },
     { icon: MessageSquare, label: 'Central WhatsApp', group: 'Monitores Live', onClick: () => setIsWhatsAppOpen(true) },
-    { 
-      icon: AlertTriangle, 
-      label: `Reclamações Passageiros ${complaints.filter(c => c.status !== 'resolved').length > 0 ? `(${complaints.filter(c => c.status !== 'resolved').length})` : ''}`, 
-      group: 'Monitores Live', 
-      onClick: () => setIsComplaintsOpen(true) 
+    {
+      icon: AlertTriangle,
+      label: `Reclamações Passageiros ${complaints.filter(c => c.status !== 'resolved').length > 0 ? `(${complaints.filter(c => c.status !== 'resolved').length})` : ''}`,
+      group: 'Monitores Live',
+      onClick: () => setIsComplaintsOpen(true)
     },
-    
-    { 
-      icon: Fingerprint, 
-      label: `Biometria (Face/Touch): ${isBiometricEnabled ? 'LIGADA' : 'DESLIGADA'}`, 
-      group: 'Configuração', 
+
+    {
+      icon: Fingerprint,
+      label: `Biometria (Face/Touch): ${isBiometricEnabled ? 'LIGADA' : 'DESLIGADA'}`,
+      group: 'Configuração',
       onClick: () => {
         const nextVal = !isBiometricEnabled;
         setIsBiometricEnabled(nextVal);
         localStorage.setItem('psm-staff-biometric-enabled', String(nextVal));
         showCustomNotification(nextVal ? "Autenticação biométrica ativada!" : "Autenticação biométrica desativada.", "info");
-      } 
+      }
     },
     ...(isBiometricEnabled ? [{
       icon: Lock,
@@ -883,7 +990,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   // }, [activeTab, stats.activeVehicles]);
 
   return (
-    <div 
+    <div
       className="flex flex-col h-[100dvh] bg-slate-950 text-slate-100 overflow-hidden font-sans transition-colors duration-300"
       style={STAFF_PALETTES[activePalette as keyof typeof STAFF_PALETTES]?.vars as any}
     >
@@ -900,7 +1007,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {onExitMobile && (
-            <button 
+            <button
               onClick={onExitMobile}
               className="w-9 h-9 bg-brand-primary/10 rounded-xl flex items-center justify-center text-brand-primary border border-brand-primary/20 cursor-pointer active:scale-90 transition-all"
               title="Restaurar Painel Completo"
@@ -908,7 +1015,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               <Monitor size={16} />
             </button>
           )}
-          <button 
+          <button
             onClick={() => setIsAlertsDrawerOpen(true)}
             className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-slate-400 hover:text-white border border-slate-700/50 relative cursor-pointer active:scale-90 transition-all"
             title="Sino de Alertas"
@@ -918,17 +1025,15 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
             )}
           </button>
-          {user.role !== 'contabilista' && (
-              <button 
-                onClick={() => setIsWhatsAppOpen(true)}
-                className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-emerald-400 border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
-                title="Central WhatsApp"
-              >
-                <MessageSquare size={16} />
-              </button>
-          )}
+          <button
+            onClick={() => setIsTeamChatOpen(true)}
+            className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-brand-primary border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
+            title="Chat da Equipa JIS"
+          >
+            <MessageSquare size={16} />
+          </button>
           {isBiometricEnabled && (
-            <button 
+            <button
               onClick={() => setIsLocked(true)}
               className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-amber-400 hover:text-amber-300 border border-slate-700/50 cursor-pointer active:scale-90 transition-all animate-pulse"
               title="Bloquear Ecrã"
@@ -936,7 +1041,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               <Lock size={15} />
             </button>
           )}
-          <button 
+          <button
             onClick={() => setIsMenuOpen(true)}
             className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-white border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
             title="Menu de Definições"
@@ -945,10 +1050,10 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
           </button>
         </div>
       </header>
-      
+
        <AnimatePresence>
          {isWhatsAppOpen && (
-           <motion.div 
+           <motion.div
              key="whatsapp-modal"
              initial={{ opacity: 0 }}
              animate={{ opacity: 1 }}
@@ -960,8 +1065,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping" />
                  <h2 className="text-sm font-black text-white uppercase tracking-wider">Central WhatsApp Live</h2>
                </div>
-               <button 
-                 onClick={() => setIsWhatsAppOpen(false)} 
+               <button
+                 onClick={() => setIsWhatsAppOpen(false)}
                  className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
                >
                  <X size={18} />
@@ -974,7 +1079,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
          )}
 
          {isAiInsightsOpen && (
-           <motion.div 
+           <motion.div
              key="ai-insights-modal"
              initial={{ opacity: 0 }}
              animate={{ opacity: 1 }}
@@ -986,8 +1091,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  <Sparkles size={14} className="text-brand-primary animate-pulse" />
                  <h2 className="text-sm font-black text-white uppercase tracking-wider">Auditoria de Inteligência Artificial</h2>
                </div>
-               <button 
-                 onClick={() => setIsAiInsightsOpen(false)} 
+               <button
+                 onClick={() => setIsAiInsightsOpen(false)}
                  className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
                >
                  <X size={18} />
@@ -1021,7 +1126,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                </div>
 
                <div className="pt-6 border-t border-slate-800/60">
-                 <button 
+                 <button
                    onClick={fetchAiInsights}
                    disabled={isAiLoading}
                    className="w-full bg-white text-slate-900 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all cursor-pointer disabled:opacity-50"
@@ -1035,7 +1140,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
          )}
 
          {isGatewayOpen && (
-           <motion.div 
+           <motion.div
              key="gateway-modal"
              initial={{ opacity: 0 }}
              animate={{ opacity: 1 }}
@@ -1047,8 +1152,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
                  <h2 className="text-sm font-black text-white uppercase tracking-wider">Consola Gateway Ativa</h2>
                </div>
-               <button 
-                 onClick={() => setIsGatewayOpen(false)} 
+               <button
+                 onClick={() => setIsGatewayOpen(false)}
                  className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
                >
                  <X size={18} />
@@ -1056,7 +1161,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
              </header>
              <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-950">
                {/* Stats Grid */}
-               <div className="grid grid-cols-3 gap-3">
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(3,1fr)] flex-wrap">
                  <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800">
                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Perdidas</p>
                    <p className="text-lg font-black text-rose-500 mt-1">{derivedStats.missed}</p>
@@ -1083,7 +1188,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                      ONLINE
                    </div>
                  </div>
-                 <div className="grid grid-cols-2 gap-3 mt-4">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(2,1fr)] flex-wrap">
                    <div className="bg-slate-950/60 p-2.5 rounded-xl border border-white/5 text-center">
                      <span className="text-[7.5px] font-black text-slate-500 uppercase block leading-none mb-1">Latência de Rede</span>
                      <span className="text-xs font-black text-white">42ms (Fibra)</span>
@@ -1136,7 +1241,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
          )}
 
          {isMapOpen && (
-           <motion.div 
+           <motion.div
              key="live-map-modal"
              initial={{ opacity: 0 }}
              animate={{ opacity: 1 }}
@@ -1148,8 +1253,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
                  <h2 className="text-sm font-black text-white uppercase tracking-wider">Mapa da Frota Live</h2>
                </div>
-               <button 
-                 onClick={() => setIsMapOpen(false)} 
+               <button
+                 onClick={() => setIsMapOpen(false)}
                  className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all"
                >
                  <X size={18} />
@@ -1161,7 +1266,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
            </motion.div>
          )}
        </AnimatePresence>
-      
+
       <AnimatePresence>
         {isSettingsOpen && (
           <motion.div
@@ -1222,8 +1327,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">JIS ANGOLA Mobile</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsRecruitmentOpen(false)} 
+              <button
+                onClick={() => setIsRecruitmentOpen(false)}
                 className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all active:scale-90"
               >
                 <X size={18} />
@@ -1259,8 +1364,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-1">JIS ANGOLA Mobile • Fiscalização</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setIsComplaintsOpen(false)} 
+              <button
+                onClick={() => setIsComplaintsOpen(false)}
                 className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-white hover:bg-slate-700 cursor-pointer transition-all active:scale-90"
               >
                 <X size={18} />
@@ -1316,16 +1421,16 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   return true;
                 }).map((c) => {
                   const isResolved = c.status === 'resolved';
-                  const dateStr = c.createdAt?.seconds 
+                  const dateStr = c.createdAt?.seconds
                     ? new Date(c.createdAt.seconds * 1000).toLocaleString('pt-PT')
                     : (c.timestamp ? new Date(c.timestamp).toLocaleString('pt-PT') : 'Recente');
 
                   return (
-                    <div 
+                    <div
                       key={c.id}
                       className={`p-3.5 rounded-2xl border flex flex-col space-y-2.5 ${
-                        isResolved 
-                          ? 'bg-slate-900/50 border-slate-800/80 opacity-70' 
+                        isResolved
+                          ? 'bg-slate-900/50 border-slate-800/80 opacity-70'
                           : 'bg-slate-900 border-rose-500/30'
                       }`}
                     >
@@ -1342,8 +1447,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
                       {c.satisfaction && (
                         <div className={`p-2 rounded-xl border flex items-center gap-1.5 ${
-                          c.satisfaction === 'satisfied' 
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                          c.satisfaction === 'satisfied'
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                             : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
                         }`}>
                           <span className="text-xs">{c.satisfaction === 'satisfied' ? '😊' : '🙁'}</span>
@@ -1426,7 +1531,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   {panicAlertsList.map(alert => {
                     const phone = getDriverPhone(alert.driverId, alert.driverName, alert.prefix, alert.driverPhone || alert.phone);
                     return (
-                      <motion.div 
+                      <motion.div
                         key={alert.id}
                         initial={{ scale: 0.95, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
@@ -1443,7 +1548,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                         </div>
                         <div className="flex items-center gap-2">
                           {phone ? (
-                            <a 
+                            <a
                               href={`tel:${phone}`}
                               className="flex items-center gap-1.5 px-3 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md font-mono"
                             >
@@ -1453,7 +1558,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                           ) : (
                             <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest italic">S/ Telefone</span>
                           )}
-                          <button 
+                          <button
                             onClick={() => {
                               setActiveTab('ops');
                               setOpsSubTab('map');
@@ -1489,9 +1594,9 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   <p className="text-[11px] text-slate-400 font-medium leading-relaxed mb-4">
                     Monitorização em tempo real de chamadas, frotas e fluxos financeiros diretamente no seu terminal.
                   </p>
-                  
+
                   <div className="space-y-4">
-                    <button 
+                    <button
                       onClick={() => setActiveTab('ops')}
                       className="w-full bg-white text-slate-900 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl active:scale-95 transition-all cursor-pointer"
                     >
@@ -1503,7 +1608,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                     <div className="h-px bg-slate-800/60 my-4" />
 
                     {/* Fast Access Operations Row */}
-                    <div className="grid grid-cols-3 gap-2.5 mt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-2 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(3,1fr)] flex-wrap">
                        <button
                           type="button"
                           onClick={() => setIsAiInsightsOpen(true)}
@@ -1557,7 +1662,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             </div>
 
             {/* Quick Summary Grid */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(2,1fr)] flex-wrap">
               <div className="bg-slate-900 p-5 rounded-[2rem] border border-slate-800 shadow-sm shadow-black/20">
                 <div className="w-10 h-10 bg-brand-primary/10 text-brand-primary rounded-xl flex items-center justify-center mb-4 border border-brand-primary/20">
                   <Truck size={20} />
@@ -1592,7 +1697,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             <div>
               <div className="flex items-center justify-between mb-4 px-1">
                 <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic tracking-wide">Últimas Chamadas</h3>
-                <button 
+                <button
                   type="button"
                   onClick={() => setIsGatewayOpen(true)}
                   className="text-[10px] font-black text-brand-primary bg-slate-800 hover:bg-slate-700 text-white uppercase px-3.5 py-2 rounded-xl cursor-pointer hover:text-white transition-all shadow-sm active:scale-95"
@@ -1610,7 +1715,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   (calls || []).slice(0, 3).map((call: any, idx: number) => {
                     if (!call) return null;
                     return (
-                      <div key={idx} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex items-center justify-between shadow-sm shadow-black/10">
+                      <div key={idx} className="bg-slate-900 p-4 rounded-2xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 shadow-sm shadow-black/10 max-w-full overflow-x-auto">
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 bg-slate-950 rounded-xl flex items-center justify-center text-slate-500 border border-slate-800">
                             <Users size={18} />
@@ -1666,7 +1771,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
              {/* Inner sub-tabs trigger pills */}
              <div className="bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800 flex items-center justify-between gap-2 shrink-0">
-               <button 
+               <button
                  onClick={() => setFleetSubTab('vehicles')}
                  className={cn(
                    "flex-1 py-3 text-center text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300",
@@ -1675,7 +1780,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                >
                  Viaturas Live
                </button>
-               <button 
+               <button
                  onClick={() => setFleetSubTab('scales')}
                  className={cn(
                    "flex-1 py-3 text-center text-[10px] font-black uppercase tracking-widest rounded-xl transition-all duration-300",
@@ -1690,8 +1795,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                <div className="space-y-6">
                   <div className="relative">
                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-                     <input 
-                       type="text" 
+                     <input
+                       type="text"
                        placeholder="PROCURAR VIATURA OU MOTORISTA..."
                        value={vehicleSearch}
                        onChange={(e) => setVehicleSearch(e.target.value)}
@@ -1724,8 +1829,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                                   <p className="text-[9px] text-slate-500 font-bold uppercase">{v.phone || '---'}</p>
                                </div>
                             </div>
-                            
-                            <div className="grid grid-cols-2 gap-4 pt-3 border-t border-slate-800/60">
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-800/60 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(2,1fr)] flex-wrap">
                                <div className="flex items-center gap-2">
                                   <Activity size={14} className="text-slate-500" />
                                   <span className="text-[10px] font-black text-slate-300 uppercase tracking-tight">{v.speed || 0} KM/H</span>
@@ -1751,7 +1856,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  <div className="flex items-center justify-between px-1">
                     <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Turnos & Escalas Registadas</h3>
                     {canManageScales && (
-                      <button 
+                      <button
                         onClick={() => {
                           setScaleFormData({
                             driverId: '',
@@ -1802,14 +1907,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                                </span>
                             </div>
                          </div>
-                         
+
                          <div className="flex items-center justify-between pt-3 border-t border-slate-800/60">
                             <div className="flex items-center gap-2">
                                <Clock size={14} className="text-slate-500" />
                                <span className="text-[10px] font-black text-slate-300 uppercase tracking-tight italic">Operacional</span>
                             </div>
                             {canManageScales ? (
-                              <button 
+                              <button
                                 onClick={() => {
                                   setEditingScale(s);
                                   setIsEditScaleModalOpen(true);
@@ -1870,7 +1975,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                    <p className="text-[10px] text-slate-400 leading-relaxed italic">
                       Monitorização em tempo real dos canais activos para registo de chamadas automáticas.
                    </p>
-                   <button 
+                   <button
                      onClick={() => setIsGatewayOpen(true)}
                      className="w-full py-4 bg-slate-950 hover:bg-slate-850 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest border border-slate-800 transition-all shadow-md active:scale-95 cursor-pointer"
                    >
@@ -1898,7 +2003,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                    <p className="text-[10px] text-slate-400 leading-relaxed italic">
                       Visualização em mapa de Luena de todas as viaturas com aviso de excesso de velocidade (&gt;80km/h).
                    </p>
-                   <button 
+                   <button
                      onClick={() => setIsMapOpen(true)}
                      className="w-full py-4 bg-slate-950 hover:bg-slate-850 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest border border-slate-800 transition-all shadow-md active:scale-95 cursor-pointer"
                    >
@@ -1926,7 +2031,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                    <p className="text-[10px] text-slate-400 leading-relaxed italic">
                       Canal de triagem automatizado integrado para receber e encaminhar solicitações de corridas.
                    </p>
-                   <button 
+                   <button
                      onClick={() => setIsWhatsAppOpen(true)}
                      className="w-full py-4 bg-slate-950 hover:bg-slate-850 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest border border-slate-800 transition-all shadow-md active:scale-95 cursor-pointer"
                    >
@@ -1954,7 +2059,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
              <div className="space-y-4">
                 <div className="flex items-center justify-between px-1">
                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Fluxo de Rendas PSM</h3>
-                   <button 
+                   <button
                      type="button"
                      onClick={() => setShowAllLogs(!showAllLogs)}
                      className="text-[10px] font-black text-brand-primary bg-slate-800 hover:bg-slate-700 text-white uppercase px-3.5 py-2 rounded-xl cursor-pointer hover:opacity-90 active:scale-95 transition-all"
@@ -1962,10 +2067,10 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                      {showAllLogs ? "Ver Menos Logs" : "Ver Todos os Logs"}
                    </button>
                 </div>
-                
+
                 <div className="space-y-3">
                    {(showAllLogs ? revenueLogs : revenueLogs.slice(0, 3)).map((log, idx) => (
-                     <div key={idx} className="bg-slate-900 p-5 rounded-[1.5rem] border border-slate-800 shadow-sm relative overflow-hidden flex items-center justify-between">
+                     <div key={idx} className="bg-slate-900 p-5 rounded-[1.5rem] border border-slate-800 shadow-sm relative overflow-hidden flex flex-wrap items-center justify-between gap-3 max-w-full overflow-x-auto">
                         <div className="flex items-center gap-4">
                            <div className="w-10 h-10 bg-slate-950 rounded-xl flex items-center justify-center text-emerald-500 border border-slate-800">
                               <Wallet size={18} />
@@ -2004,14 +2109,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                         </div>
                      </div>
                    ))}
-                   
+
                    {revenueLogs.length === 0 && (
                      <div className="py-10 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/50">
                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Nenhum registo disponível hoje</p>
                      </div>
                    )}
                 </div>
-                
+
 
              </div>
           </div>
@@ -2049,14 +2154,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       <AnimatePresence>
         {isScaleModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-5">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsScaleModalOpen(false)}
               className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
             />
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -2072,14 +2177,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               <div className="flex-1 overflow-y-auto p-7 space-y-5 custom-scrollbar">
                 <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Motorista</label>
-                   <select 
+                   <select
                      value={scaleFormData.driverId}
                      onChange={(e) => {
                        const d = driversMaster.find(drv => drv.id === e.target.value);
                                                const matchedPhone = psmPhones.find(p => p.assignedTo === d?.name);
                         setScaleFormData({
-                          ...scaleFormData, 
-                          driverId: e.target.value, 
+                          ...scaleFormData,
+                          driverId: e.target.value,
                           driverName: d?.name || '',
                           phone: matchedPhone?.number || scaleFormData.phone || d?.phone || ''
                         });
@@ -2098,7 +2203,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Viatura</label>
-                     <select 
+                     <select
                        value={scaleFormData.prefix}
                        onChange={(e) => setScaleFormData({...scaleFormData, prefix: e.target.value})}
                        className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-5 py-4 text-xs font-black text-white uppercase tracking-tight outline-none focus:border-brand-primary appearance-none shadow-inner"
@@ -2109,7 +2214,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   </div>
                   <div className="space-y-2">
                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Turno</label>
-                     <select 
+                     <select
                        value={scaleFormData.shift}
                        onChange={(e) => setScaleFormData({...scaleFormData, shift: e.target.value as any})}
                        className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-5 py-4 text-xs font-black text-white uppercase tracking-tight outline-none focus:border-brand-primary appearance-none shadow-inner"
@@ -2120,10 +2225,10 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                       </select>
                    </div>
                  </div>
-                 <div className="grid grid-cols-2 gap-4">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(2,1fr)] flex-wrap">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Terminal Principal PSM</label>
-                      <select 
+                      <select
                         required
                         value={scaleFormData.phone}
                         onChange={(e) => {
@@ -2131,7 +2236,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                           const phoneData = psmPhones.find(p => p.number === phoneNum);
                           const matchDriver = driversMaster.find(drv => drv.name === phoneData?.assignedTo);
                           setScaleFormData({
-                            ...scaleFormData, 
+                            ...scaleFormData,
                             phone: phoneNum,
                             driverId: matchDriver?.id || scaleFormData.driverId,
                             driverName: matchDriver?.name || scaleFormData.driverName
@@ -2147,7 +2252,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Terminal Secundário</label>
-                      <select 
+                      <select
                         value={scaleFormData.secondaryPhone}
                         onChange={(e) => setScaleFormData({...scaleFormData, secondaryPhone: e.target.value})}
                         className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-5 py-4 text-xs font-black text-white uppercase tracking-tight outline-none focus:border-brand-primary appearance-none shadow-inner"
@@ -2169,7 +2274,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
                 <div className="space-y-2">
                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Data de Início</label>
-                   <input 
+                   <input
                      type="date"
                      value={scaleFormData.date}
                      onChange={(e) => setScaleFormData({...scaleFormData, date: e.target.value})}
@@ -2183,8 +2288,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                     <span className="text-[9px] text-slate-500 font-medium leading-normal mt-0.5">Visível no mapa de Luena para os clientes</span>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={scaleFormData.passengerAppActive}
                       onChange={(e) => setScaleFormData({ ...scaleFormData, passengerAppActive: e.target.checked })}
                       className="sr-only peer"
@@ -2205,7 +2310,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               </div>
 
               <div className="p-7 border-t border-slate-800 shrink-0">
-                <button 
+                <button
                   onClick={async () => {
                     if (!scaleFormData.driverId || !scaleFormData.prefix) {
                        showCustomNotification("Por favor, preencha todos os campos.", "error");
@@ -2225,11 +2330,11 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                         updatedAt: serverTimestamp()
                       });
 
-                      // Also active this vehicle/driver in the active fleet ('drivers' collection) 
+                      // Also active this vehicle/driver in the active fleet ('drivers' collection)
                       // so that they immediately show up in the real-time "Frota em tempo real" / "Viaturas Live"!
                       const driverDetail = driversMaster.find(d => d.id === scaleFormData.driverId);
                       const vehicleDetail = vehiclesMaster.find(v => v.prefix === scaleFormData.prefix);
-                      
+
                       const isAdminOrOperator = user?.role === 'admin' || user?.role === 'gerente' || user?.role === 'operator';
                       if (isAdminOrOperator) {
                         await addDoc(collection(db, 'drivers'), {
@@ -2277,7 +2382,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       <AnimatePresence>
         {isEditScaleModalOpen && editingScale && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-5">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -2287,7 +2392,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               }}
               className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
             />
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -2298,7 +2403,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   <h3 className="text-sm font-black text-brand-primary uppercase tracking-widest italic leading-none mb-1">Gerir Escala</h3>
                   <p className="text-xs font-black text-white uppercase italic">{editingScale.driverName}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => {
                     setIsEditScaleModalOpen(false);
                     setEditingScale(null);
@@ -2312,15 +2417,15 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               <div className="space-y-6">
                  <div>
                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Alterar Turno</span>
-                   <div className="grid grid-cols-3 gap-2">
+                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(3,1fr)] flex-wrap">
                      {(['Diurno', 'Nocturno', '24h'] as const).map((shift) => (
                        <button
                          key={shift}
                          onClick={() => handleUpdateScaleShift(shift)}
                          className={cn(
                            "py-2.5 px-1 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all active:scale-95",
-                           editingScale.shift === shift 
-                             ? "bg-brand-primary border-brand-primary text-white font-bold" 
+                           editingScale.shift === shift
+                             ? "bg-brand-primary border-brand-primary text-white font-bold"
                              : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
                          )}
                        >
@@ -2333,15 +2438,15 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                  <div>
                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Alterar Estado</span>
                    <p className="text-[8px] text-slate-500 font-bold mb-2 uppercase leading-none">Vínculo: {editingScale.prefix}</p>
-                   <div className="grid grid-cols-3 gap-2">
+                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 [grid-template-columns:1fr] sm:[grid-template-columns:repeat(3,1fr)] flex-wrap">
                      {(['Ativo', 'Folga', 'Suspenso'] as const).map((st) => (
                        <button
                          key={st}
                          onClick={() => handleUpdateScaleStatus(st)}
                          className={cn(
                            "py-2.5 px-1 rounded-xl text-[9px] font-black uppercase tracking-wider border transition-all active:scale-95",
-                           editingScale.status === st 
-                             ? "bg-brand-primary border-brand-primary text-white font-bold" 
+                           editingScale.status === st
+                             ? "bg-brand-primary border-brand-primary text-white font-bold"
                              : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
                          )}
                        >
@@ -2369,14 +2474,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       <AnimatePresence>
         {isMenuOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsMenuOpen(false)}
               className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[60]"
             />
-            <motion.div 
+            <motion.div
               initial={{ x: 300 }}
               animate={{ x: 0 }}
               exit={{ x: 300 }}
@@ -2388,7 +2493,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                    <X size={18} />
                  </button>
               </div>
-              
+
               <div className="flex-1 overflow-y-auto pr-1 space-y-6">
                 {['Navegação', 'Monitores Live', 'Configuração'].map((groupName) => {
                   const groupItems = menuItems.filter(item => item.group === groupName);
@@ -2398,7 +2503,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                       <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 px-4 mb-2">{groupName}</h4>
                       <div className="space-y-1">
                         {groupItems.map((item, idx) => (
-                          <button 
+                          <button
                             key={idx}
                             onClick={() => {
                               item.onClick();
@@ -2426,7 +2531,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 px-4">Paleta de Cores</h4>
                   <div className="flex gap-2 px-4">
                     {(Object.keys(STAFF_PALETTES)).map(key => (
-                      <button 
+                      <button
                         key={key}
                         onClick={() => handlePaletteChange(key)}
                         className="w-8 h-8 rounded-full border border-white/20 hover:scale-110 active:scale-95 transition-transform relative flex items-center justify-center cursor-pointer"
@@ -2441,7 +2546,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   </div>
                 </div>
               </div>
-              
+
               <div className="mt-auto pt-8 border-t border-slate-800 text-center">
                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">PSM COMERCIAL LUENA</p>
                  <p className="text-[9px] font-medium text-slate-500 mt-1 uppercase">TaxiControl Mobile Interface</p>
@@ -2455,14 +2560,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       <AnimatePresence>
         {isAssignModalOpen && selectedRequest && (
           <div className="fixed inset-0 z-[100] flex items-end justify-center p-0">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsAssignModalOpen(false)}
               className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
             />
-            <motion.div 
+            <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
@@ -2541,7 +2646,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   )}
                 </div>
               </div>
-              
+
               {assigningLoading && (
                 <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm flex items-center justify-center z-50">
                    <div className="flex flex-col items-center gap-3">
@@ -2559,14 +2664,14 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       <AnimatePresence>
         {isAlertsDrawerOpen && (
           <div className="fixed inset-0 z-[120] flex items-end justify-center p-0">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsAlertsDrawerOpen(false)}
               className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
             />
-            <motion.div 
+            <motion.div
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
@@ -2605,7 +2710,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                             </div>
                               <div className="flex items-center gap-2">
                                 {phone ? (
-                                  <a 
+                                  <a
                                     href={`tel:${phone}`}
                                     className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all font-mono"
                                   >
@@ -2615,7 +2720,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                                 ) : (
                                   <span className="text-[8px] font-bold text-slate-500 uppercase">Sem Contacto</span>
                                 )}
-                                <button 
+                                <button
                                   onClick={() => {
                                     setIsAlertsDrawerOpen(false);
                                     setActiveTab('ops');
@@ -2658,7 +2763,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                             <p className="text-[9px] text-amber-400 font-bold uppercase mt-0.5">Velocidade: {v.speed} km/h • {v.name || 'Motorista'}</p>
                           </div>
                           {v.phone && (
-                            <a 
+                            <a
                               href={`tel:${v.phone}`}
                               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all font-mono shadow-md"
                             >
@@ -2685,7 +2790,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                             <p className="text-xs font-black text-slate-200 font-mono">{call.customerPhone || 'Contacto N/A'}</p>
                             <p className="text-[9px] text-slate-500 font-bold uppercase mt-1">Origem: {call.prefix || 'Externo'} • {call.timestamp?.substring(11, 16) || 'Hoje'}</p>
                           </div>
-                          <a 
+                          <a
                             href={`tel:${call.customerPhone}`}
                             className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all font-mono shadow-md"
                           >
@@ -2698,8 +2803,8 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   </div>
                 )}
 
-                {panicAlertsList.length === 0 && 
-                 vehicles.filter((v: any) => v.status !== 'offline' && Number(v.speed || 0) > 80).length === 0 && 
+                {panicAlertsList.length === 0 &&
+                 vehicles.filter((v: any) => v.status !== 'offline' && Number(v.speed || 0) > 80).length === 0 &&
                  calls.filter((c: any) => c.status === 'pending' || c.type === 'missed').length === 0 && (
                   <div className="py-16 text-center border border-dashed border-slate-850 rounded-2xl bg-slate-900/10">
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Nenhum alerta operacional ativo</p>
@@ -2737,7 +2842,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   Adicione a app ao seu ecrã inicial para usufruir de melhor performance, menor consumo de dados Unitel/Movicel e notificações instantâneas.
                 </p>
               </div>
-              <button 
+              <button
                 type="button"
                 onClick={closeInstallPrompt}
                 className="w-8 h-8 bg-slate-850 rounded-xl flex items-center justify-center text-slate-500 hover:text-white cursor-pointer"
@@ -2795,7 +2900,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
       <AnimatePresence>
         {isLocked && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2814,7 +2919,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             <div className="flex flex-col items-center justify-center my-auto">
               {!showPinFallback ? (
                 <div className="flex flex-col items-center space-y-8">
-                  <button 
+                  <button
                     onClick={triggerBiometricScan}
                     className="relative w-40 h-40 bg-slate-900 border border-slate-800 rounded-full flex items-center justify-center cursor-pointer hover:bg-slate-850 group transition-all duration-300 active:scale-95 shadow-[0_0_50px_rgba(37,99,235,0.1)] hover:shadow-[0_0_60px_rgba(37,99,235,0.2)]"
                   >
@@ -2826,7 +2931,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
                     {/* Scan Indicator Glow or Laser line */}
                     {isScanning && (
-                      <motion.div 
+                      <motion.div
                         className="absolute left-0 right-0 h-[3px] bg-brand-primary shadow-[0_0_15px_var(--color-brand-primary)] opacity-80 z-10"
                         animate={{ top: ['15%', '85%', '15%'] }}
                         transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
@@ -2835,7 +2940,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
                     {/* Scan Result */}
                     {scanSuccess ? (
-                      <motion.div 
+                      <motion.div
                         initial={{ scale: 0.5, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-emerald-500/35"
@@ -2858,10 +2963,10 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                       {isScanning ? "A Ler Dados Biométricos..." : scanSuccess ? "Acesso Autorizado!" : "Ecrã Bloqueado"}
                     </h3>
                     <p className="text-xs text-slate-500 font-bold max-w-[240px] leading-relaxed">
-                      {isScanning 
-                        ? "Aproxime o seu rosto ou coloque o dedo no sensor biométrico" 
-                        : scanSuccess 
-                        ? "Sincronização efetuada com sucesso. A abrir o painel..." 
+                      {isScanning
+                        ? "Aproxime o seu rosto ou coloque o dedo no sensor biométrico"
+                        : scanSuccess
+                        ? "Sincronização efetuada com sucesso. A abrir o painel..."
                         : "Toque no sensor para aceder rapidamente sem introduzir senha"
                       }
                     </p>
@@ -2869,7 +2974,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                 </div>
               ) : (
                 /* PIN Fallback View */
-                <motion.form 
+                <motion.form
                   onSubmit={handlePasswordUnlock}
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2881,7 +2986,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   </div>
 
                   <div className="space-y-3">
-                    <input 
+                    <input
                       type="password"
                       placeholder="PALAVRA-PASSE"
                       value={passwordInput}
@@ -2895,7 +3000,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                       <p className="text-[10px] font-black text-red-500 uppercase tracking-wide">{pinError}</p>
                     )}
 
-                    <button 
+                    <button
                       type="submit"
                       className="w-full bg-brand-primary hover:bg-brand-secondary text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-brand-primary/20 transition-all active:scale-95 cursor-pointer"
                     >
@@ -2909,7 +3014,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             {/* Footer buttons / Settings */}
             <div className="w-full max-w-[280px] flex flex-col items-center gap-3.5 pb-8">
               <div className="flex items-center justify-between w-full border-t border-slate-900 pt-5">
-                <button 
+                <button
                   type="button"
                   onClick={() => {
                     const nextType = biometricType === 'faceid' ? 'touchid' : 'faceid';
@@ -2921,7 +3026,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
                   {biometricType === 'faceid' ? "Alternar para TouchID" : "Alternar para FaceID"}
                 </button>
 
-                <button 
+                <button
                   type="button"
                   onClick={() => setShowPinFallback(!showPinFallback)}
                   className="text-[9px] font-black text-brand-primary hover:underline uppercase tracking-widest cursor-pointer"
@@ -2937,6 +3042,13 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Team Collaborative Chat Modal */}
+      <TeamCollaborativeChat
+        currentUser={user}
+        isOpen={isTeamChatOpen}
+        onClose={() => setIsTeamChatOpen(false)}
+      />
     </div>
   );
 }

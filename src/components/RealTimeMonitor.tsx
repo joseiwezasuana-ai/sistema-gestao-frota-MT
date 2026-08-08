@@ -111,27 +111,69 @@ export default function RealTimeMonitor({ user, initialSubTab }: RealTimeMonitor
 
   useEffect(() => {
     setLoading(true);
-    // 1. Listen for calls (PSM Operator)
-    let qCalls = query(collection(db, 'calls'), orderBy('timestamp', 'desc'), limit(pageSize));
-    
-    if (statusFilter !== 'todos' && statusFilter !== 'encaminhada' && activeSubTab === 'psm') {
-      let dbStatus = statusFilter;
-      if (statusFilter === 'ativo') dbStatus = 'active';
-      if (statusFilter === 'concluída') dbStatus = 'completed';
-      if (statusFilter === 'cancelada') dbStatus = 'cancelled';
+    // 1. Listen for calls, chamadas & reencaminhamentos (PSM Operator)
+    let rawCalls: any[] = [];
+    let rawChamadas: any[] = [];
+    let rawReencaminhamentos: any[] = [];
 
-      qCalls = query(
-        collection(db, 'calls'), 
-        where('status', '==', dbStatus),
-        orderBy('timestamp', 'desc'), 
-        limit(pageSize)
-      );
-    }
+    const syncRealTimeCalls = () => {
+      const map = new Map<string, any>();
+      rawCalls.forEach((c) => map.set(c.id, c));
+      rawChamadas.forEach((c) => {
+        if (!map.has(c.id)) map.set(c.id, c);
+        else map.set(c.id, { ...map.get(c.id), ...c });
+      });
+      rawReencaminhamentos.forEach((r) => {
+        const idKey = r.callId || r.id;
+        const existing = map.get(idKey) || {};
+        map.set(idKey, {
+          ...existing,
+          ...r,
+          id: idKey,
+          isForwarded: true,
+          forwarded: true,
+        });
+      });
 
-    const unsubCalls = onSnapshot(qCalls, (snapshot) => {
-      setCalls(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      let list = Array.from(map.values()).sort((a: any, b: any) => {
+        const timeA = new Date(a.timestamp || a.forwardedAt || 0).getTime();
+        const timeB = new Date(b.timestamp || b.forwardedAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      if (statusFilter !== 'todos' && activeSubTab === 'psm') {
+        if (statusFilter === 'encaminhada') {
+          list = list.filter((c: any) => c.isForwarded || c.forwarded || c.status === 'forwarded' || c.status === 'transferred');
+        } else {
+          let dbStatus = statusFilter;
+          if (statusFilter === 'ativo') dbStatus = 'active';
+          if (statusFilter === 'concluída') dbStatus = 'completed';
+          if (statusFilter === 'cancelada') dbStatus = 'cancelled';
+          list = list.filter((c: any) => String(c.status || '').toLowerCase() === dbStatus.toLowerCase());
+        }
+      }
+
+      setCalls(list);
       setLoading(false);
+    };
+
+    let qCalls = query(collection(db, 'calls'), orderBy('timestamp', 'desc'), limit(pageSize));
+    const unsubCalls = onSnapshot(qCalls, (snapshot) => {
+      rawCalls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      syncRealTimeCalls();
     }, (error) => handleFirestoreError(error, OperationType.GET, 'calls'));
+
+    const qChamadas = query(collection(db, 'chamadas'), limit(pageSize));
+    const unsubChamadas = onSnapshot(qChamadas, (snapshot) => {
+      rawChamadas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      syncRealTimeCalls();
+    }, (error) => console.warn("Chamadas sync error:", error));
+
+    const qReencaminhamentos = query(collection(db, 'reencaminhamentos'), limit(pageSize));
+    const unsubReencaminhamentos = onSnapshot(qReencaminhamentos, (snapshot) => {
+      rawReencaminhamentos = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      syncRealTimeCalls();
+    }, (error) => console.warn("Reencaminhamentos sync error:", error));
 
     // 2. Listen for SMS logs (Unitel Monitoring)
     const qSms = query(collection(db, 'sms_logs'), orderBy('timestamp', 'desc'), limit(pageSize));
@@ -163,6 +205,8 @@ export default function RealTimeMonitor({ user, initialSubTab }: RealTimeMonitor
 
     return () => {
       unsubCalls();
+      unsubChamadas();
+      unsubReencaminhamentos();
       unsubSms();
       unsubDrivers();
       unsubMaster();

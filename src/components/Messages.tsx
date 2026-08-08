@@ -273,25 +273,25 @@ export default function Messages({ isAdmin = false }: MessagesProps) {
 
         {/* Messages Feed */}
         <div className="lg:col-span-3 bg-white rounded-[2.5rem] border border-slate-200 flex flex-col overflow-hidden shadow-sm relative">
-          <div className="px-10 py-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+          <div className="px-6 md:px-10 py-6 border-b border-slate-100 bg-slate-50/50 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-white border border-slate-100 rounded-xl shadow-sm">
+              <div className="p-3 bg-white border border-slate-100 rounded-xl shadow-sm hidden sm:block">
                 <Filter size={18} className="text-slate-400" />
               </div>
-              <div>
-                <h3 className="font-black text-sm text-slate-900 uppercase tracking-tighter italic">Feed de Eventos: {channels.find(c => c.id === selectedChannel)?.name}</h3>
-                <p className="text-[9px] text-slate-400 font-black uppercase tracking-[0.2em] mt-0.5 italic">Protocolo de Comunicações em Tempo Real</p>
+              <div className="min-w-0">
+                <h3 className="font-black text-sm text-slate-900 uppercase tracking-tighter italic truncate">Feed de Eventos: {channels.find(c => c.id === selectedChannel)?.name}</h3>
+                <p className="text-[9px] text-slate-400 font-black uppercase tracking-[0.2em] mt-0.5 italic truncate">Protocolo de Comunicações em Tempo Real</p>
               </div>
             </div>
-            <div className="flex items-center gap-6">
-               <div className="relative w-64 group/search">
+            <div className="flex items-center gap-6 w-full xl:w-auto">
+               <div className="relative w-full xl:w-64 group/search">
                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within/search:text-brand-primary" size={14} />
                  <input type="text" placeholder="BUSCAR NA COMUNICAÇÃO..." className="w-full pl-10 pr-6 py-2.5 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-brand-primary transition-all" />
                </div>
             </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-10 space-y-6 flex flex-col-reverse no-scrollbar">
+          <div className="flex-1 overflow-y-auto max-h-[600px] p-6 md:p-10 space-y-6 flex flex-col-reverse no-scrollbar">
             {selectedChannel === 'whatsapp' && (
               <div className="flex-1 flex flex-col h-full">
                 <div className="p-6 bg-emerald-50/50 border-b border-emerald-100 flex items-center justify-between">

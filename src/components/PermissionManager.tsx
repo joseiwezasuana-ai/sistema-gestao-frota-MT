@@ -306,10 +306,10 @@ export default function PermissionManager({ onPermissionChanged, driverId = "ano
               </label>
               <input
                 type="password"
-                placeholder="Código Operador (Ex: 1975)"
+                placeholder="****"
                 value={passcode}
                 onChange={(e) => setPasscode(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 focus:border-brand-primary rounded-xl px-4 py-3 text-center text-sm font-bold tracking-widest text-white placeholder:text-slate-700 outline-none transition-all"
+                className="w-full bg-slate-950 border border-slate-800 focus:border-brand-primary rounded-xl px-4 py-3 text-center text-xl font-bold tracking-[0.5em] text-white placeholder:text-slate-700 outline-none transition-all"
               />
             </div>
 

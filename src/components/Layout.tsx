@@ -47,6 +47,7 @@ import { Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../context/ThemeContext';
+import { TeamCollaborativeChat } from './TeamCollaborativeChat';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -65,6 +66,7 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
   const [panicAlerts, setPanicAlerts] = useState<any[]>([]);
   const [isAlertsDropdownOpen, setIsAlertsDropdownOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isTeamChatOpen, setIsTeamChatOpen] = useState(false);
 
   // Corporate Multi-Tenant state for Master Admin (JIS)
   const [tenants, setTenants] = useState<any[]>([]);
@@ -366,6 +368,15 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
             </button>
 
             <button 
+              onClick={() => setIsTeamChatOpen(true)}
+              className="group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 bg-brand-primary/10 border border-brand-primary/20 hover:bg-brand-primary/20 text-brand-primary rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
+              title="Chat da Equipa Colaborativo (JIS)"
+            >
+              <MessageSquare size={16} className="text-brand-primary group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Chat Equipa</span>
+            </button>
+
+            <button 
               onClick={onToggleMobile}
               className="group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl hover:bg-black transition-all shadow-lg active:scale-95"
             >
@@ -504,6 +515,13 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
           </div>
         </section>
       </main>
+
+      {/* Modal de Chat da Equipa Colaborativo (JIS) */}
+      <TeamCollaborativeChat
+        currentUser={user}
+        isOpen={isTeamChatOpen}
+        onClose={() => setIsTeamChatOpen(false)}
+      />
     </div>
   );
 }

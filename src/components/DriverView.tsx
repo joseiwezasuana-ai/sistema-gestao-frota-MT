@@ -44,6 +44,7 @@ import RevenueManagement from "./RevenueManagement";
 import PermissionManager from "./PermissionManager";
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
 import { WebRTCAudioCall } from "./WebRTCAudioCall";
+import { TeamCollaborativeChat } from "./TeamCollaborativeChat";
 import WaitingTimer from './WaitingTimer';
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "../lib/utils";
@@ -129,6 +130,59 @@ const passengerMapIcon = typeof window !== 'undefined' ? L.divIcon({
   iconSize: [60, 40],
   iconAnchor: [30, 16],
 }) : null;
+
+const ForwardedCallCountdown: React.FC<{ call: any; onExpire: () => void }> = ({ call, onExpire }) => {
+  const [secondsLeft, setSecondsLeft] = useState<number>(() => {
+    let expiresAt = call?.forwardExpiresAt;
+    if (typeof expiresAt === 'string') {
+      expiresAt = new Date(expiresAt).getTime();
+    } else if (expiresAt && typeof expiresAt === 'object' && expiresAt.toMillis) {
+      expiresAt = expiresAt.toMillis();
+    }
+    if (!expiresAt) {
+      const startTime = call?.forwardedAt ? new Date(call.forwardedAt).getTime() : (call?.timestamp ? new Date(call.timestamp).getTime() : Date.now());
+      expiresAt = startTime + 3 * 60 * 1000;
+    }
+    return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+  });
+
+  useEffect(() => {
+    if (secondsLeft <= 0) {
+      onExpire();
+      return;
+    }
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          onExpire();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [call?.id, onExpire]);
+
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = secondsLeft % 60;
+  const timeFormatted = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+  return (
+    <div className="bg-amber-500/20 border border-amber-500/40 p-3 rounded-2xl text-center space-y-1 my-2">
+      <div className="flex items-center justify-center gap-1.5 text-amber-400 text-[9px] font-black uppercase tracking-widest">
+        <Clock size={12} className="animate-spin text-amber-400" />
+        <span>Aguardando Aceitação (3 Minutos):</span>
+      </div>
+      <div className="text-2xl font-mono font-black text-amber-400 tracking-tight">
+        ⏱️ {timeFormatted}
+      </div>
+      <p className="text-[8px] text-amber-300/80 font-bold uppercase tracking-wider">
+        Se não aceitar dentro deste tempo, a chamada expira e é devolvida ao colega.
+      </p>
+    </div>
+  );
+};
 
 function PassengerAvatar({ src, name, size = "md" }: { src?: string; name?: string; size?: "sm" | "md" | "lg" }) {
   const [hasError, setHasError] = useState(false);
@@ -262,6 +316,7 @@ export default function DriverView({ user }: DriverViewProps) {
     return false;
   });
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
+  const [isTeamChatOpen, setIsTeamChatOpen] = useState(false);
   const [currentService, setCurrentService] = useState<any>(null);
   const currentServiceRef = useRef<any>(null);
   useEffect(() => {
@@ -293,7 +348,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const [proposedPrice, setProposedPrice] = useState("");
   const [mapMode, setMapMode] = useState<"radar" | "real">("real");
   const [showOperationalMap, setShowOperationalMap] = useState(false);
-  const [showTripDetailsInConsole, setShowTripDetailsInConsole] = useState<boolean>(false);
+  const [showTripDetailsInConsole, setShowTripDetailsInConsole] = useState<boolean>(true);
   const [driverLiveCoords, setDriverLiveCoords] = useState<[number, number]>([-11.7833, 19.9167]);
 
   // Notification Permission Check & Explanatory Modal for Drivers
@@ -392,43 +447,79 @@ export default function DriverView({ user }: DriverViewProps) {
   const sendPriceOffer = async (priceInputInput?: number) => {
     const finalPrice = priceInputInput !== undefined ? priceInputInput : Number(proposedPrice);
     
-    if (!finalPrice || finalPrice <= 0) {
-      alert("Por favor, introduza um preço válido.");
+    if (!finalPrice || finalPrice < 1000) {
+      alert("⚠️ O valor mínimo permitido para qualquer corrida no SUPER TÁXI é de 1.000 Kz!");
       return;
     }
 
     if (!currentService?.id) return;
 
+    const isForwardedCall = Boolean(
+      currentService?.isForwarded || 
+      currentService?.type === "direct_referral" || 
+      currentService?.transferredBy || 
+      currentService?.forwardedBy
+    );
+
     try {
       const callRef = doc(db, "calls", currentService.id);
-      await updateDoc(callRef, {
-        status: "price_sent",
-        price: finalPrice,
-        responseHistory: arrayUnion({
-          action: "price_offered",
+
+      if (isForwardedCall) {
+        // Para chamadas reencaminhadas/diretas, o preço é acordado via GSM pelo motorista.
+        // Fica logo com status "confirmed" e valor fixado.
+        await updateDoc(callRef, {
+          status: "confirmed",
           price: finalPrice,
-          timestamp: new Date().toISOString(),
-          driverId: user?.uid || "unknown",
-          driverName: user?.name || "Driver",
-        }),
-      });
+          agreedPrice: finalPrice,
+          responseHistory: arrayUnion({
+            action: "price_agreed_gsm",
+            price: finalPrice,
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
 
-      setCurrentService({ ...currentService, status: "price_sent", price: finalPrice });
-      setProposedPrice("");
-      setShowNotification(false);
+        setCurrentService({ ...currentService, status: "confirmed", price: finalPrice });
+        setProposedPrice("");
+        setShowNotification(false);
 
-      // Trigger automatic FCM Push notification to passenger
-      sendPassengerPushNotification({
-        fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
-        callId: currentService.id,
-        title: "💬 Proposta de Preço Recebida!",
-        body: `O motorista ${user?.name || "Oficial"} propôs o valor de ${finalPrice.toLocaleString()} Kz para a sua viagem.`,
-        notificationType: "price_proposed"
-      }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+        setNotificationBanner({
+          title: "Preço Acordado Confirmado!",
+          message: `Preço de ${finalPrice.toLocaleString()} Kz registado. Siga para o ponto de recolha do passageiro.`,
+          type: "success",
+          visible: true
+        });
+      } else {
+        await updateDoc(callRef, {
+          status: "price_sent",
+          price: finalPrice,
+          responseHistory: arrayUnion({
+            action: "price_offered",
+            price: finalPrice,
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
 
-      alert(`Proposta de preço de ${finalPrice.toLocaleString()} Kz enviada ao passageiro.`);
+        setCurrentService({ ...currentService, status: "price_sent", price: finalPrice });
+        setProposedPrice("");
+        setShowNotification(false);
+
+        // Trigger automatic FCM Push notification to passenger
+        sendPassengerPushNotification({
+          fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
+          callId: currentService.id,
+          title: "💬 Proposta de Preço Recebida!",
+          body: `O motorista ${user?.name || "Oficial"} propôs o valor de ${finalPrice.toLocaleString()} Kz para a sua viagem.`,
+          notificationType: "price_proposed"
+        }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+
+        alert(`Proposta de preço de ${finalPrice.toLocaleString()} Kz enviada ao passageiro.`);
+      }
     } catch (error: any) {
-      alert("Erro ao propor preço: " + error.message);
+      alert("Erro ao registar preço: " + error.message);
     }
   };
 
@@ -442,7 +533,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const [transferPickupAddress, setTransferPickupAddress] = useState("");
   const [earnings, setEarnings] = useState(0);
   const [approvedEarnings, setApprovedEarnings] = useState(0);
-  const [stars, setStars] = useState(4.8);
+  const [stars, setStars] = useState<number | string>("Novo");
   const hiddenCallIdsRef = useRef<string[]>([]);
   const forceDismissService = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -848,6 +939,14 @@ export default function DriverView({ user }: DriverViewProps) {
         const dData = matchedDoc.data();
         const vehicle = { id: matchedDoc.id, ...dData };
         setAssignedVehicle(vehicle);
+
+        if (dData.rating && Number(dData.rating) > 0) {
+          setStars(Number(dData.rating).toFixed(1));
+        } else if (dData.stars && Number(dData.stars) > 0) {
+          setStars(Number(dData.stars).toFixed(1));
+        } else {
+          setStars("Novo");
+        }
 
         // Sync shifting state with database status
         if (dData.status === "disponível" || dData.status === "ocupado") {
@@ -1325,10 +1424,6 @@ export default function DriverView({ user }: DriverViewProps) {
 
       // Try tracking current active service first or locate newest valid pending service
       const ourMatchedDoc = snapshot.docs.find((doc: any) => {
-        if (currentServiceRef.current?.id && doc.id === currentServiceRef.current.id) {
-          return true;
-        }
-
         const d = doc.data();
         if (["completed", "cancelled", "rejected", "ignored"].includes(d.status)) return false;
         if (hiddenCallIdsRef.current.includes(doc.id)) return false;
@@ -1347,12 +1442,33 @@ export default function DriverView({ user }: DriverViewProps) {
         const assignedPlateClean = cleanPlate(assignedVehicle?.plate || "");
         const isPlateMatch = callPlateClean !== "" && assignedPlateClean !== "" && callPlateClean === assignedPlateClean;
 
+        const isDriverIdMatch = (
+          (d.driverId && user?.uid && d.driverId === user.uid) ||
+          (assignedVehicle?.id && d.driverId === assignedVehicle.id) ||
+          (assignedVehicle?.driverId && d.driverId === assignedVehicle.driverId)
+        );
+
+        // If call is explicitly reassigned/delegated to another driver, exclude it for current driver
+        const isAssignedToOther = (
+          (d.driverId && user?.uid && d.driverId !== user.uid && (!assignedVehicle?.id || d.driverId !== assignedVehicle.id) && (!assignedVehicle?.driverId || d.driverId !== assignedVehicle.driverId)) ||
+          (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean !== loggedDriverNameClean && (!vehicleDriverNameClean || callDriverNameClean !== vehicleDriverNameClean))
+        );
+
+        if (isAssignedToOther && !isNameMatch && !isDriverIdMatch) {
+          return false;
+        }
+
+        if (currentServiceRef.current?.id && doc.id === currentServiceRef.current.id) {
+          // Verify if it wasn't transferred to someone else
+          if (!isAssignedToOther || isNameMatch || isDriverIdMatch) {
+            return true;
+          }
+        }
+
         return (
           isNameMatch ||
           isPlateMatch ||
-          (d.driverId && d.driverId === user?.uid) ||
-          (assignedVehicle?.id && d.driverId === assignedVehicle.id) ||
-          (assignedVehicle?.driverId && d.driverId === assignedVehicle.driverId)
+          isDriverIdMatch
         );
       });
 
@@ -1610,7 +1726,14 @@ export default function DriverView({ user }: DriverViewProps) {
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     let speechInterval: any = null;
-    if (showNotification && currentService?.status === "pending") {
+    const isForwardedCall = Boolean(
+      currentService?.isForwarded || 
+      currentService?.type === "direct_referral" || 
+      currentService?.transferredBy || 
+      currentService?.forwardedBy
+    );
+
+    if (showNotification && currentService?.status === "pending" && !isForwardedCall) {
       // Play Ringtone
       const ringtone = ringtones.find(r => r.id === selectedRingtone) || ringtones[0];
       if (audioRef.current) {
@@ -1655,7 +1778,7 @@ export default function DriverView({ user }: DriverViewProps) {
             await addDoc(collection(db, "messages"), {
               title: "Chamada Perdida ⚠️",
               subject: "Chamada Perdida ⚠️",
-              content: `Você perdeu uma chamada de passageiro (${currentService.passengerName || currentService.customerName || "Desconhecido"}) às ${new Date().toLocaleTimeString('pt-PT')}.`,
+              content: `Motorista ${user?.name || "Desconhecido"} perdeu uma chamada de passageiro (${currentService.passengerName || currentService.customerName || "Desconhecido"}) às ${new Date().toLocaleTimeString('pt-PT')}.`,
               targets: [user?.uid].filter(Boolean),
               status: "unread",
               timestamp: new Date().toISOString()
@@ -2011,9 +2134,23 @@ export default function DriverView({ user }: DriverViewProps) {
         notificationType: "driver_arrived"
       }).catch(err => console.warn("[DriverView] FCM Push error:", err));
 
+      const isForwardedCall = Boolean(
+        currentService?.isForwarded || 
+        currentService?.type === "direct_referral" || 
+        currentService?.transferredBy || 
+        currentService?.forwardedBy
+      );
+
+      const passengerPhoneNum = currentService.customerPhone || currentService.passengerPhone;
+      if (isForwardedCall && passengerPhoneNum) {
+        window.open(`tel:${passengerPhoneNum}`, '_self');
+      }
+
       setNotificationBanner({
         title: "✨ MOTORISTA CHEGOU",
-        message: "O passageiro foi notificado da sua chegada ao ponto de recolha!",
+        message: isForwardedCall
+          ? "Status atualizado! Ligação GSM iniciada para avisar o passageiro que chegou ao local."
+          : "O passageiro foi notificado da sua chegada ao ponto de recolha!",
         type: "success",
         visible: true
       });
@@ -2072,18 +2209,28 @@ export default function DriverView({ user }: DriverViewProps) {
     if (!currentService || !targetDriver) return;
     setTransferLoading(true);
     try {
+      const expiresAt = Date.now() + 3 * 60 * 1000;
       const callRef = doc(db, "calls", currentService.id);
-      await updateDoc(callRef, {
+      const updatePayload = {
         driverId: targetDriver.driverId || targetDriver.id,
         driverName: targetDriver.name,
+        driverPhone: targetDriver.phone || targetDriver.phoneNumber || '',
+        vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || targetDriver.plate || '',
+        vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
         driverInfo: {
           name: targetDriver.name,
           phone: targetDriver.phone || targetDriver.phoneNumber || '',
           vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
-          vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || ''
+          vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || targetDriver.plate || ''
         },
         status: "pending",
         isForwarded: true,
+        forwardedAt: new Date().toISOString(),
+        forwardExpiresAt: expiresAt,
+        forwardedBy: {
+          id: user?.uid,
+          name: user?.name,
+        },
         responseHistory: arrayUnion({
           action: "transferred",
           timestamp: new Date().toISOString(),
@@ -2092,7 +2239,17 @@ export default function DriverView({ user }: DriverViewProps) {
           toId: targetDriver.driverId || targetDriver.id,
           toName: targetDriver.name,
         }),
-      });
+      };
+      await updateDoc(callRef, updatePayload);
+
+      // Sync to 'reencaminhamentos' collection
+      await setDoc(doc(db, "reencaminhamentos", currentService.id), {
+        callId: currentService.id,
+        ...currentService,
+        ...updatePayload,
+        syncedAt: new Date().toISOString(),
+      }, { merge: true }).catch(err => console.warn("Sync to reencaminhamentos failed:", err));
+
       setIsTransferModalOpen(false);
       setCurrentService(null);
     } catch (error) {
@@ -2107,6 +2264,7 @@ export default function DriverView({ user }: DriverViewProps) {
     setTransferLoading(true);
     console.log("DEBUG: Forwarding call to target driver:", targetDriver);
     try {
+      const expiresAt = Date.now() + 3 * 60 * 1000;
       const trimmedPhone = transferCustomerPhone.trim();
       const phoneWithPrefix = trimmedPhone.startsWith('+244') 
         ? trimmedPhone 
@@ -2142,7 +2300,7 @@ export default function DriverView({ user }: DriverViewProps) {
       if (currentService?.id) {
         // Re-routing/transferring an already active call
         const callRef = doc(db, "calls", currentService.id);
-        await setDoc(callRef, {
+        const forwardPayload = {
           driverId: resolvedDriverId,
           driverName: targetDriver.name,
           driverPhone: targetDriver.phone || targetDriver.phoneNumber || '',
@@ -2151,11 +2309,22 @@ export default function DriverView({ user }: DriverViewProps) {
           status: "pending", // Reset status back to pending so that it pops up for the new target driver!
           price: null, // Reset previous suggested price
           isForwarded: true,
+          forwardedAt: new Date().toISOString(),
+          forwardExpiresAt: expiresAt,
           forwardedBy: {
             id: user?.uid,
             name: user?.name,
           }
-        }, { merge: true });
+        };
+        await setDoc(callRef, forwardPayload, { merge: true });
+
+        // Sync to 'reencaminhamentos' collection
+        await setDoc(doc(db, "reencaminhamentos", currentService.id), {
+          callId: currentService.id,
+          ...currentService,
+          ...forwardPayload,
+          syncedAt: new Date().toISOString(),
+        }, { merge: true }).catch(err => console.warn("Sync to reencaminhamentos failed:", err));
 
         setCurrentService(null);
         setShowNotification(false);
@@ -2163,10 +2332,10 @@ export default function DriverView({ user }: DriverViewProps) {
         setTransferCustomerName("");
         setTransferPickupAddress("");
         setIsNewCallTransferModalOpen(false);
-        alert("Chamada reencaminhada com sucesso para o colega " + targetDriver.name + "!");
+        alert("Chamada reencaminhada com sucesso para o colega " + targetDriver.name + "! O colega tem 3 minutos para aceitar.");
       } else {
         // Direct call creation
-        await addDoc(collection(db, "calls"), {
+        const directPayload = {
           customerPhone: phoneWithPrefix,
           customerName: transferCustomerName || "Cliente Particular",
           pickupAddress: transferPickupAddress || "Chamada Direta Recebida por Telemóvel",
@@ -2184,17 +2353,28 @@ export default function DriverView({ user }: DriverViewProps) {
           status: "pending",
           type: "direct_referral",
           isForwarded: true,
+          forwardedAt: new Date().toISOString(),
+          forwardExpiresAt: expiresAt,
           transferredBy: {
             id: user?.uid,
             name: user?.name,
           }
-        });
+        };
+        const newDocRef = await addDoc(collection(db, "calls"), directPayload);
         
+        // Sync to 'reencaminhamentos' collection
+        await setDoc(doc(db, "reencaminhamentos", newDocRef.id), {
+          callId: newDocRef.id,
+          ...directPayload,
+          timestamp: new Date().toISOString(),
+          syncedAt: new Date().toISOString(),
+        }, { merge: true }).catch(err => console.warn("Sync to reencaminhamentos failed:", err));
+
         setTransferCustomerPhone("");
         setTransferCustomerName("");
         setTransferPickupAddress("");
         setIsNewCallTransferModalOpen(false);
-        alert("Contacto de cliente reencaminhado com sucesso para " + targetDriver.name + "!");
+        alert("Contacto de cliente reencaminhado com sucesso para " + targetDriver.name + "! O colega tem 3 minutos para aceitar.");
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.ADD, "calls");
@@ -2203,6 +2383,13 @@ export default function DriverView({ user }: DriverViewProps) {
       setTransferLoading(false);
     }
   };
+
+  const isDirectForwarded = Boolean(
+    currentService?.isForwarded || 
+    currentService?.type === "direct_referral" || 
+    currentService?.transferredBy || 
+    currentService?.forwardedBy
+  );
 
   return (
     <div className="flex flex-col w-full h-screen h-[100dvh] bg-slate-50 relative overflow-hidden font-sans">
@@ -2263,7 +2450,7 @@ export default function DriverView({ user }: DriverViewProps) {
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     Luena, Moxico
                   </span>
-                  {stars >= 4.7 && (
+                  {stars !== "Novo" && Number(stars) >= 4.7 && (
                     <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter border border-amber-200">
                       Top Rated
                     </span>
@@ -2281,8 +2468,9 @@ export default function DriverView({ user }: DriverViewProps) {
                 )}
               </button>
               <button
-                onClick={() => setIsWhatsAppOpen(true)}
-                className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"
+                onClick={() => setIsTeamChatOpen(true)}
+                className="p-2 text-slate-400 hover:text-brand-primary transition-colors relative"
+                title="Chat da Equipa (JIS)"
               >
                 <MessageSquare size={20} />
               </button>
@@ -2367,6 +2555,14 @@ export default function DriverView({ user }: DriverViewProps) {
                         Rendas
                       </button>
 
+                      <button
+                        onClick={() => { setIsTeamChatOpen(true); setIsMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <MessageSquare size={14} className="text-brand-primary" />
+                        Chat da Equipa (JIS)
+                      </button>
+
                       <div className="h-px bg-slate-100 my-1.5" />
 
                       <button
@@ -2435,12 +2631,13 @@ export default function DriverView({ user }: DriverViewProps) {
                     </button>
                     <button
                       onClick={() => {
+                        markMessageAsRead(msg.id);
                         setIsMessagesModalOpen(false);
-                        setIsWhatsAppOpen(true);
                       }}
-                      className="mt-3 w-full bg-slate-900 text-white rounded-xl py-2 text-[10px] uppercase font-black tracking-widest hover:bg-slate-800 transition-colors"
+                      className="mt-3 w-full bg-slate-900 text-white rounded-xl py-2 text-[10px] uppercase font-black tracking-widest hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5"
                     >
-                      Responder
+                      <CheckCircle2 size={12} className="text-emerald-400" />
+                      Entendido & Fechar
                     </button>
                   </div>
                 ))}
@@ -2620,7 +2817,7 @@ export default function DriverView({ user }: DriverViewProps) {
                         currentService.status === "confirmed" && "bg-emerald-500 text-white",
                         currentService.status === "active" && "bg-emerald-500 text-white"
                       )}>
-                        {currentService.status === "pending" && "📞 CHAMADA PENDENTE"}
+                        {currentService.status === "pending" && (isDirectForwarded ? "📲 CHAMADA REENCAMINHADA" : "📞 CHAMADA PENDENTE")}
                         {currentService.status === "connected" && "🎙️ VOZ ESTABELECIDA"}
                         {currentService.status === "price_sent" && "💬 PROPOSTA ENVIADA"}
                         {currentService.status === "price_negotiation_requested" && "🙋 PEDIDO DE DESCONTO DO PASSAGEIRO"}
@@ -2666,6 +2863,52 @@ export default function DriverView({ user }: DriverViewProps) {
 
                   {/* Barra de Perfil do Passageiro - Sempre visível até ao fim da corrida */}
                   <div className="space-y-3 bg-white/5 p-4 rounded-3xl border border-white/5 relative z-10">
+                    {(currentService.isForwarded || currentService.transferredBy || currentService.forwardedBy) && (
+                      <div className="space-y-2 mb-2">
+                        <div className="bg-indigo-500/15 border border-indigo-500/30 p-2.5 rounded-2xl flex items-center justify-between text-left">
+                          <div className="flex items-center gap-2">
+                            <Users size={14} className="text-indigo-400 shrink-0 animate-pulse" />
+                            <div>
+                              <p className="text-[8.5px] font-black text-indigo-300 uppercase tracking-widest leading-none">
+                                Chamada Reencaminhada
+                              </p>
+                              <p className="text-[10px] font-extrabold text-white uppercase mt-0.5">
+                                Por: {currentService.forwardedBy?.name || currentService.transferredBy?.name || "Colega da Frota"}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[8px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
+                            3 Min Limit
+                          </span>
+                        </div>
+
+                        {currentService.status === 'pending' && (
+                          <ForwardedCallCountdown 
+                            call={currentService} 
+                            onExpire={async () => {
+                              try {
+                                const callRef = doc(db, 'calls', currentService.id);
+                                await updateDoc(callRef, {
+                                  status: 'forward_expired',
+                                  forwardExpiredAt: new Date().toISOString(),
+                                  expiredDriverName: user?.name || assignedVehicle?.name || 'Colega',
+                                });
+                                setNotificationBanner({
+                                  title: '⏰ TEMPO EXPIRADO (3 MIN)',
+                                  message: 'O tempo limite de 3 minutos para aceitar esta chamada reencaminhada expirou. A chamada foi devolvida.',
+                                  type: 'warning',
+                                  visible: true,
+                                });
+                                setShowNotification(false);
+                                setCurrentService(null);
+                              } catch (e) {
+                                console.warn('Error expiring forwarded call:', e);
+                              }
+                            }} 
+                          />
+                        )}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <PassengerAvatar 
@@ -2680,23 +2923,26 @@ export default function DriverView({ user }: DriverViewProps) {
                           </span>
                         </div>
                       </div>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setShowTripDetailsInConsole(!showTripDetailsInConsole)}
-                        className={cn(
-                          "px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-xl border transition-all active:scale-95 flex items-center gap-1.5",
-                          showTripDetailsInConsole
-                            ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
-                            : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
-                        )}
-                      >
-                        {showTripDetailsInConsole ? "Ocultar Detalhes 🗺️" : "Ver Detalhes 🗺️"}
-                      </button>
+
+                      {/* Botão Ver Detalhes apenas para Chamadas de Passageiro Diretas/Públicas */}
+                      {!isDirectForwarded && (
+                        <button
+                          type="button"
+                          onClick={() => setShowTripDetailsInConsole(!showTripDetailsInConsole)}
+                          className={cn(
+                            "px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-xl border transition-all active:scale-95 flex items-center gap-1.5",
+                            showTripDetailsInConsole
+                              ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                              : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
+                          )}
+                        >
+                          {showTripDetailsInConsole ? "Ocultar Detalhes 🗺️" : "Ver Detalhes 🗺️"}
+                        </button>
+                      )}
                     </div>
 
-                    {/* Collapsible Trip Details Grid */}
-                    {showTripDetailsInConsole && (
+                    {/* Collapsible Trip Details Grid (Aberto automaticamente se for reencaminhada ou se showTripDetailsInConsole for true) */}
+                    {(showTripDetailsInConsole || isDirectForwarded) && (
                       <div className="space-y-3 pt-3 border-t border-white/5 animate-fadeIn">
                         <div className="grid grid-cols-2 gap-3 text-left">
                           <div>
@@ -2753,8 +2999,8 @@ export default function DriverView({ user }: DriverViewProps) {
                     </div>
                   )}
 
-                  {/* Driver ETA Response Bar - Shown when passenger asks, driver responded or ride is active, BUT hidden when ride is active */}
-                  {Boolean(currentService.status !== 'active' && (currentService.status === 'confirmed' || currentService.status === 'arrived' || currentService.passengerAskedEta || currentService.driverEtaResponse)) && (
+                  {/* Driver ETA Response Bar - Shown when passenger asks, driver responded or ride is active, BUT hidden when ride is active or for direct forwarded calls */}
+                  {Boolean(!isDirectForwarded && !currentService.isForwarded && currentService.status !== 'active' && (currentService.status === 'confirmed' || currentService.status === 'arrived' || currentService.passengerAskedEta || currentService.driverEtaResponse)) && (
                     <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-3xl space-y-3 text-left relative z-10 animate-fadeIn">
                       <div className="flex items-center justify-between text-[10px] text-blue-400 font-black uppercase">
                         <span className="flex items-center gap-1.5">
@@ -2847,204 +3093,256 @@ export default function DriverView({ user }: DriverViewProps) {
                     </div>
                   )}
 
-                  {/* Collapsed / Toggle Button for VISUALIZADOR OPERACIONAL */}
-                  {!showOperationalMap ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowOperationalMap(true)}
-                      className="w-full flex items-center justify-between bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10"
-                    >
-                      <div className="flex items-center gap-2">
-                        <MapPin size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
-                        <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest">
-                          VISUALIZADOR OPERACIONAL
-                        </span>
-                      </div>
-                      <span className="text-[9.5px] font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all flex items-center gap-1.5">
-                        🗺️ Abrir Mapa <ChevronDown size={12} />
-                      </span>
-                    </button>
-                  ) : (
-                    <div className="space-y-2 animate-fadeIn relative z-10">
-                      {/* Toggle Map Mode buttons & VISUALIZADOR OPERACIONAL Header */}
-                      <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-2xl border border-white/10">
-                        <button
-                          type="button"
-                          onClick={() => setShowOperationalMap(false)}
-                          className="flex items-center gap-2 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-widest pl-2"
-                        >
-                          <MapPin size={14} className="text-amber-400" />
-                          VISUALIZADOR OPERACIONAL
-                          <ChevronUp size={12} className="text-amber-400" />
-                        </button>
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setMapMode("real")}
-                            className={cn(
-                              "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
-                              mapMode === "real" 
-                                ? "bg-brand-primary text-slate-950 shadow" 
-                                : "bg-transparent text-slate-400 hover:text-white"
-                            )}
-                          >
-                            🗺️ Mapa Real
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMapMode("radar")}
-                            className={cn(
-                              "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
-                              mapMode === "radar" 
-                                ? "bg-brand-primary text-slate-950 shadow" 
-                                : "bg-transparent text-slate-400 hover:text-white"
-                            )}
-                          >
-                            📡 Radar HUD
-                          </button>
+                  {/* Collapsed / Toggle Button for VISUALIZADOR OPERACIONAL (Apenas para chamadas públicas de passageiro) */}
+                  {!isDirectForwarded && (
+                    !showOperationalMap ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowOperationalMap(true)}
+                        className="w-full flex items-center justify-between bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10"
+                      >
+                        <div className="flex items-center gap-2">
+                          <MapPin size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
+                          <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest">
+                            VISUALIZADOR OPERACIONAL
+                          </span>
                         </div>
-                      </div>
-
-                      {/* Interactive Map Container or Cinematic Radar SVG */}
-                      {mapMode === "real" ? (
-                        <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative h-72 w-full z-20">
-                          <MapErrorBoundary>
-                            {/* @ts-ignore */}
-                            <MapContainer
-                              center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
-                              zoom={14}
-                              style={{ height: '100%', width: '100%' }}
-                              zoomControl={false}
-                            >
-                              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                              
-                              {/* Driver Marker */}
-                              {driverLiveCoords && (
-                                <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
-                                  <Popup>
-                                    <div className="text-slate-900 font-sans p-1">
-                                      <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
-                                      <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
-                                    </div>
-                                  </Popup>
-                                </Marker>
-                              )}
-
-                              {/* Passenger Marker */}
-                              <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
-                                <Popup>
-                                  <div className="text-slate-900 font-sans p-1">
-                                    <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
-                                    <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
-                                  </div>
-                                </Popup>
-                              </Marker>
-
-                              <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
-                            </MapContainer>
-                          </MapErrorBoundary>
-                          
-                          {/* Float controls top left inside the map */}
-                          <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1 pointer-events-none">
-                            <div className="bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1.5">
-                              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-                              GPS Sincro Passageiro
-                            </div>
-                          </div>
-
-                          {/* Float buttons INSIDE the map container at the bottom */}
-                          <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[400] flex gap-2 font-sans">
-                            <a
-                              href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xl transition-all border border-amber-400/40"
-                            >
-                              <Navigation size={12} /> Abrir Rota no Google Maps
-                            </a>
+                        <span className="text-[9.5px] font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all flex items-center gap-1.5">
+                          🗺️ Abrir Mapa <ChevronDown size={12} />
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="space-y-2 animate-fadeIn relative z-10">
+                        {/* Toggle Map Mode buttons & VISUALIZADOR OPERACIONAL Header */}
+                        <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-2xl border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setShowOperationalMap(false)}
+                            className="flex items-center gap-2 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-widest pl-2"
+                          >
+                            <MapPin size={14} className="text-amber-400" />
+                            VISUALIZADOR OPERACIONAL
+                            <ChevronUp size={12} className="text-amber-400" />
+                          </button>
+                          <div className="flex gap-1.5">
                             <button
                               type="button"
-                              onClick={() => {
-                                if (currentService.pickupLat && currentService.pickupLng) {
-                                  setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
-                                }
-                              }}
-                              className="bg-slate-950/90 hover:bg-slate-900 text-white font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-white/20 shadow-xl backdrop-blur-md"
+                              onClick={() => setMapMode("real")}
+                              className={cn(
+                                "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                                mapMode === "real" 
+                                  ? "bg-brand-primary text-slate-950 shadow" 
+                                  : "bg-transparent text-slate-400 hover:text-white"
+                              )}
                             >
-                              <MapPin size={12} /> Focar Cliente
+                              🗺️ Mapa Real
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMapMode("radar")}
+                              className={cn(
+                                "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                                mapMode === "radar" 
+                                  ? "bg-brand-primary text-slate-950 shadow" 
+                                  : "bg-transparent text-slate-400 hover:text-white"
+                              )}
+                            >
+                              📡 Radar HUD
                             </button>
                           </div>
                         </div>
-                      ) : (
-                    <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
-                      <div className="absolute inset-x-0 bottom-2 text-center z-10">
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                          Rota de Viagem em Direto
-                        </p>
-                      </div>
 
-                      {/* High Density Grid pattern */}
-                      <div className="absolute inset-0 opacity-10 pointer-events-none">
-                        <svg width="100%" height="100%">
-                          <pattern id="driver-grid-pat" width="15" height="15" patternUnits="userSpaceOnUse">
-                            <path d="M 15 0 L 0 0 0 15" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
-                          </pattern>
-                          <rect width="100%" height="100%" fill="url(#driver-grid-pat)" />
+                        {/* Interactive Map Container or Cinematic Radar SVG */}
+                        {mapMode === "real" ? (
+                          <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative h-72 w-full z-20">
+                            <MapErrorBoundary>
+                              {/* @ts-ignore */}
+                              <MapContainer
+                                center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
+                                zoom={14}
+                                style={{ height: '100%', width: '100%' }}
+                                zoomControl={false}
+                              >
+                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                
+                                {/* Driver Marker */}
+                                {driverLiveCoords && (
+                                  <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
+                                    <Popup>
+                                      <div className="text-slate-900 font-sans p-1">
+                                        <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
+                                        <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
+                                      </div>
+                                    </Popup>
+                                  </Marker>
+                                )}
+
+                                {/* Passenger Marker */}
+                                <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
+                                  <Popup>
+                                    <div className="text-slate-900 font-sans p-1">
+                                      <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
+                                      <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
+                                    </div>
+                                  </Popup>
+                                </Marker>
+
+                                <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
+                              </MapContainer>
+                            </MapErrorBoundary>
+                            
+                            {/* Float controls top left inside the map */}
+                            <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1 pointer-events-none">
+                              <div className="bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                                GPS Sincro Passageiro
+                              </div>
+                            </div>
+
+                            {/* Float buttons INSIDE the map container at the bottom */}
+                            <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[400] flex gap-2 font-sans">
+                              <a
+                                href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xl transition-all border border-amber-400/40"
+                              >
+                                <Navigation size={12} /> Abrir Rota no Google Maps
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (currentService.pickupLat && currentService.pickupLng) {
+                                    setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
+                                  }
+                                }}
+                                className="bg-slate-950/90 hover:bg-slate-900 text-white font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-white/20 shadow-xl backdrop-blur-md"
+                              >
+                                <MapPin size={12} /> Focar Cliente
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                      <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
+                        <div className="absolute inset-x-0 bottom-2 text-center z-10">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                            Rota de Viagem em Direto
+                          </p>
+                        </div>
+
+                        {/* High Density Grid pattern */}
+                        <div className="absolute inset-0 opacity-10 pointer-events-none">
+                          <svg width="100%" height="100%">
+                            <pattern id="driver-grid-pat" width="15" height="15" patternUnits="userSpaceOnUse">
+                              <path d="M 15 0 L 0 0 0 15" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
+                            </pattern>
+                            <rect width="100%" height="100%" fill="url(#driver-grid-pat)" />
+                          </svg>
+                        </div>
+
+                        {/* Satellite tracking active status indicator (JIS) */}
+                        <div className="absolute top-2.5 left-2.5 bg-black/85 px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
+                          <div className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
+                          Live GPS Sincro
+                        </div>
+
+                        {/* Match Passenger Bezier Path and animated car positioner */}
+                        <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
+                          <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray="5" />
+                          <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current animate-pulse" />
+                          <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
+                          
+                          <motion.g
+                            initial={{ x: 50, y: 150 }}
+                            animate={{
+                              x: [50, 110, 150, 200, 250],
+                              y: [150, 90, 75, 95, 120]
+                            }}
+                            transition={{
+                              duration: 12,
+                              repeat: Infinity,
+                              ease: "easeInOut"
+                            }}
+                          >
+                            <circle r="6" className="text-blue-400 fill-current shadow-lg animate-pulse" />
+                            <polygon points="-2,-2 3,0 -2,2" fill="white" />
+                          </motion.g>
                         </svg>
                       </div>
-
-                      {/* Satellite tracking active status indicator (JIS) */}
-                      <div className="absolute top-2.5 left-2.5 bg-black/85 px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
-                        <div className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
-                        Live GPS Sincro
-                      </div>
-
-                      {/* Match Passenger Bezier Path and animated car positioner */}
-                      <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
-                        <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray="5" />
-                        <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current animate-pulse" />
-                        <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
-                        
-                        <motion.g
-                          initial={{ x: 50, y: 150 }}
-                          animate={{
-                            x: [50, 110, 150, 200, 250],
-                            y: [150, 90, 75, 95, 120]
-                          }}
-                          transition={{
-                            duration: 12,
-                            repeat: Infinity,
-                            ease: "easeInOut"
-                          }}
-                        >
-                          <circle r="6" className="text-blue-400 fill-current shadow-lg animate-pulse" />
-                          <polygon points="-2,-2 3,0 -2,2" fill="white" />
-                        </motion.g>
-                      </svg>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )
               )}
 
                   {/* Operational Controls by Status */}
                   <div className="space-y-4 pt-2 relative z-10 border-t border-dashed border-white/10">
                     {currentService.status === "pending" && (
-                      <div className="flex gap-3">
-                        <button
-                          onClick={rejectService}
-                          className="flex-1 py-4 bg-white/10 hover:bg-white/20 transition-all text-white border border-white/10 rounded-2xl font-black text-xs uppercase tracking-wider"
-                        >
-                          Rejeitar (15s)
-                        </button>
-                        <button
-                          onClick={attendCall}
-                          className="flex-[2] py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-emerald-500/10 flex items-center justify-center gap-2 animate-bounce"
-                        >
-                          <PhoneCall size={14} className="animate-bounce" />
-                          Atender Chamada
-                        </button>
-                      </div>
+                      isDirectForwarded ? (
+                        /* Flow: Reencaminhar Chamada Direta entre Motoristas */
+                        <div className="space-y-3">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (currentService.status === "pending") {
+                                await attendCall();
+                              }
+                              if (currentService.customerPhone || currentService.passengerPhone) {
+                                window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
+                              } else {
+                                alert("Contacto do cliente indisponível.");
+                              }
+                            }}
+                            className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/30 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95"
+                          >
+                            <Phone size={14} />
+                            Ligar GSM ao Passageiro
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition-all active:scale-95"
+                          >
+                            <Users size={15} />
+                            Encaminhar a Outro Colega
+                          </button>
+                        </div>
+                      ) : (
+                        /* Flow: Pedir Táxi Público (App Passageiro) */
+                        <div className="space-y-3">
+                          <div className="flex gap-3">
+                            <button
+                              onClick={rejectService}
+                              className="flex-1 py-4 bg-white/10 hover:bg-white/20 transition-all text-white border border-white/10 rounded-2xl font-black text-xs uppercase tracking-wider"
+                            >
+                              Rejeitar (15s)
+                            </button>
+                            <button
+                              onClick={attendCall}
+                              className="flex-[2] py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-emerald-500/10 flex items-center justify-center gap-2 animate-bounce"
+                            >
+                              <PhoneCall size={14} className="animate-bounce" />
+                              Atender Chamada
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition-all active:scale-95"
+                          >
+                            <Users size={15} />
+                            Encaminhar a Outro Colega
+                          </button>
+                        </div>
+                      )
                     )}
 
                     {currentService.status === "connected" && (
@@ -3077,12 +3375,16 @@ export default function DriverView({ user }: DriverViewProps) {
                         ) : (
                           <>
                             <div className="bg-emerald-500/5 border border-emerald-500/20 p-4 rounded-2xl text-center">
-                              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Chamada Atendida (Conversão Estável)</p>
-                              <p className="text-[9px] text-slate-400 mt-0.5 uppercase font-bold">Defina o valor da corrida ou recuse se necessário.</p>
+                              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                                {isDirectForwarded ? "Chamada Reencaminhada / Direta (Acordo GSM)" : "Chamada Atendida (Conversão Estável)"}
+                              </p>
+                              <p className="text-[9px] text-slate-400 mt-0.5 uppercase font-bold">
+                                {isDirectForwarded ? "Especifique o valor combinado com o passageiro via GSM para confirmar." : "Defina o valor da corrida ou recuse se necessário."}
+                              </p>
                             </div>
                             <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
-                                Propor Preço da Viagem (AKZ)
+                                {isDirectForwarded ? "Preço Acordado via GSM (AKZ)" : "Propor Preço da Viagem (AKZ)"}
                               </p>
                               <div className="flex gap-2 font-sans">
                                 <input
@@ -3094,9 +3396,9 @@ export default function DriverView({ user }: DriverViewProps) {
                                 />
                                 <button
                                   onClick={() => sendPriceOffer()}
-                                  className="px-6 py-3 bg-[#10b981] text-slate-950 font-black text-xs uppercase rounded-xl transition-all hover:bg-emerald-600 shadow-md font-sans"
+                                  className="px-5 py-3 bg-[#10b981] hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-md font-sans"
                                 >
-                                  PROPOR
+                                  {isDirectForwarded ? "CONFIRMAR PREÇO" : "PROPOR"}
                                 </button>
                               </div>
                               <div className="flex gap-2 justify-between">
@@ -3113,6 +3415,33 @@ export default function DriverView({ user }: DriverViewProps) {
                             </div>
                           </>
                         )}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (currentService.customerPhone || currentService.passengerPhone) {
+                                window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
+                              } else {
+                                alert("Contacto do cliente indisponível.");
+                              }
+                            }}
+                            className="py-3 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                          >
+                            <Phone size={13} />
+                            Ligar GSM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="py-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                          >
+                            <Users size={13} />
+                            Reencaminhar
+                          </button>
+                        </div>
                         <button
                           onClick={rejectService}
                           className="w-full py-3 bg-red-650/15 hover:bg-red-600 text-white hover:text-white border border-red-500/20 rounded-2xl text-xs uppercase font-black tracking-widest transition-colors"
@@ -3165,7 +3494,7 @@ export default function DriverView({ user }: DriverViewProps) {
                               { pct: 20, label: '-20%' },
                             ].map((d) => {
                               const basePrice = currentService.originalPrice || currentService.price || 2000;
-                              const discounted = Math.round(basePrice * (1 - d.pct / 100));
+                              const discounted = Math.max(1000, Math.round(basePrice * (1 - d.pct / 100)));
                               return (
                                 <button
                                   key={d.pct}
@@ -3214,7 +3543,10 @@ export default function DriverView({ user }: DriverViewProps) {
                               onClick={async () => {
                                 try {
                                   const val = Number(driverCustomDiscountInput);
-                                  if (!val || val <= 0) return;
+                                  if (!val || val < 1000) {
+                                    alert("⚠️ O preço mínimo para uma corrida é de 1.000 Kz!");
+                                    return;
+                                  }
                                   const basePrice = currentService.originalPrice || currentService.price || 2000;
                                   const rideRef = doc(db, 'calls', currentService.id);
                                   await setDoc(rideRef, { 
@@ -3269,8 +3601,8 @@ export default function DriverView({ user }: DriverViewProps) {
                           onClick={handleDriverArrived}
                           className="w-full py-4 bg-amber-500 hover:bg-amber-600 transition-all text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-amber-500/20 active:scale-95 animate-pulse"
                         >
-                          <MapPin size={16} />
-                          📍 Cheguei ao Ponto de Recolha
+                          {isDirectForwarded ? <PhoneCall size={16} /> : <MapPin size={16} />}
+                          {isDirectForwarded ? "📍 CHEGUEI & LIGAR GSM AO PASSAGEIRO" : "📍 Cheguei ao Ponto de Recolha"}
                         </button>
 
                         <button
@@ -3319,6 +3651,15 @@ export default function DriverView({ user }: DriverViewProps) {
                           <PhoneCall size={14} />
                           INICIAR CORRIDA ACORDADA ({currentService.price?.toLocaleString()} Kz)
                         </button>
+                        {(currentService.customerPhone || currentService.passengerPhone) && isDirectForwarded && (
+                          <a
+                            href={`tel:${currentService.customerPhone || currentService.passengerPhone}`}
+                            className="w-full py-3 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                          >
+                            <PhoneCall size={14} />
+                            Ligar ao Passageiro via GSM (+244)
+                          </a>
+                        )}
                         <button
                           onClick={() => {
                             setShowNotification(false);
@@ -3344,16 +3685,6 @@ export default function DriverView({ user }: DriverViewProps) {
                         >
                           <CheckCircle2 size={14} />
                           Encerrar Viagem & Carregar Renda ({currentService.price?.toLocaleString()} Kz)
-                        </button>
-                        <button
-                          onClick={() => {
-                            setShowNotification(false);
-                            setIsTransferModalOpen(true);
-                          }}
-                          className="w-full bg-slate-950 border border-white/5 hover:bg-slate-900 text-slate-300 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                        >
-                          <Users size={13} className="text-slate-500" />
-                          DELEGAR / ESCALAR MOTORISTA
                         </button>
                       </div>
                     )}
@@ -3564,7 +3895,9 @@ export default function DriverView({ user }: DriverViewProps) {
                       </div>
                       <div className="text-left">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Avaliação</p>
-                        <p className="text-[13px] font-black text-white mt-0.5">{stars}</p>
+                        <p className="text-[13px] font-black text-white mt-0.5">
+                          {stars === "Novo" ? "Novo (Sem avaliações)" : `${stars} ★`}
+                        </p>
                       </div>
                     </div>
                     
@@ -3582,23 +3915,59 @@ export default function DriverView({ user }: DriverViewProps) {
                   {/* Shift Action Toggle / Service Control and Emergency Button */}
                   <div className="flex items-center gap-3 mt-4 pt-3 border-t border-slate-800">
                     {currentService && currentService.status === "pending" ? (
-                      <>
-                        <button
-                          onClick={attendCall}
-                          className="flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20 active:scale-95 animate-pulse"
-                        >
-                          <PhoneCall size={13} className="animate-bounce" />
-                          ATENDER CHAMADA
-                        </button>
+                      isDirectForwarded ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95 animate-pulse"
+                          >
+                            <Users size={13} />
+                            ENCAMINHAR A OUTRO COLEGA
+                          </button>
 
-                        <button
-                          onClick={rejectService}
-                          className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-rose-600 hover:bg-rose-700 text-white shadow-lg active:scale-95 flex-shrink-0 border border-rose-500/30 animate-pulse"
-                          title="Recusar Chamada"
-                        >
-                          <XCircle size={18} />
-                        </button>
-                      </>
+                          <button
+                            onClick={triggerPanic}
+                            disabled={panicLoading}
+                            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-red-650 hover:bg-red-700 text-white shadow-lg active:scale-90 flex-shrink-0 animate-pulse border border-red-500/30"
+                            title="S.O.S de Emergência"
+                          >
+                            <AlertTriangle size={18} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={attendCall}
+                            className="flex-[2] py-3 px-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-1.5 shadow-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20 active:scale-95 animate-pulse"
+                          >
+                            <PhoneCall size={13} className="animate-bounce" />
+                            ATENDER CHAMADA
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="flex-1 py-3 px-2 rounded-xl font-black text-[9.5px] uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-1 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95"
+                            title="Encaminhar a Outro Colega"
+                          >
+                            <Users size={13} />
+                            ENCAMINHAR
+                          </button>
+
+                          <button
+                            onClick={rejectService}
+                            className="w-11 h-11 rounded-xl flex items-center justify-center transition-all bg-rose-600 hover:bg-rose-700 text-white shadow-lg active:scale-95 flex-shrink-0 border border-rose-500/30 animate-pulse"
+                            title="Recusar Chamada"
+                          >
+                            <XCircle size={18} />
+                          </button>
+                        </>
+                      )
                     ) : (
                       <>
                         <button
@@ -4229,27 +4598,7 @@ export default function DriverView({ user }: DriverViewProps) {
                         </div>
                       </div>
 
-                      {/* Historical Logs and Explanatory box */}
-                      <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
-                          <div>
-                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider leading-none">
-                              Histórico de Faturação Automática (App)
-                            </p>
-                            <p className="text-[8px] text-slate-400 font-medium mt-0.5">
-                              Registo perpétuo acumulado de corridas deste motorista.
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-xs font-black text-slate-800 font-mono">
-                              {(passengerRidesAllTimeTotal || 0).toLocaleString()} Kz
-                            </span>
-                          </div>
-                        </div>
-                        <p className="text-[8.5px] text-slate-500 font-medium leading-relaxed">
-                          Nota: A faturação do App reinicia quando o motorista declara a renda. O bónus e a comissão das corridas do aplicativo serão integrados no seu Salário Líquido assim que declarar a renda correspondente e a mesma for aprovada pela administração de José Iweza Suana (JIS).
-                        </p>
-                      </div>
+
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -4281,7 +4630,7 @@ export default function DriverView({ user }: DriverViewProps) {
                         Aguardando Validação do Operador
                       </h4>
                       <p className="text-[10px] text-amber-700 font-bold leading-relaxed px-2">
-                        José Iweza Suana (JIS), deves aguardar que o Operador ou Administrador valide a sua renda actual antes de submeter uma nova declaração.
+                        {user?.name || "Motorista"}, deves aguardar que o Operador ou Administrador valide a sua renda actual antes de submeter uma nova declaração.
                       </p>
                     </div>
                   ) : (
@@ -5266,6 +5615,13 @@ export default function DriverView({ user }: DriverViewProps) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Team Collaborative Chat Modal */}
+      <TeamCollaborativeChat
+        currentUser={user}
+        isOpen={isTeamChatOpen}
+        onClose={() => setIsTeamChatOpen(false)}
+      />
     </div>
   );
 }
