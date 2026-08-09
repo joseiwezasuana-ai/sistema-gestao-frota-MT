@@ -921,7 +921,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
 
     { icon: Activity, label: 'Gateway Console', group: 'Monitores Live', onClick: () => setIsGatewayOpen(true) },
     { icon: MapPin, label: 'Mapa da Frota', group: 'Monitores Live', onClick: () => setIsMapOpen(true) },
-    { icon: MessageSquare, label: 'Chat da Equipa JIS', group: 'Monitores Live', onClick: () => setIsTeamChatOpen(true) },
+    { icon: MessageSquare, label: 'Chat Interno', group: 'Monitores Live', onClick: () => setIsTeamChatOpen(true) },
     { icon: MessageSquare, label: 'Central WhatsApp', group: 'Monitores Live', onClick: () => setIsWhatsAppOpen(true) },
     {
       icon: AlertTriangle,
@@ -1028,7 +1028,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
           <button
             onClick={() => setIsTeamChatOpen(true)}
             className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-brand-primary border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
-            title="Chat da Equipa JIS"
+            title="Chat Interno"
           >
             <MessageSquare size={16} />
           </button>

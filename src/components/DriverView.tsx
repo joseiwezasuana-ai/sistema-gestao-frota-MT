@@ -2470,7 +2470,7 @@ export default function DriverView({ user }: DriverViewProps) {
               <button
                 onClick={() => setIsTeamChatOpen(true)}
                 className="p-2 text-slate-400 hover:text-brand-primary transition-colors relative"
-                title="Chat da Equipa (JIS)"
+                title="Chat Interno"
               >
                 <MessageSquare size={20} />
               </button>
@@ -2560,7 +2560,7 @@ export default function DriverView({ user }: DriverViewProps) {
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
                       >
                         <MessageSquare size={14} className="text-brand-primary" />
-                        Chat da Equipa (JIS)
+                        Chat Interno
                       </button>
 
                       <div className="h-px bg-slate-100 my-1.5" />

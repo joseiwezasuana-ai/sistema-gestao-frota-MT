@@ -368,7 +368,7 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
               </div>
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-white leading-none">
-                  Chat de Colaboradores
+                  Chat Interno
                 </h3>
                 <p className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest mt-1 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />

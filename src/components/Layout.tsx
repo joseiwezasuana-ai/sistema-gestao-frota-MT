@@ -370,10 +370,10 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
             <button 
               onClick={() => setIsTeamChatOpen(true)}
               className="group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 bg-brand-primary/10 border border-brand-primary/20 hover:bg-brand-primary/20 text-brand-primary rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
-              title="Chat da Equipa Colaborativo (JIS)"
+              title="Chat Interno (JIS)"
             >
               <MessageSquare size={16} className="text-brand-primary group-hover:scale-110 transition-transform" />
-              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Chat Equipa</span>
+              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Chat Interno</span>
             </button>
 
             <button 
@@ -516,7 +516,7 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
         </section>
       </main>
 
-      {/* Modal de Chat da Equipa Colaborativo (JIS) */}
+      {/* Modal de Chat Interno (JIS) */}
       <TeamCollaborativeChat
         currentUser={user}
         isOpen={isTeamChatOpen}
