@@ -18,6 +18,7 @@ import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import { WhatsAppMonitor } from './WhatsAppMonitor';
+import { TeamCollaborativeChat } from './TeamCollaborativeChat';
 
 import { collection, onSnapshot, addDoc, query, orderBy, limit, serverTimestamp, getDocs, deleteDoc, doc, where } from '@/src/lib/firebase';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
@@ -28,6 +29,37 @@ interface MessagesProps {
 }
 
 export default function Messages({ isAdmin = false }: MessagesProps) {
+  const [activeHubTab, setActiveHubTab] = useState<'chat' | 'whatsapp' | 'broadcast'>('chat');
+  const [currentUserData, setCurrentUserData] = useState<any>(null);
+  const user = auth.currentUser;
+
+  useEffect(() => {
+    if (user?.uid) {
+      const unsub = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+        if (docSnap.exists()) {
+          setCurrentUserData({ uid: user.uid, id: user.uid, ...docSnap.data() });
+        } else {
+          setCurrentUserData({
+            uid: user.uid,
+            id: user.uid,
+            name: user.displayName || user.email?.split('@')[0] || 'Administrador',
+            role: isAdmin ? 'admin' : 'gestor',
+            photoURL: user.photoURL || ''
+          });
+        }
+      });
+      return () => unsub();
+    }
+  }, [user?.uid, isAdmin]);
+
+  const currentUserObj = currentUserData || {
+    uid: user?.uid || 'guest',
+    id: user?.uid || 'guest',
+    name: user?.displayName || 'Administrador Operacional',
+    role: isAdmin ? 'admin' : 'gestor',
+    photoURL: user?.photoURL || ''
+  };
+
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -213,7 +245,62 @@ export default function Messages({ isAdmin = false }: MessagesProps) {
           </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-8 overflow-hidden min-h-[600px]">
+      {/* Navigation Sub-Tabs for Hub de Comunicações */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 p-2 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700">
+        <button
+          onClick={() => setActiveHubTab('chat')}
+          className={cn(
+            "flex-1 min-w-[200px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer",
+            activeHubTab === 'chat'
+              ? "bg-slate-900 text-white shadow-lg shadow-slate-900/20 border border-slate-700"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50"
+          )}
+        >
+          <MessageSquare size={16} className="text-brand-primary" />
+          <span>Chat Interno da Equipa</span>
+        </button>
+
+        <button
+          onClick={() => setActiveHubTab('whatsapp')}
+          className={cn(
+            "flex-1 min-w-[200px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer",
+            activeHubTab === 'whatsapp'
+              ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50"
+          )}
+        >
+          <MessageCircle size={16} className="text-emerald-400" />
+          <span>WhatsApp Operacional</span>
+        </button>
+
+        <button
+          onClick={() => setActiveHubTab('broadcast')}
+          className={cn(
+            "flex-1 min-w-[200px] flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer",
+            activeHubTab === 'broadcast'
+              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50"
+          )}
+        >
+          <Send size={16} className="text-indigo-300" />
+          <span>Transmissões & SOS</span>
+        </button>
+      </div>
+
+      {activeHubTab === 'chat' && (
+        <div className="w-full">
+          <TeamCollaborativeChat currentUser={currentUserObj} isOpen={true} isEmbedded={true} onClose={() => {}} />
+        </div>
+      )}
+
+      {activeHubTab === 'whatsapp' && (
+        <div className="w-full bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+          <WhatsAppMonitor />
+        </div>
+      )}
+
+      {activeHubTab === 'broadcast' && (
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-8 overflow-hidden min-h-[600px]">
         {/* Sidebar Status/Channels */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
@@ -416,6 +503,7 @@ export default function Messages({ isAdmin = false }: MessagesProps) {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

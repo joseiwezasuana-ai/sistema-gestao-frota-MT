@@ -48,6 +48,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTheme } from '../context/ThemeContext';
 import { TeamCollaborativeChat } from './TeamCollaborativeChat';
+import { useUnreadTeamChat } from '../lib/useUnreadTeamChat';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -63,6 +64,7 @@ interface LayoutProps {
 export default function Layout({ children, user, globalSettings, activeTab, onTabChange, onLogout, onToggleMobile, onEditProfile }: LayoutProps) {
   const { theme, toggleTheme } = useTheme();
   const { queue: syncQueue, isOnline, syncNow } = useSyncQueue();
+  const { hasUnread, markAsRead } = useUnreadTeamChat(user?.uid || user?.id);
   const [panicAlerts, setPanicAlerts] = useState<any[]>([]);
   const [isAlertsDropdownOpen, setIsAlertsDropdownOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -92,6 +94,15 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
     setSelectedTenant(tenantId);
     window.location.reload();
   };
+
+  // Listen to background chat commands to open/close chat modal
+  useEffect(() => {
+    const handleToggle = (e: any) => {
+      setIsTeamChatOpen(e.detail?.open ?? true);
+    };
+    window.addEventListener('toggle-team-chat', handleToggle);
+    return () => window.removeEventListener('toggle-team-chat', handleToggle);
+  }, []);
 
   useEffect(() => {
     const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
@@ -211,7 +222,12 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
           {filteredPrimaryItems.map((item) => (
             <button
               key={item.id}
-              onClick={() => onTabChange(item.id)}
+              onClick={() => {
+                if (item.id === 'messages') {
+                  markAsRead();
+                }
+                onTabChange(item.id);
+              }}
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3 text-[12px] transition-all rounded-xl group relative overflow-hidden font-bold uppercase tracking-wider",
                 activeTab === item.id 
@@ -221,6 +237,9 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
             >
               <item.icon size={16} className={cn("transition-transform group-hover:scale-110 shrink-0", activeTab === item.id ? "text-white" : "text-slate-500 group-hover:text-brand-primary")} />
               <span className="relative z-10 truncate">{item.label}</span>
+              {item.id === 'messages' && hasUnread && (
+                <span className="ml-auto w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping shrink-0" title="Mensagem Nova no Chat" />
+              )}
               {activeTab === item.id && (
                 <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent pointer-events-none" />
               )}
@@ -368,12 +387,21 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
             </button>
 
             <button 
-              onClick={() => setIsTeamChatOpen(true)}
-              className="group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 bg-brand-primary/10 border border-brand-primary/20 hover:bg-brand-primary/20 text-brand-primary rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
+              onClick={() => {
+                markAsRead();
+                setIsTeamChatOpen(true);
+              }}
+              className="relative group flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 bg-brand-primary/10 border border-brand-primary/20 hover:bg-brand-primary/20 text-brand-primary rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
               title="Chat Interno (JIS)"
             >
               <MessageSquare size={16} className="text-brand-primary group-hover:scale-110 transition-transform" />
               <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Chat Interno</span>
+              {hasUnread && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 border border-white dark:border-slate-900" />
+                </span>
+              )}
             </button>
 
             <button 

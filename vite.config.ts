@@ -17,7 +17,7 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         strategies: 'injectManifest',
-        srcDir: 'src',
+        srcDir: path.resolve(__dirname, 'src'),
         filename: 'sw.ts',
         registerType: 'autoUpdate',
         includeAssets: ['logo.svg', 'icon-192.png', 'icon-512.png'],

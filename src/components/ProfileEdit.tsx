@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
-import { Camera, X, Loader2, Save, User } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Camera, X, Loader2, Save, User, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, updateDoc } from '@/src/lib/firebase';
+import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 
@@ -13,35 +13,127 @@ interface ProfileEditProps {
 }
 
 export default function ProfileEdit({ user, isOpen, onClose, onUpdate }: ProfileEditProps) {
-  const [photo, setPhoto] = useState<string | null>(user?.photoURL || null);
+  const [photo, setPhoto] = useState<string | null>(user?.photoURL || user?.photoUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (user) {
+      setPhoto(user.photoURL || user.photoUrl || null);
+    }
+  }, [user]);
+
+  const compressAndSetPhoto = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 320;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.82);
+          setPhoto(compressedBase64);
+        } else {
+          setPhoto(event.target?.result as string);
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 1024 * 512) { // 512KB limit for base64 in Firestore
-        alert("A imagem é muito grande. Escolha uma imagem com menos de 512KB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhoto(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      compressAndSetPhoto(file);
     }
   };
 
   const handleSave = async () => {
     setIsSubmitting(true);
+    setSuccessMsg(null);
     try {
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        photoURL: photo,
-        updatedAt: new Date().toISOString()
-      });
-      onUpdate({ ...user, photoURL: photo });
-      onClose();
+      const uid = user?.uid || user?.id;
+
+      // 1. Update in Firestore 'users' collection
+      if (uid) {
+        try {
+          const userRef = doc(db, 'users', uid);
+          await updateDoc(userRef, {
+            photoURL: photo,
+            photoUrl: photo,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (e) {
+          console.warn("Primary user doc update notice:", e);
+        }
+      }
+
+      // 2. Cross-sync in 'administrative_staff' and 'drivers' collections by email or name
+      if (user?.email) {
+        try {
+          const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', user.email));
+          const staffSnap = await getDocs(staffQ);
+          staffSnap.docs.forEach(async (docSnap) => {
+            await updateDoc(doc(db, 'administrative_staff', docSnap.id), { photoURL: photo, photoUrl: photo });
+          });
+
+          const driverQ = query(collection(db, 'drivers'), where('email', '==', user.email));
+          const driverSnap = await getDocs(driverQ);
+          driverSnap.docs.forEach(async (docSnap) => {
+            await updateDoc(doc(db, 'drivers', docSnap.id), { photoURL: photo, photoUrl: photo });
+          });
+        } catch (err) {
+          console.warn("Cross-collection profile update notice:", err);
+        }
+      }
+
+      // 3. Persist to local session storage
+      const savedSession = localStorage.getItem('local_user_session');
+      if (savedSession) {
+        try {
+          const parsed = JSON.parse(savedSession);
+          parsed.photoURL = photo;
+          parsed.photoUrl = photo;
+          localStorage.setItem('local_user_session', JSON.stringify(parsed));
+        } catch (e) {}
+      }
+
+      // 4. Also store user avatar fallback key
+      if (uid) {
+        try {
+          localStorage.setItem(`jis_avatar_${uid}`, photo || '');
+        } catch (e) {}
+      }
+
+      const updatedUser = { ...user, photoURL: photo, photoUrl: photo };
+      onUpdate(updatedUser);
+      setSuccessMsg("Foto de perfil sincronizada no sistema completo!");
+      
+      setTimeout(() => {
+        setSuccessMsg(null);
+        onClose();
+      }, 1200);
     } catch (error) {
       console.error("Error updating profile photo:", error);
       alert("Erro ao atualizar foto de perfil.");
@@ -53,19 +145,19 @@ export default function ProfileEdit({ user, isOpen, onClose, onUpdate }: Profile
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
           />
           <motion.div 
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="relative bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden"
+            className="relative z-10 bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md max-h-[90vh] overflow-y-auto my-auto"
           >
             <div className="px-8 py-6 bg-[#0f172a] text-white flex items-center justify-between">
               <div>
@@ -109,6 +201,13 @@ export default function ProfileEdit({ user, isOpen, onClose, onUpdate }: Profile
               />
 
               <div className="w-full space-y-6">
+                {successMsg && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in duration-300">
+                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                    <span>{successMsg}</span>
+                  </div>
+                )}
+
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 italic">
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Informação de Conta</p>
                   <p className="text-sm font-black text-slate-900 truncate">{user?.name}</p>

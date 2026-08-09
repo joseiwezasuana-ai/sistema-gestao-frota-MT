@@ -45,6 +45,7 @@ import PermissionManager from "./PermissionManager";
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
 import { WebRTCAudioCall } from "./WebRTCAudioCall";
 import { TeamCollaborativeChat } from "./TeamCollaborativeChat";
+import { useUnreadTeamChat } from "../lib/useUnreadTeamChat";
 import WaitingTimer from './WaitingTimer';
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "../lib/utils";
@@ -317,6 +318,17 @@ export default function DriverView({ user }: DriverViewProps) {
   });
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
   const [isTeamChatOpen, setIsTeamChatOpen] = useState(false);
+  const { hasUnread, markAsRead } = useUnreadTeamChat(user?.uid || user?.id);
+
+  // Listen to background chat commands to open/close chat modal
+  useEffect(() => {
+    const handleToggle = (e: any) => {
+      setIsTeamChatOpen(e.detail?.open ?? true);
+    };
+    window.addEventListener('toggle-team-chat', handleToggle);
+    return () => window.removeEventListener('toggle-team-chat', handleToggle);
+  }, []);
+
   const [currentService, setCurrentService] = useState<any>(null);
   const currentServiceRef = useRef<any>(null);
   useEffect(() => {
@@ -2468,11 +2480,17 @@ export default function DriverView({ user }: DriverViewProps) {
                 )}
               </button>
               <button
-                onClick={() => setIsTeamChatOpen(true)}
+                onClick={() => {
+                  markAsRead();
+                  setIsTeamChatOpen(true);
+                }}
                 className="p-2 text-slate-400 hover:text-brand-primary transition-colors relative"
                 title="Chat Interno"
               >
                 <MessageSquare size={20} />
+                {hasUnread && (
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-ping" />
+                )}
               </button>
 
               <button
@@ -2556,11 +2574,14 @@ export default function DriverView({ user }: DriverViewProps) {
                       </button>
 
                       <button
-                        onClick={() => { setIsTeamChatOpen(true); setIsMenuOpen(false); }}
+                        onClick={() => { markAsRead(); setIsTeamChatOpen(true); setIsMenuOpen(false); }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
                       >
                         <MessageSquare size={14} className="text-brand-primary" />
-                        Chat Interno
+                        <span>Chat Interno</span>
+                        {hasUnread && (
+                          <span className="ml-auto w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+                        )}
                       </button>
 
                       <div className="h-px bg-slate-100 my-1.5" />
@@ -5479,48 +5500,7 @@ export default function DriverView({ user }: DriverViewProps) {
                 </button>
               </div>
 
-              {/* Warning Notice */}
-              <div className="bg-rose-500/10 border border-rose-500/30 p-3.5 rounded-2xl space-y-1">
-                <div className="flex items-center gap-2 text-rose-400 font-bold text-xs uppercase tracking-wider">
-                  <AlertTriangle size={14} />
-                  <span>Atenção Motorista (Risco de Perda de Corridas)</span>
-                </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed font-medium">
-                  As notificações foram <strong>negadas ou bloqueadas</strong> nas definições do navegador. Sem este acesso, o seu telemóvel <strong>não irá tocar nem vibrar</strong> quando um novo passageiro solicitar táxi em Luena enquanto a aplicação estiver em segundo plano ou no ecrã bloqueado.
-                </p>
-              </div>
 
-              {/* Step by Step Activation Guide */}
-              <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/10 text-xs">
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">
-                  COMO ATIVAR AS NOTIFICAÇÕES (PASSO A PASSO):
-                </p>
-
-                {/* Chrome / Android */}
-                <div className="space-y-1.5 border-l-2 border-amber-500 pl-3 py-1">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Smartphone size={13} className="text-amber-400" />
-                    1. Google Chrome (Android / Desktop):
-                  </span>
-                  <ol className="text-[10.5px] text-slate-300 space-y-1 font-medium list-disc list-inside">
-                    <li>Toque no ícone de <strong>Ajustes/Cadeado 🔒</strong> ao lado do endereço do site (URL).</li>
-                    <li>Aceda a <strong>Permissões do Site</strong> → <strong>Notificações</strong>.</li>
-                    <li>Mude a opção de <em>"Bloqueado"</em> para <strong>"Permitir"</strong>.</li>
-                  </ol>
-                </div>
-
-                {/* Safari / iOS */}
-                <div className="space-y-1.5 border-l-2 border-cyan-500 pl-3 py-1">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Settings size={13} className="text-cyan-400" />
-                    2. Safari (iPhone / iPad iOS):
-                  </span>
-                  <ol className="text-[10.5px] text-slate-300 space-y-1 font-medium list-disc list-inside">
-                    <li>Abra as <strong>Definições do iPhone ⚙️</strong> → <strong>Safari</strong> → <strong>Avançado</strong>.</li>
-                    <li>Em <strong>Notificações Web</strong>, selecione <strong>Permitir Notificações</strong> para o TaxiControl.</li>
-                  </ol>
-                </div>
-              </div>
 
               {/* Action Buttons */}
               <div className="pt-2 flex flex-col sm:flex-row gap-3">

@@ -48,6 +48,7 @@ import { signOut } from 'firebase/auth';
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
 import { checkPendingIncome } from '../services/shiftCheckService';
 import RealTimeMap from "./RealTimeMap";
+import { useUnreadTeamChat } from '../lib/useUnreadTeamChat';
 import WaitingTimer from './WaitingTimer';
 import Settings from "./Settings";
 import UserManual from "./UserManual";
@@ -348,6 +349,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
   const [isTeamChatOpen, setIsTeamChatOpen] = useState(false);
+  const { hasUnread, markAsRead } = useUnreadTeamChat(user?.uid || user?.id);
+
+  // Listen to background chat commands to open/close chat modal
+  useEffect(() => {
+    const handleToggle = (e: any) => {
+      setIsTeamChatOpen(e.detail?.open ?? true);
+    };
+    window.addEventListener('toggle-team-chat', handleToggle);
+    return () => window.removeEventListener('toggle-team-chat', handleToggle);
+  }, []);
+
   const [isGatewayOpen, setIsGatewayOpen] = useState(false);
   const [isAiInsightsOpen, setIsAiInsightsOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -1026,11 +1038,17 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
             )}
           </button>
           <button
-            onClick={() => setIsTeamChatOpen(true)}
-            className="w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-brand-primary border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
+            onClick={() => {
+              markAsRead();
+              setIsTeamChatOpen(true);
+            }}
+            className="relative w-9 h-9 bg-slate-800/80 rounded-xl flex items-center justify-center text-brand-primary border border-slate-700/50 cursor-pointer active:scale-90 transition-all"
             title="Chat Interno"
           >
             <MessageSquare size={16} />
+            {hasUnread && (
+              <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-slate-900 animate-ping" />
+            )}
           </button>
           {isBiometricEnabled && (
             <button

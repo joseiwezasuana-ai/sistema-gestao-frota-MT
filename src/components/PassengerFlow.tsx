@@ -7,7 +7,7 @@ import {
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
   Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
-  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag
+  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut
 } from 'lucide-react';
 import { PWAInstallModal } from './PWAInstallBanner';
 import { WebRTCAudioCall } from './WebRTCAudioCall';
@@ -647,6 +647,13 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
   const [useBonusForRide, setUseBonusForRide] = useState(false);
+  const [showVehicleSelect, setShowVehicleSelect] = useState(false);
+
+  useEffect(() => {
+    if (!isBookModalOpen) {
+      setShowVehicleSelect(false);
+    }
+  }, [isBookModalOpen]);
   
   // Terms & Conditions and Safety Policies for Registration (JIS)
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -692,6 +699,20 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
   const [showComplaintsModal, setShowComplaintsModal] = useState(false);
+  const navMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isNavMenuOpen && navMenuRef.current && !navMenuRef.current.contains(event.target as Node)) {
+        setIsNavMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isNavMenuOpen]);
   const [showQrModal, setShowQrModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -2476,7 +2497,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                 </div>
 
                 {/* 3-Dots Navigation Menu Button */}
-                <div className="relative z-[60]">
+                <div ref={navMenuRef} className="relative z-[60]">
                   <button
                     onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
                     className={`p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-all active:scale-95 focus:outline-none border border-white/5 bg-black/35 flex items-center justify-center ${
@@ -2536,6 +2557,19 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         <User size={13} />
                         Minha Conta
                       </button>
+
+                      {passengerProfile && (
+                        <button
+                          onClick={() => {
+                            setIsNavMenuOpen(false);
+                            handleLogout();
+                          }}
+                          className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-rose-400 hover:bg-rose-500/10 border-t border-white/5 cursor-pointer"
+                        >
+                          <LogOut size={13} />
+                          Terminar Sessão
+                        </button>
+                      )}
 
                       {/* INSTALAR APLICAÇÃO (PWA) */}
                       <button
@@ -3430,29 +3464,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   {passengerTab === 'perfil' && (
                     <div className="space-y-4 animate-in fade-in duration-300">
                       
-                      {/* INSTALAR APLICAÇÃO SUPER TÁXI (PWA) BUTTON */}
-                      <button
-                        onClick={() => setShowInstallPwaModal(true)}
-                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group cursor-pointer ${
-                          isDark 
-                            ? 'bg-slate-900 border-amber-500/35 hover:border-amber-400 hover:bg-slate-800/80 shadow-lg shadow-amber-500/5' 
-                            : 'bg-white border-amber-500/35 hover:border-amber-500 hover:bg-amber-50/50 shadow-sm'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center text-amber-500 shrink-0 group-hover:scale-110 transition-transform">
-                            <Download size={16} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Instalar SUPER Táxi</p>
-                              <span className="text-[7.5px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">PWA</span>
-                            </div>
-                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Adicionar ícone oficial ao telemóvel</p>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-black text-amber-400 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
-                      </button>
+                      {/* INSTALAR APLICAÇÃO SUPER TÁXI (PWA) BUTTON REMOVED BY USER REQUEST */}
 
                       {/* SUGERIR APP (CÓDIGO QR) BUTTON */}
                       <button
@@ -4297,20 +4309,31 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </div>
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Escolher Viatura</label>
-                      <select 
-                        className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold"
-                        value={selectedVehicleId}
-                        onChange={e => setSelectedVehicleId(e.target.value)}
+                    {!showVehicleSelect ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowVehicleSelect(true)}
+                        className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-white font-bold text-xs rounded-xl border border-white/10 active:scale-95 transition-transform uppercase tracking-wider flex items-center justify-center gap-2"
                       >
-                        {availableVehicles.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.model} ({v.plate})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        <Car size={12} />
+                        Escolher Viatura
+                      </button>
+                    ) : (
+                      <div className="space-y-1">
+                        <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Escolher Viatura</label>
+                        <select 
+                          className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold"
+                          value={selectedVehicleId}
+                          onChange={e => setSelectedVehicleId(e.target.value)}
+                        >
+                          {availableVehicles.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.model} ({v.plate})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     {/* Club Bonus Redemption options (JIS) */}
                     {appConfig?.bonusClubEnabled !== false && passengerProfile && (
