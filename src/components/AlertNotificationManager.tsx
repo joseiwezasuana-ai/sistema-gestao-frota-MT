@@ -13,7 +13,10 @@ import {
   Trash2,
   MessageSquare,
   Wallet,
-  CheckCircle2
+  CheckCircle2,
+  Smartphone,
+  Download,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, addDoc, serverTimestamp, deleteDoc, doc } from '@/src/lib/firebase';
@@ -25,7 +28,7 @@ interface Alert {
   id: string;
   docId?: string;
   collectionName?: string;
-  type: 'speeding' | 'missed_call' | 'security' | 'geo_fence' | 'panic' | 'revenue';
+  type: 'speeding' | 'missed_call' | 'security' | 'geo_fence' | 'panic' | 'revenue' | 'system_update';
   title: string;
   message: string;
   timestamp: Date;
@@ -285,11 +288,39 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
       });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'messages'));
 
+    // 5. Monitor APK Distribution for Critical System Updates
+    const unsubApk = onSnapshot(doc(db, 'settings', 'apk_distribution'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const latestVersion = data.version || '6.0.0';
+        const isCritical = data.isCriticalUpdate === true || data.forceUpdate === true;
+        
+        // Show update alert if marked critical or if new version announced
+        if (isCritical || data.notifyOnStartup === true) {
+          triggerAlert({
+            id: `apk-update-${latestVersion}-${data.updatedAt?.seconds || Date.now()}`,
+            type: 'system_update',
+            title: `🚨 ATUALIZAÇÃO CRÍTICA APK (v${latestVersion})`,
+            message: data.releaseNotes || `Nova versão v${latestVersion} disponível no Alojamento Directo JIS ANGOLA. Atualize a aplicação da frota!`,
+            severity: 'critical',
+            timestamp: new Date(),
+            metadata: {
+              version: latestVersion,
+              driverAppUrl: data.driverAppUrl || '/downloads/taxicontrol-v6.0.0.apk',
+              staffAppUrl: data.staffAppUrl || '/downloads/taxicontrol-v6.0.0.apk',
+              passengerAppUrl: data.passengerAppUrl || '/downloads/taxicontrol-v6.0.0.apk'
+            }
+          });
+        }
+      }
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/apk_distribution'));
+
     return () => {
       unsubCalls();
       unsubSpeed();
       unsubPanic();
       unsubRevenueMessages();
+      unsubApk();
     };
   }, [user]);
 
@@ -490,11 +521,14 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
                     {alertItem.type === 'missed_call' && <Phone size={24} className="text-white animate-bounce" />}
                     {alertItem.type === 'panic' && <ShieldAlert size={24} className="text-white animate-[ping_1.5s_infinite]" />}
                     {alertItem.type === 'revenue' && <Wallet size={24} className="text-white animate-bounce" />}
+                    {alertItem.type === 'system_update' && <Smartphone size={24} className="text-white animate-bounce" />}
                   </div>
                   
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/70">Alerta Crítico</span>
+                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/70">
+                        {alertItem.type === 'system_update' ? 'Atualização de Sistema' : 'Alerta Crítico'}
+                      </span>
                       <div className="w-1 h-1 rounded-full bg-white animate-ping" />
                     </div>
                     <h4 className="text-lg font-black text-white leading-none mb-1 uppercase italic tracking-tighter">{alertItem.title}</h4>
@@ -505,6 +539,20 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
                         alertItem.message
                       )}
                     </p>
+
+                    {/* Direct Action for System Update */}
+                    {alertItem.type === 'system_update' && (
+                      <div className="flex flex-wrap items-center gap-2 mt-2 mb-2">
+                        <a
+                          href={alertItem.metadata?.driverAppUrl || '/downloads/taxicontrol-v6.0.0.apk'}
+                          download="taxicontrol-v6.0.0.apk"
+                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-lg cursor-pointer"
+                        >
+                          <Download size={14} />
+                          Descarregar APK v{alertItem.metadata?.version || '6.0.0'}
+                        </a>
+                      </div>
+                    )}
 
                     {/* Button to Permanently Delete Critical Alerts */}
                     {(alertItem.type === 'revenue' || alertItem.type === 'panic' || alertItem.docId) && (

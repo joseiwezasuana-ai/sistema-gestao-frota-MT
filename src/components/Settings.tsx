@@ -35,6 +35,7 @@ import ThresholdSettings from './ThresholdSettings';
 import WhatsAppWebhookConfig from './WhatsAppWebhookConfig';
 import FirebaseSetupHelper from './FirebaseSetupHelper';
 import BackupManager from './BackupManager';
+import ApkDistributionHub from './ApkDistributionHub';
 import { useTheme } from '../context/ThemeContext';
 
 export default function Settings() {
@@ -303,9 +304,12 @@ export default function Settings() {
       <div className="flex items-center justify-between bg-white px-6 py-4 rounded-lg border border-slate-200">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">Configurações do Sistema</h2>
-          <p className="text-xs text-slate-500 font-medium uppercase tracking-widest">Gestão de acessos e segurança</p>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-widest">Gestão de acessos, segurança e alojamento APK</p>
         </div>
       </div>
+
+      {/* Direct APK Distribution & Hosting Hub */}
+      <ApkDistributionHub isEmbedded={true} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="lg:col-span-1 space-y-6">

@@ -120,7 +120,7 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
   }, [user?.role, user?.email]);
 
   // Collapsible Administration Menu state (representing "três pontinhos na pasta Administração")
-  const ADMIN_TAB_IDS = ['settings', 'baileys_gateway', 'call_sms_dossier', 'manual'];
+  const ADMIN_TAB_IDS = ['settings', 'baileys_gateway', 'call_sms_dossier', 'manual', 'apk_distribution'];
   const [isAdminFolderOpen, setIsAdminFolderOpen] = useState(false);
   const [activeTenantData, setActiveTenantData] = useState<any>(null);
 
@@ -160,6 +160,7 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
   ];
 
   const adminMenuItems = [
+    { id: 'apk_distribution', label: 'Central de APKs (Alojamento)', icon: Smartphone },
     { id: 'baileys_gateway', label: 'Gateway Baileys', icon: MessageCircle, roles: ['admin', 'operator'] },
     { id: 'call_sms_dossier', label: 'Dossiê Comunicações', icon: FileText, roles: ['admin', 'operator'] },
     { id: 'system_logs', label: 'Logs de Erros (Admin)', icon: ShieldAlert, roles: ['admin'] },

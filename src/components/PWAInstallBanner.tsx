@@ -180,11 +180,20 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
                 ) : (
                   <>
                     <Download size={16} className="stroke-[2.5]" />
-                    <span>Instalar Agora (1-Toque)</span>
+                    <span>Instalar PWA Agora (1-Toque)</span>
                     {isInIframe && <ExternalLink size={12} className="ml-1 opacity-70" />}
                   </>
                 )}
               </button>
+
+              <a
+                href="/downloads/taxicontrol-v6.0.0.apk"
+                download="taxicontrol-v6.0.0.apk"
+                className="w-full bg-slate-800/90 hover:bg-slate-700 text-amber-400 font-bold text-xs py-3 px-4 rounded-xl border border-amber-500/30 flex items-center justify-center gap-2 transition-all uppercase tracking-wider cursor-pointer"
+              >
+                <Smartphone size={16} />
+                <span>Descarregar APK Android Direto</span>
+              </a>
 
               {isInIframe && (
                 <p className="text-[9px] text-amber-400/80 text-center font-bold">

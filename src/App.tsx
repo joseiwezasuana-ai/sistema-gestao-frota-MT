@@ -55,6 +55,7 @@ const SystemErrorLogs = React.lazy(() => import('./components/SystemErrorLogs'))
 const ShiftMonitor = React.lazy(() => import('./components/ShiftMonitor'));
 const DriverDashboard = React.lazy(() => import('./components/DriverDashboard'));
 const InvoiceDrafting = React.lazy(() => import('./components/InvoiceDrafting'));
+const ApkDistributionHub = React.lazy(() => import('./components/ApkDistributionHub'));
 
 import { 
   AlertCircle, 
@@ -166,6 +167,37 @@ export default function App() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Verify latest APK Distribution version on startup
+  useEffect(() => {
+    const unsubApkCheck = onSnapshot(doc(db, 'settings', 'apk_distribution'), async (docSnap) => {
+      if (!docSnap.exists()) {
+        // Seed default APK Distribution config in Firestore
+        try {
+          await setDoc(doc(db, 'settings', 'apk_distribution'), {
+            version: '6.0.0',
+            releaseDate: '2026-08-10',
+            buildNumber: '60021',
+            isCriticalUpdate: true,
+            notifyOnStartup: true,
+            minAndroidVersion: 'Android 8.0+ (API 26)',
+            storageProvider: 'Alojamento Próprio (JIS Angola Cloud Server)',
+            releaseNotes: 'Versão 6.0 Enterprise com suporte a Módulos Offline, Telemetria GPS 24h, Chat de Equipa com Alertas SOS, e Integração Contabilística em Tempo Real.',
+            driverAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+            driverAppSize: '18.4 MB',
+            staffAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+            staffAppSize: '21.2 MB',
+            passengerAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+            passengerAppSize: '16.8 MB'
+          }, { merge: true });
+        } catch (err) {
+          console.warn("Error seeding apk_distribution defaults:", err);
+        }
+      }
+    }, (err) => console.warn("APK startup check fallback:", err));
+
+    return () => unsubApkCheck();
   }, []);
 
   useEffect(() => {
@@ -509,7 +541,7 @@ export default function App() {
   const isMecanico = userProfile?.role === 'mecanico';
   const isContabilista = userProfile?.role === 'contabilista';
   const isOperator = isAdmin || userProfile?.role === 'operator';
-  const shouldNotifyAlert = isAdmin || userProfile?.role === 'operator';
+  const shouldNotifyAlert = !!userProfile;
 
   // Admin, Operators, and Accounting roles get a specialized Mobile View on small screens
   // We check for viewPreference first, then fallback to isMobile if auto
@@ -646,6 +678,7 @@ export default function App() {
             {activeTab === 'baileys_gateway' && <WhatsAppMonitor isAdmin={isAdmin} />}
             {activeTab === 'system_logs' && (isAdmin ? <SystemErrorLogs user={userProfile} /> : <Dashboard user={userProfile} />)}
             {activeTab === 'shift_monitor' && (isAdmin || isOperator || isMecanico ? <RealTimeMonitor user={userProfile} initialSubTab="shifts" /> : <Dashboard user={userProfile} />)}
+            {activeTab === 'apk_distribution' && <ApkDistributionHub user={userProfile} />}
           </React.Suspense>
         </Layout>
       </div>
