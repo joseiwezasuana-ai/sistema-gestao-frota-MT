@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import QRCode from 'qrcode';
 import { motion, AnimatePresence } from 'motion/react';
 import useSWR from 'swr';
 import { useTheme } from '../context/ThemeContext';
@@ -659,6 +660,40 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showInstallPwaModal, setShowInstallPwaModal] = useState(false);
+  const [showApkDownloadModal, setShowApkDownloadModal] = useState(false);
+  const [passengerApkQrUrl, setPassengerApkQrUrl] = useState<string>('');
+  const [apkConfig, setApkConfig] = useState<any>({
+    version: '6.0.0',
+    releaseDate: '2026-08-10',
+    passengerAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+    passengerAppSize: '16.8 MB'
+  });
+
+  useEffect(() => {
+    const unsubApk = onSnapshot(doc(db, 'settings', 'apk_distribution'), (snap) => {
+      if (snap.exists()) {
+        setApkConfig(snap.data());
+      }
+    }, (err) => console.warn("APK config sync error:", err));
+    return () => unsubApk();
+  }, []);
+
+  useEffect(() => {
+    if (showApkDownloadModal) {
+      const rawUrl = apkConfig.passengerAppUrl || '/downloads/taxicontrol-v6.0.0.apk';
+      const fullDownloadUrl = rawUrl.startsWith('http') 
+        ? rawUrl 
+        : `${window.location.origin}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+      
+      QRCode.toDataURL(fullDownloadUrl, {
+        width: 280,
+        margin: 2,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      })
+        .then(url => setPassengerApkQrUrl(url))
+        .catch(() => setPassengerApkQrUrl(`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(fullDownloadUrl)}`));
+    }
+  }, [showApkDownloadModal, apkConfig.passengerAppUrl]);
 
   // Observer Pattern state & ref for Registration Form Scroll End Detection
   const [isFormEndVisible, setIsFormEndVisible] = useState(false);
@@ -2571,16 +2606,28 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </button>
                       )}
 
+                      {/* DESCARREGAR APK PASSAGEIRO */}
+                      <button
+                        onClick={() => {
+                          setShowApkDownloadModal(true);
+                          setIsNavMenuOpen(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-emerald-400 hover:bg-emerald-500/10 border-t border-white/10 mt-1 cursor-pointer"
+                      >
+                        <Smartphone size={13} className="text-emerald-400" />
+                        Download App Android (.APK)
+                      </button>
+
                       {/* INSTALAR APLICAÇÃO (PWA) */}
                       <button
                         onClick={() => {
                           setShowInstallPwaModal(true);
                           setIsNavMenuOpen(false);
                         }}
-                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-amber-400 hover:bg-amber-500/10 border-t border-white/10 mt-1 cursor-pointer"
+                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-amber-400 hover:bg-amber-500/10 border-t border-white/5 cursor-pointer"
                       >
                         <Download size={13} className="text-amber-400" />
-                        Instalar SUPER Táxi
+                        Instalar SUPER Táxi Web
                       </button>
 
                       {/* No collaborator buttons inside passenger app */}
@@ -2664,6 +2711,49 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </div>
                         <ArrowRight size={14} className="text-slate-500 shrink-0" />
                       </button>
+
+                      {/* BANNER CENTRALIZADO DE DOWNLOAD DO APK PARA PASSAGEIROS */}
+                      <div className="pt-2 w-full">
+                        <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/15 via-slate-900 to-blue-600/15 border-2 border-amber-500/40 shadow-xl space-y-3 relative overflow-hidden text-left">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 rounded-xl font-black shadow-md">
+                                <Smartphone size={18} />
+                              </div>
+                              <div>
+                                <span className="text-[8.5px] font-black uppercase text-amber-400 tracking-wider">Aplicações Móveis Oficial</span>
+                                <h4 className="text-xs font-black uppercase tracking-tight text-white">App de Passageiro (.APK)</h4>
+                              </div>
+                            </div>
+                            <span className="text-[8.5px] font-black px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">v{apkConfig.version || '6.0.0'}</span>
+                          </div>
+
+                          <p className="text-[9.5px] text-slate-300 leading-relaxed font-medium">
+                            Prefere usar a App no telemóvel? Descarregue a versão instalável Android para solicitar corridas com 1-Toque, GPS em tempo real e notificações offline sem necessitar de navegador web!
+                          </p>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <a
+                              href={apkConfig.passengerAppUrl || '/downloads/taxicontrol-v6.0.0.apk'}
+                              download="taxicontrol-passageiro-v6.0.0.apk"
+                              className="flex-1 py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                            >
+                              <Download size={13} />
+                              <span>Baixar App ({apkConfig.passengerAppSize || '16.8 MB'})</span>
+                            </a>
+
+                            <button
+                              type="button"
+                              onClick={() => setShowApkDownloadModal(true)}
+                              className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                              title="Digitalizar QR Code"
+                            >
+                              <QrCode size={15} />
+                              <span className="text-[8.5px] font-black uppercase">QR Code</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     {/* No staff portal buttons in passenger welcome flow */}
@@ -5324,6 +5414,64 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
             )}
 
           </div>
+
+          {/* APK DOWNLOAD & SCANNABLE QR CODE MODAL FOR PASSENGERS */}
+          <AnimatePresence>
+            {showApkDownloadModal && (
+              <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                  className="bg-slate-900 border-2 border-amber-500/60 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-center relative overflow-hidden"
+                >
+                  <button
+                    onClick={() => setShowApkDownloadModal(false)}
+                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-800 rounded-full transition-colors cursor-pointer"
+                  >
+                    <X size={16} />
+                  </button>
+
+                  <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/30">
+                    <Smartphone size={24} />
+                  </div>
+
+                  <div>
+                    <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">Aplicações Móveis JIS Angola</span>
+                    <h3 className="text-base font-black uppercase tracking-tight text-white mt-1">App Passageiro Android</h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Versão {apkConfig.version || '6.0.0'} • Tamanho: {apkConfig.passengerAppSize || '16.8 MB'}</p>
+                  </div>
+
+                  {/* Real Scannable QR Code */}
+                  <div className="bg-white p-4 rounded-2xl border-2 border-slate-950 shadow-xl inline-block my-1 max-w-full">
+                    {passengerApkQrUrl ? (
+                      <img src={passengerApkQrUrl} alt="QR Code App Passageiro" className="w-48 h-48 mx-auto rounded-lg object-contain" />
+                    ) : (
+                      <div className="w-48 h-48 flex items-center justify-center bg-slate-100 text-slate-400">
+                        <RefreshCw className="animate-spin text-amber-500" size={24} />
+                      </div>
+                    )}
+                    <p className="text-[9.5px] font-black uppercase text-slate-800 tracking-wider mt-2.5">Digitalize com a câmara do telemóvel</p>
+                  </div>
+
+                  <p className="text-[10.5px] text-slate-300 leading-relaxed px-1 font-medium">
+                    Aponte a câmara do seu smartphone para descarregar e instalar o ficheiro <strong>.APK oficial</strong> diretamente no seu telemóvel Android.
+                  </p>
+
+                  <div className="pt-2 flex gap-2">
+                    <a
+                      href={apkConfig.passengerAppUrl || '/downloads/taxicontrol-v6.0.0.apk'}
+                      download="taxicontrol-passageiro-v6.0.0.apk"
+                      className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                    >
+                      <Download size={16} />
+                      <span>Download Direto</span>
+                    </a>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
           
           {/* Status bar base phone home bar decoration */}
           {!isPublicApp && (

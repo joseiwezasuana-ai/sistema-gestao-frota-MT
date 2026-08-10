@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { 
   Download, 
   Smartphone, 
@@ -243,53 +244,63 @@ export default function ApkDistributionHub({ user, isEmbedded = false }: ApkDist
     }
   };
 
-  // SVG QR Code representation
-  const renderQrSvg = (url: string) => {
+  // Real Scannable QR Code Generator Component
+  const RealQrCodeDisplay = ({ pathUrl, appTitle }: { pathUrl: string; appTitle?: string }) => {
+    const fullUrl = getFullDownloadUrl(pathUrl);
+    const [qrDataUrl, setQrDataUrl] = useState<string>('');
+    const [loading, setLoading] = useState<boolean>(true);
+
+    useEffect(() => {
+      let isMounted = true;
+      setLoading(true);
+
+      QRCode.toDataURL(fullUrl, {
+        width: 300,
+        margin: 2,
+        color: {
+          dark: '#0f172a',
+          light: '#ffffff'
+        },
+        errorCorrectionLevel: 'H'
+      })
+        .then((dataUrl) => {
+          if (isMounted) {
+            setQrDataUrl(dataUrl);
+            setLoading(false);
+          }
+        })
+        .catch((err) => {
+          console.warn("Local QRCode generation error, using fallback API:", err);
+          if (isMounted) {
+            setQrDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fullUrl)}`);
+            setLoading(false);
+          }
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    }, [fullUrl]);
+
     return (
-      <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 shadow-xl inline-block text-center">
-        <svg viewBox="0 0 100 100" className="w-48 h-48 mx-auto">
-          {/* Outer Markers */}
-          <rect x="5" y="5" width="28" height="28" fill="#0f172a" rx="4" />
-          <rect x="9" y="9" width="20" height="20" fill="#ffffff" rx="2" />
-          <rect x="13" y="13" width="12" height="12" fill="#0f172a" rx="1" />
-
-          <rect x="67" y="5" width="28" height="28" fill="#0f172a" rx="4" />
-          <rect x="71" y="9" width="20" height="20" fill="#ffffff" rx="2" />
-          <rect x="75" y="13" width="12" height="12" fill="#0f172a" rx="1" />
-
-          <rect x="5" y="67" width="28" height="28" fill="#0f172a" rx="4" />
-          <rect x="9" y="71" width="20" height="20" fill="#ffffff" rx="2" />
-          <rect x="13" y="75" width="12" height="12" fill="#0f172a" rx="1" />
-
-          {/* QR Code Data Grid */}
-          <rect x="38" y="10" width="8" height="8" fill="#0f172a" />
-          <rect x="50" y="10" width="12" height="8" fill="#0f172a" />
-          <rect x="38" y="22" width="12" height="6" fill="#0f172a" />
-          <rect x="54" y="22" width="8" height="8" fill="#0f172a" />
-
-          <rect x="10" y="38" width="10" height="10" fill="#0f172a" />
-          <rect x="24" y="38" width="8" height="12" fill="#0f172a" />
-          <rect x="36" y="36" width="14" height="14" fill="#f59e0b" />
-          <rect x="54" y="36" width="10" height="10" fill="#0f172a" />
-          <rect x="68" y="38" width="22" height="8" fill="#0f172a" />
-
-          <rect x="10" y="52" width="18" height="8" fill="#0f172a" />
-          <rect x="32" y="54" width="10" height="8" fill="#0f172a" />
-          <rect x="46" y="52" width="18" height="10" fill="#0f172a" />
-          <rect x="68" y="52" width="8" height="10" fill="#f59e0b" />
-          <rect x="80" y="50" width="10" height="12" fill="#0f172a" />
-
-          <rect x="38" y="68" width="10" height="10" fill="#0f172a" />
-          <rect x="52" y="70" width="14" height="8" fill="#0f172a" />
-          <rect x="70" y="68" width="10" height="10" fill="#0f172a" />
-          <rect x="84" y="68" width="8" height="8" fill="#0f172a" />
-
-          {/* Center Brand Badge */}
-          <rect x="40" y="40" width="20" height="20" fill="#ffffff" rx="4" />
-          <text x="50" y="54" fontSize="10" fontWeight="bold" textAnchor="middle" fill="#0f172a">JIS</text>
-        </svg>
-        <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider mt-2">
+      <div className="bg-white p-4 rounded-2xl border-2 border-slate-900 shadow-xl inline-block text-center max-w-full my-2">
+        {loading ? (
+          <div className="w-52 h-52 mx-auto flex flex-col items-center justify-center bg-slate-100 rounded-xl text-slate-400 gap-2">
+            <RefreshCw className="animate-spin text-amber-500" size={28} />
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-600">A Gerar QR Code...</span>
+          </div>
+        ) : (
+          <img
+            src={qrDataUrl}
+            alt={`QR Code Scannable para ${appTitle || 'APK'}`}
+            className="w-52 h-52 mx-auto rounded-xl object-contain border border-slate-100 shadow-sm"
+          />
+        )}
+        <p className="text-[10px] font-black uppercase text-slate-800 tracking-wider mt-2.5">
           Digitalize com a câmara do telemóvel
+        </p>
+        <p className="text-[9px] font-mono text-slate-500 truncate max-w-[220px] mx-auto mt-1 px-1 py-0.5 bg-slate-100 rounded">
+          {fullUrl}
         </p>
       </div>
     );
@@ -1247,10 +1258,16 @@ service firebase.storage {
                 </h3>
               </div>
 
-              {renderQrSvg(
-                selectedQrApp === 'driver' ? apkConfig.driverAppUrl :
-                selectedQrApp === 'staff' ? apkConfig.staffAppUrl : apkConfig.passengerAppUrl
-              )}
+              <RealQrCodeDisplay
+                pathUrl={
+                  selectedQrApp === 'driver' ? apkConfig.driverAppUrl :
+                  selectedQrApp === 'staff' ? apkConfig.staffAppUrl : apkConfig.passengerAppUrl
+                }
+                appTitle={
+                  selectedQrApp === 'driver' ? 'TaxiControl Motorista' :
+                  selectedQrApp === 'staff' ? 'TaxiControl Staff' : 'TaxiControl Passageiro'
+                }
+              />
 
               <p className="text-xs text-slate-400">
                 Aponte a câmara do seu telemóvel Android para iniciar o download do ficheiro APK imediatamente.
