@@ -546,6 +546,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const [earnings, setEarnings] = useState(0);
   const [approvedEarnings, setApprovedEarnings] = useState(0);
   const [stars, setStars] = useState<number | string>("Novo");
+  const [totalRatingCount, setTotalRatingCount] = useState<number>(0);
   const hiddenCallIdsRef = useRef<string[]>([]);
   const forceDismissService = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -676,19 +677,38 @@ export default function DriverView({ user }: DriverViewProps) {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as any))
-        .filter((trip) => trip.approvedByOperator !== true); // Filter out approved trips so they disappear once approved
-      setPassengerRidesConfirmed(list);
+      const allCompletedTrips = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+
+      // Filter out approved trips ONLY for the active declaration list
+      const unapprovedList = allCompletedTrips.filter((trip) => trip.approvedByOperator !== true);
+      setPassengerRidesConfirmed(unapprovedList);
       
       // All-time historical total of completed app rides per driver
-      const allTimeTotal = list.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+      const allTimeTotal = allCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
       setPassengerRidesAllTimeTotal(allTimeTotal);
 
       // Current automatic app billing (only undeclared calls)
-      const currentUndeclared = list.filter((curr: any) => curr.declared !== true);
+      const currentUndeclared = unapprovedList.filter((curr: any) => curr.declared !== true);
       const currentTotal = currentUndeclared.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
       setPassengerRidesTotal(currentTotal);
+
+      // Dynamically calculate rating from ALL rated completed calls (including historical approved ones)
+      const ratedCalls = allCompletedTrips.filter((curr: any) => {
+        const val = curr.rating ?? curr.passengerRating ?? curr.stars ?? curr.evaluation;
+        return val !== undefined && val !== null && !isNaN(Number(val)) && Number(val) > 0;
+      });
+
+      if (ratedCalls.length > 0) {
+        const sum = ratedCalls.reduce((acc, curr: any) => {
+          const val = Number(curr.rating ?? curr.passengerRating ?? curr.stars ?? curr.evaluation);
+          return acc + val;
+        }, 0);
+        const avg = Number((sum / ratedCalls.length).toFixed(1));
+        setStars(avg);
+        setTotalRatingCount(ratedCalls.length);
+      } else {
+        setTotalRatingCount(0);
+      }
     }, (error) => {
       console.warn("Error listening to passenger rides:", error);
     });
@@ -2820,42 +2840,30 @@ export default function DriverView({ user }: DriverViewProps) {
                   {/* Decorative ambient GPS grid */}
                   <div className="absolute inset-0 opacity-5 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
 
-                  {/* Header Call state overlay */}
-                  <div className="flex items-center justify-between border-b border-dashed border-white/10 pb-4 relative z-10">
+                  {/* Clean Service Call Header */}
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 relative z-10">
                     <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping shrink-0" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                        SISTEMA OPERACIONAL PSM
+                      <div className={cn(
+                        "w-2.5 h-2.5 rounded-full shrink-0",
+                        currentService.status === "pending" ? "bg-amber-400 animate-ping" : "bg-emerald-400 animate-pulse"
+                      )} />
+                      <span className="text-xs font-black text-white uppercase tracking-wider">
+                        {currentService.status === "pending" && (isDirectForwarded ? "Chamada Reencaminhada" : "Novo Pedido de Viagem")}
+                        {currentService.status === "connected" && "Atendimento de Voz"}
+                        {currentService.status === "price_sent" && "Proposta Enviada"}
+                        {currentService.status === "price_negotiation_requested" && "Pedido de Desconto do Passageiro"}
+                        {currentService.status === "confirmed" && "Corrida Confirmada"}
+                        {currentService.status === "active" && "Viagem em Curso"}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        "px-3 py-1 font-black text-[9.5px] rounded-full uppercase tracking-widest text-center",
-                        currentService.status === "pending" && "bg-amber-500 text-slate-950 animate-pulse",
-                        currentService.status === "connected" && "bg-amber-400 text-slate-950 animate-pulse",
-                        currentService.status === "price_sent" && "bg-blue-500 text-white",
-                        currentService.status === "price_negotiation_requested" && "bg-amber-500 text-slate-950 animate-pulse",
-                        currentService.status === "confirmed" && "bg-emerald-500 text-white",
-                        currentService.status === "active" && "bg-emerald-500 text-white"
-                      )}>
-                        {currentService.status === "pending" && (isDirectForwarded ? "📲 CHAMADA REENCAMINHADA" : "📞 CHAMADA PENDENTE")}
-                        {currentService.status === "connected" && "🎙️ VOZ ESTABELECIDA"}
-                        {currentService.status === "price_sent" && "💬 PROPOSTA ENVIADA"}
-                        {currentService.status === "price_negotiation_requested" && "🙋 PEDIDO DE DESCONTO DO PASSAGEIRO"}
-                        {currentService.status === "confirmed" && "✨ PREÇO CONFIRMADO"}
-                        {currentService.status === "active" && "🚀 VIAGEM EM CURSO"}
-                      </span>
 
-                      {/* BOTAO CHAVE DE ESCAPE Sair / Desbloquear (JIS) */}
-                      <button
-                        onClick={forceUnlockScreen}
-                        className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-600 transition-all text-[8.5px] text-rose-400 hover:text-white rounded-lg border border-rose-500/20 font-black uppercase tracking-wider flex items-center gap-1 active:scale-95"
-                        title="Caso a chamada fique bloqueada, clique para voltar ao menu principal"
-                      >
-                        <X size={10} />
-                        Sair (Desbloquear)
-                      </button>
-                    </div>
+                    <button
+                      onClick={forceUnlockScreen}
+                      className="p-1.5 bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-xl transition-all cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-700/50"
+                      title="Voltar ao Painel Principal"
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
 
                   {/* Operational Status Display indicator */}
@@ -3873,17 +3881,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       </div>
                     )}
                   </div>
-                ) : (
-                  /* Today Status Reminder (Subtle inline text to save full box space) */
-                  !todayRevenueSubmitted && lastShiftRevenueSubmitted && (
-                    <div className="bg-amber-50/50 border border-amber-200/50 p-3 rounded-2xl flex items-center gap-2.5 shadow-sm">
-                      <Clock size={14} className="text-amber-500 animate-pulse flex-shrink-0" />
-                      <span className="text-[9px] text-amber-700 font-bold uppercase tracking-wide text-left">
-                        Lembrete: Declarar a renda de hoje ao encerrar o seu turno.
-                      </span>
-                    </div>
-                  )
-                )}
+                ) : null}
 
                 {/* Unified Cabine de Controlo Card (Shift Control, Rating, Earnings & SOS) */}
                 <div className="bg-slate-950 border border-slate-800 text-white rounded-[2rem] p-5 shadow-xl relative overflow-hidden">
@@ -3917,7 +3915,9 @@ export default function DriverView({ user }: DriverViewProps) {
                       <div className="text-left">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Avaliação</p>
                         <p className="text-[13px] font-black text-white mt-0.5">
-                          {stars === "Novo" ? "Novo (Sem avaliações)" : `${stars} ★`}
+                          {typeof stars === 'number' || (typeof stars === 'string' && !isNaN(Number(stars)))
+                            ? `${Number(stars).toFixed(1)} ★${totalRatingCount > 0 ? ` (${totalRatingCount})` : ''}`
+                            : (stars === "Novo" || !stars ? "Novo (Sem avaliações)" : `${stars}`)}
                         </p>
                       </div>
                     </div>

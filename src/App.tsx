@@ -71,6 +71,7 @@ import {
 import { motion } from 'motion/react';
 import { ThemeProvider } from './context/ThemeContext';
 import { ConnectivityBanner } from './components/ConnectivityBanner';
+import { PullToRefresh } from './components/PullToRefresh';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -491,8 +492,9 @@ export default function App() {
   if (showPublicPassengerFlow) {
     return (
       <ThemeProvider>
-         <ConnectivityBanner user={userProfile || user} />
-         <div className="h-screen h-[100dvh] relative w-full overflow-hidden bg-slate-950 flex flex-col items-center justify-center">
+        <PullToRefresh>
+          <ConnectivityBanner user={userProfile || user} />
+          <div className="min-h-screen relative w-full bg-slate-950 flex flex-col items-center justify-center">
             <React.Suspense fallback={
               <div className="flex flex-col items-center justify-center gap-4 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -501,7 +503,8 @@ export default function App() {
             }>
               <PassengerFlow isPublicApp={true} />
             </React.Suspense>
-         </div>
+          </div>
+        </PullToRefresh>
       </ThemeProvider>
     );
   }
@@ -513,15 +516,17 @@ export default function App() {
     };
     return (
       <ThemeProvider>
-        <ConnectivityBanner user={userProfile || user} />
-        <Login 
-          key="login-view" 
-          onGoogleLogin={handleGoogleLogin} 
-          onPassengerFlow={() => {
-            localStorage.removeItem('collaborator_mode');
-            setShowPublicPassengerFlow(true);
-          }} 
-        />
+        <PullToRefresh>
+          <ConnectivityBanner user={userProfile || user} />
+          <Login 
+            key="login-view" 
+            onGoogleLogin={handleGoogleLogin} 
+            onPassengerFlow={() => {
+              localStorage.removeItem('collaborator_mode');
+              setShowPublicPassengerFlow(true);
+            }} 
+          />
+        </PullToRefresh>
       </ThemeProvider>
     );
   }
@@ -529,8 +534,10 @@ export default function App() {
   if (!userProfile) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner user={userProfile || user} />
-        <ProfileSetup key="setup-view" user={user} onComplete={setUserProfile} />
+        <PullToRefresh>
+          <ConnectivityBanner user={userProfile || user} />
+          <ProfileSetup key="setup-view" user={user} onComplete={setUserProfile} />
+        </PullToRefresh>
       </ThemeProvider>
     );
   }
@@ -551,22 +558,24 @@ export default function App() {
   if (shouldShowMobile && isAdminOrStaff) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner user={userProfile || user} />
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-          <React.Suspense fallback={
-            <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
-              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar portal...</span>
-            </div>
-          }>
-            <StaffMobileView 
-              user={userProfile} 
-              onLogout={() => signOut(auth)} 
-              onExitMobile={() => setViewPreference('desktop')}
-            />
-          </React.Suspense>
-        </div>
+        <PullToRefresh>
+          <ConnectivityBanner user={userProfile || user} />
+          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+            {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
+            <React.Suspense fallback={
+              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar portal...</span>
+              </div>
+            }>
+              <StaffMobileView 
+                user={userProfile} 
+                onLogout={() => signOut(auth)} 
+                onExitMobile={() => setViewPreference('desktop')}
+              />
+            </React.Suspense>
+          </div>
+        </PullToRefresh>
       </ThemeProvider>
     );
   }
@@ -575,18 +584,20 @@ export default function App() {
   if (isMecanico) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner user={userProfile || user} />
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-          <React.Suspense fallback={
-            <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
-              <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel mecânico...</span>
-            </div>
-          }>
-            <MechanicView user={userProfile} />
-          </React.Suspense>
-        </div>
+        <PullToRefresh>
+          <ConnectivityBanner user={userProfile || user} />
+          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+            {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
+            <React.Suspense fallback={
+              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+                <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel mecânico...</span>
+              </div>
+            }>
+              <MechanicView user={userProfile} />
+            </React.Suspense>
+          </div>
+        </PullToRefresh>
       </ThemeProvider>
     );
   }
@@ -594,94 +605,98 @@ export default function App() {
   if (isDriver) {
     return (
       <ThemeProvider>
-        <ConnectivityBanner user={userProfile || user} />
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
-          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-          <React.Suspense fallback={
-            <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
-              <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel motorista...</span>
-            </div>
-          }>
-            <DriverView user={userProfile} />
-          </React.Suspense>
-        </div>
+        <PullToRefresh>
+          <ConnectivityBanner user={userProfile || user} />
+          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+            {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
+            <React.Suspense fallback={
+              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+                <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel motorista...</span>
+              </div>
+            }>
+              <DriverView user={userProfile} />
+            </React.Suspense>
+          </div>
+        </PullToRefresh>
       </ThemeProvider>
     );
   }
 
   return (
     <ThemeProvider>
-      <ConnectivityBanner user={userProfile || user} />
-      <KeyboardShortcutManager user={userProfile} activeTab={activeTab} onTabChange={setActiveTab} />
-      <div key="authed-layout" className="min-h-screen">
-        <Layout 
-          user={userProfile} 
-          globalSettings={globalSettings}
-          activeTab={activeTab} 
-          onTabChange={setActiveTab}
-          onLogout={async () => {
-            localStorage.removeItem('local_user_session');
-            await signOut(auth);
-            setUser(null);
-            setUserProfile(null);
-          }}
-          onToggleMobile={() => setViewPreference('mobile')}
-          onEditProfile={() => setIsProfileEditOpen(true)}
-        >
-          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-          <ProfileEdit 
+      <PullToRefresh>
+        <ConnectivityBanner user={userProfile || user} />
+        <KeyboardShortcutManager user={userProfile} activeTab={activeTab} onTabChange={setActiveTab} />
+        <div key="authed-layout" className="min-h-screen">
+          <Layout 
             user={userProfile} 
-            isOpen={isProfileEditOpen} 
-            onClose={() => setIsProfileEditOpen(false)}
-            onUpdate={setUserProfile}
-          />
-          {dbError && (
-            <div className="bg-amber-100 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800/30 px-4 py-2 text-amber-800 dark:text-amber-200 text-xs font-bold flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="animate-pulse h-2 w-2 rounded-full bg-amber-500" />
-                <span>{dbError}</span>
+            globalSettings={globalSettings}
+            activeTab={activeTab} 
+            onTabChange={setActiveTab}
+            onLogout={async () => {
+              localStorage.removeItem('local_user_session');
+              await signOut(auth);
+              setUser(null);
+              setUserProfile(null);
+            }}
+            onToggleMobile={() => setViewPreference('mobile')}
+            onEditProfile={() => setIsProfileEditOpen(true)}
+          >
+            {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
+            <ProfileEdit 
+              user={userProfile} 
+              isOpen={isProfileEditOpen} 
+              onClose={() => setIsProfileEditOpen(false)}
+              onUpdate={setUserProfile}
+            />
+            {dbError && (
+              <div className="bg-amber-100 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800/30 px-4 py-2 text-amber-800 dark:text-amber-200 text-xs font-bold flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="animate-pulse h-2 w-2 rounded-full bg-amber-500" />
+                  <span>{dbError}</span>
+                </div>
+                <button 
+                  onClick={() => setDbError(null)} 
+                  className="hover:bg-amber-200 dark:hover:bg-amber-800/50 p-1 rounded transition-all text-slate-500 hover:text-slate-800 dark:hover:text-white"
+                  title="Fechar aviso"
+                >
+                  <X size={14} />
+                </button>
               </div>
-              <button 
-                onClick={() => setDbError(null)} 
-                className="hover:bg-amber-200 dark:hover:bg-amber-800/50 p-1 rounded transition-all text-slate-500 hover:text-slate-800 dark:hover:text-white"
-                title="Fechar aviso"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
-          <React.Suspense fallback={
-            <div className="p-12 flex flex-col items-center justify-center gap-4 text-slate-500 dark:text-slate-400 font-sans">
-              <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">A carregar módulo...</span>
-            </div>
-          }>
-            {activeTab === 'dashboard' && <Dashboard user={userProfile} />}
-            {activeTab === 'driver_dashboard' && <DriverDashboard />}
-            {activeTab === 'recruitment' && (isAdmin ? <RecruitmentHub user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'fleet' && (isAdmin || isOperator || isMecanico || isContabilista ? <FleetManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'monitors' && <RealTimeMonitor user={userProfile} />}
-            {activeTab === 'revenue' && (isAdmin || isOperator || isContabilista ? <RevenueManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'passengers' && (isAdmin || isOperator ? <PassengerManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'map' && <RealTimeMap />}
-            {activeTab === 'gps_timeline' && <GPSTimeline />}
-            {activeTab === 'history' && <History />}
-            {activeTab === 'maintenance' && (isAdmin || isOperator || isMecanico || isContabilista ? <MaintenanceRegistry user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'accounting' && (isAdmin || isContabilista ? <AccountingManager user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'warehouse' && (isAdmin || isOperator || isMecanico ? <WarehouseManager user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'psm_phones' && (isAdmin || isOperator ? <CompanyPhones /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'manual' && <UserManual />}
-            {activeTab === 'settings' && (isAdmin ? <Settings /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'messages' && (isAdmin || isOperator ? <Messages isAdmin={isAdmin} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'call_sms_dossier' && (isAdmin || isOperator ? <CallSmsDossier /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'baileys_gateway' && <WhatsAppMonitor isAdmin={isAdmin} />}
-            {activeTab === 'system_logs' && (isAdmin ? <SystemErrorLogs user={userProfile} /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'shift_monitor' && (isAdmin || isOperator || isMecanico ? <RealTimeMonitor user={userProfile} initialSubTab="shifts" /> : <Dashboard user={userProfile} />)}
-            {activeTab === 'apk_distribution' && <ApkDistributionHub user={userProfile} />}
-          </React.Suspense>
-        </Layout>
-      </div>
+            )}
+            <React.Suspense fallback={
+              <div className="p-12 flex flex-col items-center justify-center gap-4 text-slate-500 dark:text-slate-400 font-sans">
+                <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">A carregar módulo...</span>
+              </div>
+            }>
+              {activeTab === 'dashboard' && <Dashboard user={userProfile} />}
+              {activeTab === 'driver_dashboard' && <DriverDashboard />}
+              {activeTab === 'recruitment' && (isAdmin ? <RecruitmentHub user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'fleet' && (isAdmin || isOperator || isMecanico || isContabilista ? <FleetManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'monitors' && <RealTimeMonitor user={userProfile} />}
+              {activeTab === 'revenue' && (isAdmin || isOperator || isContabilista ? <RevenueManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'passengers' && (isAdmin || isOperator ? <PassengerManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'map' && <RealTimeMap />}
+              {activeTab === 'gps_timeline' && <GPSTimeline />}
+              {activeTab === 'history' && <History />}
+              {activeTab === 'maintenance' && (isAdmin || isOperator || isMecanico || isContabilista ? <MaintenanceRegistry user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'accounting' && (isAdmin || isContabilista ? <AccountingManager user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'warehouse' && (isAdmin || isOperator || isMecanico ? <WarehouseManager user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'psm_phones' && (isAdmin || isOperator ? <CompanyPhones /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'manual' && <UserManual />}
+              {activeTab === 'settings' && (isAdmin ? <Settings /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'messages' && (isAdmin || isOperator ? <Messages isAdmin={isAdmin} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'call_sms_dossier' && (isAdmin || isOperator ? <CallSmsDossier /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'baileys_gateway' && <WhatsAppMonitor isAdmin={isAdmin} />}
+              {activeTab === 'system_logs' && (isAdmin ? <SystemErrorLogs user={userProfile} /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'shift_monitor' && (isAdmin || isOperator || isMecanico ? <RealTimeMonitor user={userProfile} initialSubTab="shifts" /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'apk_distribution' && <ApkDistributionHub user={userProfile} />}
+            </React.Suspense>
+          </Layout>
+        </div>
+      </PullToRefresh>
     </ThemeProvider>
   );
 }

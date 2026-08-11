@@ -251,6 +251,15 @@ export default function DriverDashboard() {
   const totalCallsCount = driverCalls.length;
   const callSuccessRate = totalCallsCount > 0 ? Math.round((completedCalls / totalCallsCount) * 100) : 0;
 
+  // Dynamically calculate average rating across all rated trips in the fleet
+  const ratedFleetCalls = allCalls.filter((c: any) => {
+    const val = c.rating ?? c.passengerRating ?? c.stars ?? c.evaluation;
+    return val !== undefined && val !== null && !isNaN(Number(val)) && Number(val) > 0;
+  });
+  const fleetAvgRating = ratedFleetCalls.length > 0
+    ? (ratedFleetCalls.reduce((sum: number, c: any) => sum + Number(c.rating ?? c.passengerRating ?? c.stars ?? c.evaluation), 0) / ratedFleetCalls.length).toFixed(1)
+    : '5.0';
+
   const workedDaysSet = new Set(driverRevenues.map(r => {
     const d = toSafeDate(r.timestamp || r.date);
     return d ? d.toISOString().slice(0, 10) : null;
@@ -1480,7 +1489,8 @@ export default function DriverDashboard() {
                     </div>
                     <div className="bg-white/5 border border-white/10 p-4 rounded-2xl">
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Satisfação da Frota</span>
-                      <span className="text-2xl font-black text-brand-primary font-mono">4.9 / 5.0 ★</span>
+                      <span className="text-2xl font-black text-brand-primary font-mono">{fleetAvgRating} / 5.0 ★</span>
+                      <p className="text-[9px] text-slate-400 uppercase font-bold mt-0.5">{ratedFleetCalls.length} avaliações</p>
                     </div>
                   </div>
 

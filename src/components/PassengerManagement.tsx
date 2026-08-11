@@ -365,8 +365,9 @@ export default function PassengerManagement({ user }: { user: any }) {
          driverMap[driverKey].routes[routeKey] = (driverMap[driverKey].routes[routeKey] || 0) + 1;
       }
 
-      if (c.rating !== undefined && c.rating !== null) {
-        driverMap[driverKey].ratings.push(Number(c.rating));
+      const ratingVal = c.rating ?? c.passengerRating ?? c.stars ?? c.evaluation;
+      if (ratingVal !== undefined && ratingVal !== null && !isNaN(Number(ratingVal)) && Number(ratingVal) > 0) {
+        driverMap[driverKey].ratings.push(Number(ratingVal));
       }
     });
 

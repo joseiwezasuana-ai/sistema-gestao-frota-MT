@@ -4,12 +4,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import useSWR from 'swr';
 import { useTheme } from '../context/ThemeContext';
 import { 
-  Car, MapPin, Phone, User, Camera, Sun, Moon, Sparkles, ShieldCheck, 
+  Car, MapPin, Phone, User, Users, Camera, Sun, Moon, Sparkles, ShieldCheck, 
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
   Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
   ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut
 } from 'lucide-react';
+import { cn } from '../lib/utils';
 import { PWAInstallModal } from './PWAInstallBanner';
 import { WebRTCAudioCall } from './WebRTCAudioCall';
 import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion, limit, deleteDoc } from '../lib/firebase';
@@ -649,10 +650,12 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
   const [useBonusForRide, setUseBonusForRide] = useState(false);
   const [showVehicleSelect, setShowVehicleSelect] = useState(false);
+  const [showVehicleSelectModal, setShowVehicleSelectModal] = useState(false);
 
   useEffect(() => {
     if (!isBookModalOpen) {
       setShowVehicleSelect(false);
+      setShowVehicleSelectModal(false);
     }
   }, [isBookModalOpen]);
   
@@ -1197,8 +1200,8 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
   useEffect(() => {
     if (swrFleet && swrFleet.length > 0) {
       setAvailableVehicles(swrFleet);
-      if (selectedVehicleId === '' || !swrFleet.some(v => v.id === selectedVehicleId)) {
-        setSelectedVehicleId(swrFleet[0].id);
+      if (selectedVehicleId !== '' && selectedVehicleId !== 'auto' && !swrFleet.some(v => v.id === selectedVehicleId)) {
+        setSelectedVehicleId('');
       }
     }
   }, [swrFleet]);
@@ -2010,18 +2013,27 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
   // Initiate call / request price
   const handleInitiateCall = async () => {
-    if (!pickup.trim() || !destination.trim() || !selectedVehicleId) {
-      alert("Indique o ponto de recolha, destino e viatura desejada.");
+    if (!pickup.trim() || !destination.trim()) {
+      alert("Indique o ponto de recolha e o destino final da viagem.");
       return;
     }
 
-    const selectedVehicle = availableVehicles.find(v => v.id === selectedVehicleId);
-    console.log("[PassengerFlow] Initiating call. Available vehicles:", availableVehicles, "Selected ID:", selectedVehicleId, "Selected:", selectedVehicle);
+    let selectedVehicle = (selectedVehicleId && selectedVehicleId !== 'auto') 
+      ? availableVehicles.find(v => v.id === selectedVehicleId)
+      : availableVehicles[0];
 
     if (!selectedVehicle) {
-      alert("Nenhuma viatura disponível selecionada. Por favor, tente novamente ou verifique se há motoristas ativos em Luena.");
-      return;
+      selectedVehicle = {
+        id: 'auto',
+        plate: 'Atribuição Automática',
+        model: 'Frota SUPER Táxi',
+        phone: '',
+        driverName: 'Motorista de Turno',
+        driverId: 'auto'
+      };
     }
+
+    console.log("[PassengerFlow] Initiating call. Available vehicles:", availableVehicles, "Selected ID:", selectedVehicleId, "Selected:", selectedVehicle);
 
     // Ensure any previous stale connection/ride state is thoroughly reset before starting a fresh call
     setCallState('calling');
@@ -2262,36 +2274,68 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
     if (activeRideRecord?.id) {
       try {
         const rideRef = doc(db, 'calls', activeRideRecord.id);
-        await updateDoc(rideRef, { rating: star }).catch(() => {
-          // Fallback with setDoc merge
-          setDoc(rideRef, { rating: star }, { merge: true });
+        const ratingData = { rating: star, passengerRating: star, stars: star, ratedAt: new Date().toISOString() };
+        await updateDoc(rideRef, ratingData).catch(() => {
+          setDoc(rideRef, ratingData, { merge: true });
         });
 
-        // Also update the driver's cumulative rating in 'drivers' collection if driverId exists
-        if (activeRideRecord.driverId) {
-          const driverRef = doc(db, 'drivers', activeRideRecord.driverId);
-          const driverSnap = await getDoc(driverRef);
-          if (driverSnap.exists()) {
-            const dData = driverSnap.data();
+        // Also update driver rating in Firestore (drivers & users collections)
+        const driverIdToUpdate = activeRideRecord.driverId;
+        const driverNameToUpdate = activeRideRecord.driverName;
+
+        if (driverIdToUpdate) {
+          const updateDriverDoc = async (collName: string) => {
+            try {
+              const dRef = doc(db, collName, driverIdToUpdate);
+              const dSnap = await getDoc(dRef);
+              if (dSnap.exists()) {
+                const dData = dSnap.data();
+                const currentTotal = Number(dData.totalRatings || 0);
+                const currentSum = Number(dData.ratingSum || 0);
+                const newTotal = currentTotal + 1;
+                const newSum = currentSum + star;
+                const newAvg = Number((newSum / newTotal).toFixed(1));
+                await updateDoc(dRef, {
+                  rating: newAvg,
+                  stars: newAvg,
+                  totalRatings: newTotal,
+                  ratingSum: newSum,
+                }).catch(() => {
+                  setDoc(dRef, {
+                    rating: newAvg,
+                    stars: newAvg,
+                    totalRatings: newTotal,
+                    ratingSum: newSum,
+                  }, { merge: true });
+                });
+              }
+            } catch (e) {
+              console.warn(`Could not update rating in ${collName}:`, e);
+            }
+          };
+
+          await updateDriverDoc('drivers');
+          await updateDriverDoc('users');
+        }
+
+        // If driverName is available, update matching drivers in 'drivers' or 'users'
+        if (driverNameToUpdate) {
+          const qD = query(collection(db, 'drivers'), where('name', '==', driverNameToUpdate));
+          const qSnap = await getDocs(qD);
+          qSnap.docs.forEach(async (dSnap) => {
+            const dData = dSnap.data();
             const currentTotal = Number(dData.totalRatings || 0);
             const currentSum = Number(dData.ratingSum || 0);
             const newTotal = currentTotal + 1;
             const newSum = currentSum + star;
             const newAvg = Number((newSum / newTotal).toFixed(1));
-            await updateDoc(driverRef, {
+            await updateDoc(doc(db, 'drivers', dSnap.id), {
               rating: newAvg,
               stars: newAvg,
               totalRatings: newTotal,
               ratingSum: newSum,
-            }).catch(() => {
-              setDoc(driverRef, {
-                rating: newAvg,
-                stars: newAvg,
-                totalRatings: newTotal,
-                ratingSum: newSum,
-              }, { merge: true });
-            });
-          }
+            }).catch(() => {});
+          });
         }
       } catch (err) {
         console.warn("Could not save rating to Firestore:", err);
@@ -2712,48 +2756,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         <ArrowRight size={14} className="text-slate-500 shrink-0" />
                       </button>
 
-                      {/* BANNER CENTRALIZADO DE DOWNLOAD DO APK PARA PASSAGEIROS */}
-                      <div className="pt-2 w-full">
-                        <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500/15 via-slate-900 to-blue-600/15 border-2 border-amber-500/40 shadow-xl space-y-3 relative overflow-hidden text-left">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                              <div className="p-2 bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 rounded-xl font-black shadow-md">
-                                <Smartphone size={18} />
-                              </div>
-                              <div>
-                                <span className="text-[8.5px] font-black uppercase text-amber-400 tracking-wider">Aplicações Móveis Oficial</span>
-                                <h4 className="text-xs font-black uppercase tracking-tight text-white">App de Passageiro (.APK)</h4>
-                              </div>
-                            </div>
-                            <span className="text-[8.5px] font-black px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">v{apkConfig.version || '6.0.0'}</span>
-                          </div>
 
-                          <p className="text-[9.5px] text-slate-300 leading-relaxed font-medium">
-                            Prefere usar a App no telemóvel? Descarregue a versão instalável Android para solicitar corridas com 1-Toque, GPS em tempo real e notificações offline sem necessitar de navegador web!
-                          </p>
-
-                          <div className="flex items-center gap-2 pt-1">
-                            <a
-                              href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'}
-                              download="supertaxi-passageiro-v6.0.0.apk"
-                              className="flex-1 py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
-                            >
-                              <Download size={13} />
-                              <span>Baixar App ({apkConfig.passengerAppSize || '16.8 MB'})</span>
-                            </a>
-
-                            <button
-                              type="button"
-                              onClick={() => setShowApkDownloadModal(true)}
-                              className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-                              title="Digitalizar QR Code"
-                            >
-                              <QrCode size={15} />
-                              <span className="text-[8.5px] font-black uppercase">QR Code</span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
                     </div>
 
                     {/* No staff portal buttons in passenger welcome flow */}
@@ -4355,11 +4358,51 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </button>
                   </div>
 
+                  {/* Progressive Step Progress Header */}
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950/80 border border-white/10 rounded-xl text-[9px] font-black uppercase text-center shadow-inner">
+                    <div className={cn(
+                      "py-1.5 rounded-lg transition-all flex items-center justify-center gap-1",
+                      pickup.trim() && destination.trim() ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black" : "bg-amber-500/10 text-amber-400"
+                    )}>
+                      <span>1. Trajeto</span>
+                      {pickup.trim() && destination.trim() && <CheckCircle2 size={11} className="text-emerald-400 animate-pulse" />}
+                    </div>
+                    <div className="py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all flex items-center justify-center gap-1 font-black">
+                      <span>2. Lotação ({passengerCount})</span>
+                      <CheckCircle2 size={11} className="text-amber-400" />
+                    </div>
+                    <div className={cn(
+                      "py-1.5 rounded-lg transition-all flex items-center justify-center gap-1",
+                      selectedVehicleId ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black" : "bg-slate-800/80 text-slate-400"
+                    )}>
+                      <span>3. Viatura</span>
+                      {selectedVehicleId ? <CheckCircle2 size={11} className="text-emerald-400 animate-pulse" /> : null}
+                    </div>
+                  </div>
+
+                  {/* Progressive Step Helper Callout */}
+                  <AnimatePresence>
+                    {pickup.trim() && destination.trim() && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0, y: -5 }}
+                        animate={{ opacity: 1, height: 'auto', y: 0 }}
+                        exit={{ opacity: 0, height: 0, y: -5 }}
+                        className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-medium flex items-center gap-2 shadow-sm"
+                      >
+                        <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                        <span>Trajeto configurado! Confirme o número de passageiros e escolha a viatura abaixo.</span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   <div className="space-y-3 text-xs">
                     <div className="space-y-1">
-                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Ponto de Recolha</label>
+                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                        <MapPin size={11} className="text-amber-400" />
+                        Ponto de Recolha (Passo 1)
+                      </label>
                       <input 
-                        className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold" 
+                        className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-amber-400 font-bold transition-colors" 
                         placeholder="Ex: Aeroporto do Luena" 
                         value={pickup}
                         onChange={e => setPickup(e.target.value)}
@@ -4367,63 +4410,129 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Destinos Finais</label>
+                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                        <Navigation size={11} className="text-amber-400" />
+                        Destinos Finais (Passo 1)
+                      </label>
                       <input 
-                        className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold" 
+                        className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-amber-400 font-bold transition-colors" 
                         placeholder="Ex: Mercado Central Luena" 
                         value={destination}
                         onChange={e => setDestination(e.target.value)}
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Número de Passageiros</label>
-                      <div className="flex items-center gap-3">
-                        <button 
+                    {/* Número de Passageiros - Design Atractivo e Interativo */}
+                    <div className="space-y-2 bg-white/5 border border-white/10 p-3 rounded-2xl">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[9px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <Users size={13} />
+                          Número de Passageiros (Passo 2)
+                        </label>
+                        <span className="text-[9px] font-extrabold text-slate-300 bg-white/10 px-2 py-0.5 rounded-full">
+                          {passengerCount === 1 ? '1 Passageiro (Individual)' :
+                           passengerCount <= 4 ? `${passengerCount} Passageiros (Lotação Padrão)` :
+                           `${passengerCount} Passageiros (Lotação Máxima)`}
+                        </span>
+                      </div>
+
+                      {/* Quick Select Pills with Smooth Scale Animation */}
+                      <div className="grid grid-cols-6 gap-1.5">
+                        {[1, 2, 3, 4, 5, 6].map((num) => (
+                          <motion.button
+                            key={num}
+                            type="button"
+                            whileHover={{ scale: 1.12 }}
+                            whileTap={{ scale: 0.85 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 15 }}
+                            onClick={() => setPassengerCount(num)}
+                            className={cn(
+                              "py-2 rounded-xl text-xs font-black transition-all flex flex-col items-center justify-center gap-0.5 border cursor-pointer select-none",
+                              passengerCount === num 
+                                ? "bg-amber-500 text-slate-950 border-amber-300 shadow-lg shadow-amber-500/30 font-mono ring-2 ring-amber-300 scale-105" 
+                                : "bg-slate-900/80 text-slate-300 border-white/10 hover:bg-white/10 hover:text-white"
+                            )}
+                          >
+                            <span>{num}</span>
+                            <span className="text-[8px] opacity-80">
+                              {num === 1 ? '👤' : num <= 4 ? '👥' : '🚐'}
+                            </span>
+                          </motion.button>
+                        ))}
+                      </div>
+
+                      {/* Fine-tuning Stepper Bar with Motion Scaling */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <motion.button 
                           type="button"
+                          whileHover={{ scale: 1.12 }}
+                          whileTap={{ scale: 0.85 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 15 }}
                           onClick={() => setPassengerCount(prev => Math.max(1, prev - 1))}
-                          className="w-10 h-10 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-white font-black rounded-xl text-sm flex items-center justify-center active:scale-95"
+                          className="w-9 h-9 bg-slate-900/90 border border-white/10 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 transition-all text-white font-black rounded-xl text-base flex items-center justify-center cursor-pointer shadow"
                         >
                           -
-                        </button>
-                        <div className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2.5 text-center font-black text-sm text-white font-mono">
-                          {passengerCount} {passengerCount === 1 ? 'Passageiro' : 'Passageiros'}
+                        </motion.button>
+                        <div className="flex-1 bg-slate-950/80 border border-amber-500/30 rounded-xl py-2 text-center font-black text-xs text-amber-300 font-mono flex items-center justify-center gap-2">
+                          <Users size={14} className="text-amber-400" />
+                          <span>{passengerCount} {passengerCount === 1 ? 'Passageiro Selecionado' : 'Passageiros Selecionados'}</span>
                         </div>
-                        <button 
+                        <motion.button 
                           type="button"
+                          whileHover={{ scale: 1.12 }}
+                          whileTap={{ scale: 0.85 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 15 }}
                           onClick={() => setPassengerCount(prev => Math.min(6, prev + 1))}
-                          className="w-10 h-10 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-white font-black rounded-xl text-sm flex items-center justify-center active:scale-95"
+                          className="w-9 h-9 bg-slate-900/90 border border-white/10 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 transition-all text-white font-black rounded-xl text-base flex items-center justify-center cursor-pointer shadow"
                         >
                           +
-                        </button>
+                        </motion.button>
                       </div>
                     </div>
 
-                    {!showVehicleSelect ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowVehicleSelect(true)}
-                        className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-white font-bold text-xs rounded-xl border border-white/10 active:scale-95 transition-transform uppercase tracking-wider flex items-center justify-center gap-2"
-                      >
-                        <Car size={12} />
-                        Escolher Viatura
-                      </button>
-                    ) : (
-                      <div className="space-y-1">
-                        <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest">Escolher Viatura</label>
-                        <select 
-                          className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold"
-                          value={selectedVehicleId}
-                          onChange={e => setSelectedVehicleId(e.target.value)}
-                        >
-                          {availableVehicles.map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.model} ({v.plate})
-                            </option>
-                          ))}
-                        </select>
+                    {/* Bloco Viatura Desejada -> Abre Modal de Viaturas em Serviço */}
+                    <div className="space-y-2 bg-white/5 border border-white/10 p-3 rounded-2xl">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[9px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <Car size={13} />
+                          Viatura Desejada (Passo 3)
+                        </label>
+                        <span className="flex items-center gap-1 text-[8.5px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                          {availableVehicles.length} {availableVehicles.length === 1 ? 'Viatura em Serviço' : 'Viaturas em Serviço'}
+                        </span>
                       </div>
-                    )}
+
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setShowVehicleSelectModal(true)}
+                        className="w-full p-3 rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-amber-500/30 text-left transition-all flex items-center justify-between cursor-pointer shadow-md active:scale-98"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-amber-500 text-slate-950 rounded-xl font-black text-xs font-mono shrink-0 shadow-sm">
+                            <Car size={16} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-white uppercase tracking-tight">
+                              {selectedVehicleId === '' || selectedVehicleId === 'auto'
+                                ? 'Qualquer Viatura Disponível'
+                                : (availableVehicles.find(v => v.id === selectedVehicleId)?.model || 'Viatura Selecionada')}
+                            </p>
+                            <p className="text-[9.5px] text-amber-400 font-medium">
+                              {selectedVehicleId === '' || selectedVehicleId === 'auto'
+                                ? 'Atribuição automática à viatura mais próxima'
+                                : `Matrícula: ${availableVehicles.find(v => v.id === selectedVehicleId)?.plate || ''}`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="px-2.5 py-1.5 bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-slate-950 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all border border-amber-500/30 flex items-center gap-1 shrink-0">
+                          <span>Navegar Frota</span>
+                          <ArrowRight size={12} />
+                        </div>
+                      </motion.button>
+                    </div>
 
                     {/* Club Bonus Redemption options (JIS) */}
                     {appConfig?.bonusClubEnabled !== false && passengerProfile && (
@@ -5250,6 +5359,184 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         Fechar Janela
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL INDIVIDUAL: VIATURAS EM SERVIÇO */}
+            {showVehicleSelectModal && (
+              <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[2000] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="bg-slate-900 border border-slate-800 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+                  {/* Modal Header */}
+                  <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-amber-500 text-slate-950 rounded-xl font-black">
+                        <Car size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-tight">Viaturas em Serviço</h3>
+                        <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+                          {availableVehicles.length} {availableVehicles.length === 1 ? 'Táxi Ativo na Frota' : 'Táxis Ativos na Frota'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowVehicleSelectModal(false)}
+                      className="p-2 bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-xl transition-all cursor-pointer border border-slate-700/50"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  {/* Modal Body - List of Vehicles */}
+                  <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
+                    <p className="text-[10.5px] text-slate-300 font-medium leading-relaxed">
+                      Escolha a viatura de sua preferência para realizar a viagem ou selecione atribuição automática.
+                    </p>
+
+                    {/* Active Confirmation Toast Banner */}
+                    <AnimatePresence>
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex items-center gap-2.5 shadow-lg shadow-amber-500/10"
+                      >
+                        <CheckCircle2 size={16} className="text-amber-400 animate-pulse shrink-0" />
+                        <div className="text-[10px] font-bold">
+                          <span className="text-white uppercase font-black">Seleção Ativa: </span>
+                          <span className="text-amber-300 font-mono">
+                            {selectedVehicleId === '' || selectedVehicleId === 'auto'
+                              ? 'Qualquer Viatura Disponível (Atribuição Automática)'
+                              : `${availableVehicles.find(v => v.id === selectedVehicleId)?.model || 'Viatura'} (${availableVehicles.find(v => v.id === selectedVehicleId)?.plate || ''})`}
+                          </span>
+                        </div>
+                      </motion.div>
+                    </AnimatePresence>
+
+                    {/* Option 1: Any vehicle (Automatic Assignment) */}
+                    <motion.button
+                      type="button"
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => {
+                        setSelectedVehicleId('');
+                        setTimeout(() => setShowVehicleSelectModal(false), 250);
+                      }}
+                      className={cn(
+                        "w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer active:scale-98 shadow-md relative overflow-hidden",
+                        selectedVehicleId === '' || selectedVehicleId === 'auto'
+                          ? "bg-amber-500/20 border-amber-400 text-white ring-2 ring-amber-400/50 shadow-amber-500/20"
+                          : "bg-slate-950/80 border-slate-800 hover:bg-slate-800 text-slate-300"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "p-2.5 rounded-xl font-black transition-colors",
+                          selectedVehicleId === '' || selectedVehicleId === 'auto' 
+                            ? "bg-amber-500 text-slate-950 animate-pulse" 
+                            : "bg-slate-800 text-slate-300"
+                        )}>
+                          <Sparkles size={18} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-white uppercase tracking-tight">Qualquer Viatura Disponível</p>
+                          <p className="text-[10px] text-slate-400 font-medium mt-0.5">Atribuição automática à viatura livre mais próxima</p>
+                        </div>
+                      </div>
+                      {(selectedVehicleId === '' || selectedVehicleId === 'auto') && (
+                        <motion.div 
+                          initial={{ scale: 0.5, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                          className="flex items-center gap-1.5 bg-amber-500 text-slate-950 px-3 py-1.5 rounded-full text-[9.5px] font-black uppercase shrink-0 shadow-md ring-2 ring-amber-300"
+                        >
+                          <CheckCircle2 size={13} className="animate-bounce" />
+                          <span>Selecionado ✔</span>
+                        </motion.div>
+                      )}
+                    </motion.button>
+
+                    {/* List of Individual Active Vehicles (NO DRIVER NAMES) */}
+                    {availableVehicles.map((v) => {
+                      const isSelected = selectedVehicleId === v.id;
+                      return (
+                        <motion.button
+                          key={v.id}
+                          type="button"
+                          whileHover={{ scale: 1.01 }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={() => {
+                            setSelectedVehicleId(v.id);
+                            setTimeout(() => setShowVehicleSelectModal(false), 250);
+                          }}
+                          className={cn(
+                            "w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer active:scale-98 shadow-md relative overflow-hidden",
+                            isSelected
+                              ? "bg-amber-500/20 border-amber-400 text-white ring-2 ring-amber-400/50 shadow-amber-500/20"
+                              : "bg-slate-950/80 border-slate-800 hover:bg-slate-800 text-slate-300"
+                          )}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "p-2.5 rounded-xl font-black text-xs font-mono shrink-0 transition-colors",
+                              isSelected ? "bg-amber-500 text-slate-950 animate-pulse" : "bg-slate-800 text-amber-400"
+                            )}>
+                              {v.prefix || 'TAX'}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs font-black text-white uppercase tracking-tight">{v.model}</p>
+                                <span className={cn(
+                                  "text-[9.5px] font-mono font-bold px-2 py-0.5 rounded border transition-colors",
+                                  isSelected ? "bg-amber-500/30 text-amber-200 border-amber-400" : "bg-white/10 text-amber-300 border-white/10"
+                                )}>
+                                  {v.plate}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                                  Em Serviço / Disponível
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {isSelected ? (
+                            <motion.div 
+                              initial={{ scale: 0.5, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                              className="flex items-center gap-1.5 bg-amber-500 text-slate-950 px-3 py-1.5 rounded-full text-[9.5px] font-black uppercase shrink-0 shadow-md ring-2 ring-amber-300"
+                            >
+                              <CheckCircle2 size={13} className="animate-bounce" />
+                              <span>Selecionada ✔</span>
+                            </motion.div>
+                          ) : (
+                            <div className="px-3 py-1.5 bg-slate-800 text-slate-300 hover:text-white hover:bg-amber-500 hover:text-slate-950 rounded-xl text-[10px] font-bold uppercase transition-all shrink-0">
+                              Escolher
+                            </div>
+                          )}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      Frota SUPER Táxi Luena
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowVehicleSelectModal(false)}
+                      className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase rounded-xl transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-1.5"
+                    >
+                      <CheckCircle2 size={14} />
+                      <span>Confirmar Escolha</span>
+                    </button>
                   </div>
                 </div>
               </div>

@@ -173,10 +173,21 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
         .filter((log: any) => log.status !== 'archived');
       setDriverRevenueLogs(revList);
 
-      // 2. Fetch Calls
-      const callsQ = query(collection(db, 'calls'), where('driverName', '==', driver.name));
+      // 2. Fetch Calls (match by driverName, driverId, or driverPhone)
+      const callsQ = query(collection(db, 'calls'));
       const callsSnap = await getDocs(callsQ);
-      const callsList = callsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const cleanName = (str: string) => (str || '').toLowerCase().trim();
+      const targetName = cleanName(driver.name);
+      const targetPhone = (driver.phone || '').replace(/\D/g, '');
+
+      const callsList = callsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter((c: any) => {
+          const matchId = (driver.id && c.driverId === driver.id) || (driver.uid && c.driverId === driver.uid);
+          const matchName = c.driverName && cleanName(c.driverName) === targetName;
+          const matchPhone = targetPhone && c.driverPhone && c.driverPhone.replace(/\D/g, '') === targetPhone;
+          return matchId || matchName || matchPhone;
+        });
       setDriverCalls(callsList);
 
       // 3. Fetch Panic Alerts (SOS)
@@ -1463,7 +1474,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
                     {/* SUMMARY VIEW */}
                     {reportTab === 'summary' && (
                       <div className="space-y-6">
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                           <div className="bg-white p-5 border border-slate-200 rounded-[1.25rem] flex flex-col justify-between shadow-sm">
                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Rendimento Total</span>
                             <h4 className="text-xl font-black text-slate-900 tracking-tight font-mono mt-2">
@@ -1480,6 +1491,29 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
                             <p className="text-[9px] text-indigo-600 font-bold uppercase mt-1">
                               {driverCalls.filter(c => c.status === 'completed' || c.status === 'concluída').length} Concluídos
                             </p>
+                          </div>
+
+                          <div className="bg-white p-5 border border-slate-200 rounded-[1.25rem] flex flex-col justify-between shadow-sm">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Avaliação Média</span>
+                            {(() => {
+                              const ratedCalls = driverCalls.filter((c: any) => {
+                                const val = c.rating ?? c.passengerRating ?? c.stars ?? c.evaluation;
+                                return val !== undefined && val !== null && !isNaN(Number(val)) && Number(val) > 0;
+                              });
+                              const avg = ratedCalls.length > 0
+                                ? (ratedCalls.reduce((sum: number, c: any) => sum + Number(c.rating ?? c.passengerRating ?? c.stars ?? c.evaluation), 0) / ratedCalls.length).toFixed(1)
+                                : (selectedDriverForReport?.rating || selectedDriverForReport?.stars ? Number(selectedDriverForReport.rating || selectedDriverForReport.stars).toFixed(1) : null);
+                              return (
+                                <>
+                                  <h4 className="text-xl font-black text-amber-500 tracking-tight font-mono mt-2 flex items-center gap-1">
+                                    <Star size={16} fill="currentColor" /> {avg ? `${avg} ★` : "Novo"}
+                                  </h4>
+                                  <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
+                                    {ratedCalls.length > 0 ? `${ratedCalls.length} Avaliação(ões)` : "Sem avaliações"}
+                                  </p>
+                                </>
+                              );
+                            })()}
                           </div>
 
                           <div className="bg-white p-5 border border-slate-200 rounded-[1.25rem] flex flex-col justify-between shadow-sm">
