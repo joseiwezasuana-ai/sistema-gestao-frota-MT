@@ -83,11 +83,11 @@ export default function ApkDistributionHub({ user, isEmbedded = false }: ApkDist
     sha256Hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     storageProvider: 'Alojamento Próprio (JIS Angola Cloud Server)',
     releaseNotes: 'Versão 6.0 Enterprise com suporte a Módulos Offline, Telemetria GPS 24h, Chat de Equipa com Alertas SOS, e Integração Contabilística em Tempo Real.',
-    driverAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+    driverAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-driver-v6.0.0.apk',
     driverAppSize: '18.4 MB',
-    staffAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+    staffAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-staff-v6.0.0.apk',
     staffAppSize: '21.2 MB',
-    passengerAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+    passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
     passengerAppSize: '16.8 MB',
     isCriticalUpdate: true,
     notifyOnStartup: true
@@ -540,7 +540,7 @@ service firebase.storage {
                 <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3 text-[11px] space-y-1.5 border border-slate-200 dark:border-slate-700">
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
                     <span className="font-bold">Ficheiro:</span>
-                    <span className="font-mono text-[10px]">taxicontrol-driver-v6.0.0.apk</span>
+                    <span className="font-mono text-[10px]">supertaxi-driver-v6.0.0.apk</span>
                   </div>
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
                     <span className="font-bold">Requisitos:</span>
@@ -600,7 +600,7 @@ service firebase.storage {
                 <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3 text-[11px] space-y-1.5 border border-slate-200 dark:border-slate-700">
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
                     <span className="font-bold">Ficheiro:</span>
-                    <span className="font-mono text-[10px]">taxicontrol-staff-v6.0.0.apk</span>
+                    <span className="font-mono text-[10px]">supertaxi-staff-v6.0.0.apk</span>
                   </div>
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
                     <span className="font-bold">Requisitos:</span>
@@ -660,7 +660,7 @@ service firebase.storage {
                 <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3 text-[11px] space-y-1.5 border border-slate-200 dark:border-slate-700">
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
                     <span className="font-bold">Ficheiro:</span>
-                    <span className="font-mono text-[10px]">taxicontrol-passenger-v6.0.0.apk</span>
+                    <span className="font-mono text-[10px]">supertaxi-passenger-v6.0.0.apk</span>
                   </div>
                   <div className="flex justify-between text-slate-600 dark:text-slate-300">
                     <span className="font-bold">Requisitos:</span>

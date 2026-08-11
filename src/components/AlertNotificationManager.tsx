@@ -78,7 +78,8 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setPermission(Notification.permission);
-      if (Notification.permission === 'default') {
+      const isDismissed = localStorage.getItem('dismissed_permission_banner') === 'true';
+      if (Notification.permission === 'default' && !isDismissed) {
         setShowPermissionBanner(true);
       }
     }
@@ -297,8 +298,9 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
         
         // Show update alert if marked critical or if new version announced
         if (isCritical || data.notifyOnStartup === true) {
+          const updateId = `apk-update-${latestVersion}${data.updatedAt?.seconds ? `-${data.updatedAt.seconds}` : ''}`;
           triggerAlert({
-            id: `apk-update-${latestVersion}-${data.updatedAt?.seconds || Date.now()}`,
+            id: updateId,
             type: 'system_update',
             title: `🚨 ATUALIZAÇÃO CRÍTICA APK (v${latestVersion})`,
             message: data.releaseNotes || `Nova versão v${latestVersion} disponível no Alojamento Directo JIS ANGOLA. Atualize a aplicação da frota!`,
@@ -306,9 +308,9 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
             timestamp: new Date(),
             metadata: {
               version: latestVersion,
-              driverAppUrl: data.driverAppUrl || '/downloads/taxicontrol-v6.0.0.apk',
-              staffAppUrl: data.staffAppUrl || '/downloads/taxicontrol-v6.0.0.apk',
-              passengerAppUrl: data.passengerAppUrl || '/downloads/taxicontrol-v6.0.0.apk'
+              driverAppUrl: data.driverAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-driver-v6.0.0.apk',
+              staffAppUrl: data.staffAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-staff-v6.0.0.apk',
+              passengerAppUrl: data.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'
             }
           });
         }
@@ -491,12 +493,24 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
                 <Bell className="animate-bounce" size={20} />
                 <p className="text-xs font-bold leading-tight uppercase tracking-tight">Active notificações push para não perder alertas críticos</p>
               </div>
-              <button 
-                onClick={requestPermission}
-                className="bg-white text-brand-primary px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
-              >
-                Ativar
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={requestPermission}
+                  className="bg-white text-brand-primary px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all cursor-pointer"
+                >
+                  Ativar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPermissionBanner(false);
+                    localStorage.setItem('dismissed_permission_banner', 'true');
+                  }}
+                  className="p-1.5 text-white/80 hover:text-white hover:bg-white/20 rounded-lg transition-all cursor-pointer"
+                  title="Fechar Aviso"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </motion.div>
           )}
 
@@ -544,8 +558,8 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
                     {alertItem.type === 'system_update' && (
                       <div className="flex flex-wrap items-center gap-2 mt-2 mb-2">
                         <a
-                          href={alertItem.metadata?.driverAppUrl || '/downloads/taxicontrol-v6.0.0.apk'}
-                          download="taxicontrol-v6.0.0.apk"
+                          href={alertItem.metadata?.driverAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-v6.0.0.apk'}
+                          download="supertaxi-v6.0.0.apk"
                           className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-lg cursor-pointer"
                         >
                           <Download size={14} />

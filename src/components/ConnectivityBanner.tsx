@@ -12,7 +12,8 @@ import {
   ShieldAlert, 
   Sparkles,
   AlertTriangle,
-  Server
+  Server,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -96,6 +97,9 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ user }) 
       setIsOnline(true);
       setShowStatus(true);
       triggerSyncAnimation();
+      setTimeout(() => {
+        setShowStatus(false);
+      }, 4000);
     };
 
     const handleOffline = () => {
@@ -214,6 +218,18 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ user }) 
                   >
                     <span>Métricas</span>
                     {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  </button>
+
+                  {/* Close Banner Button */}
+                  <button
+                    onClick={() => {
+                      setShowStatus(false);
+                      setIsExpanded(false);
+                    }}
+                    className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all"
+                    title="Fechar Aviso"
+                  >
+                    <X size={14} />
                   </button>
                 </div>
               </div>

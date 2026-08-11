@@ -665,7 +665,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [apkConfig, setApkConfig] = useState<any>({
     version: '6.0.0',
     releaseDate: '2026-08-10',
-    passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/taxicontrol-passenger-v6.0.0.apk',
+    passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
     passengerAppSize: '16.8 MB'
   });
 
@@ -680,7 +680,7 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
 
   useEffect(() => {
     if (showApkDownloadModal) {
-      const rawUrl = apkConfig.passengerAppUrl || '/downloads/taxicontrol-v6.0.0.apk';
+      const rawUrl = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
       const fullDownloadUrl = rawUrl.startsWith('http') 
         ? rawUrl 
         : `${window.location.origin}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
@@ -2734,8 +2734,8 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
                           <div className="flex items-center gap-2 pt-1">
                             <a
-                              href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/taxicontrol-passenger-v6.0.0.apk'}
-                              download="taxicontrol-passageiro-v6.0.0.apk"
+                              href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'}
+                              download="supertaxi-passageiro-v6.0.0.apk"
                               className="flex-1 py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
                             >
                               <Download size={13} />
@@ -5460,8 +5460,8 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
                   <div className="pt-2 flex gap-2">
                     <a
-                      href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/taxicontrol-passenger-v6.0.0.apk'}
-                      download="taxicontrol-passageiro-v6.0.0.apk"
+                      href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'}
+                      download="supertaxi-passageiro-v6.0.0.apk"
                       className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
                     >
                       <Download size={16} />

@@ -187,8 +187,8 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
               </button>
 
               <a
-                href="/downloads/taxicontrol-v6.0.0.apk"
-                download="taxicontrol-v6.0.0.apk"
+                href="https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-v6.0.0.apk"
+                download="supertaxi-v6.0.0.apk"
                 className="w-full bg-slate-800/90 hover:bg-slate-700 text-amber-400 font-bold text-xs py-3 px-4 rounded-xl border border-amber-500/30 flex items-center justify-center gap-2 transition-all uppercase tracking-wider cursor-pointer"
               >
                 <Smartphone size={16} />
