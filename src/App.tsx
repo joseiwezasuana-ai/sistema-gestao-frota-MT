@@ -184,11 +184,11 @@ export default function App() {
             minAndroidVersion: 'Android 8.0+ (API 26)',
             storageProvider: 'Alojamento Próprio (JIS Angola Cloud Server)',
             releaseNotes: 'Versão 6.0 Enterprise com suporte a Módulos Offline, Telemetria GPS 24h, Chat de Equipa com Alertas SOS, e Integração Contabilística em Tempo Real.',
-            driverAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+            driverAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/taxicontrol-driver-v6.0.0.apk',
             driverAppSize: '18.4 MB',
-            staffAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+            staffAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/taxicontrol-staff-v6.0.0.apk',
             staffAppSize: '21.2 MB',
-            passengerAppUrl: '/downloads/taxicontrol-v6.0.0.apk',
+            passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/taxicontrol-passenger-v6.0.0.apk',
             passengerAppSize: '16.8 MB'
           }, { merge: true });
         } catch (err) {
