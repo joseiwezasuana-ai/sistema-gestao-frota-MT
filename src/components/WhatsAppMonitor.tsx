@@ -42,7 +42,7 @@ import {
   Activity
 } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from '@/src/lib/firebase';
+import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from '@/src/lib/firebase';
 import { cn } from '../lib/utils';
 
 interface WhatsAppMessage {
@@ -444,7 +444,7 @@ export function WhatsAppMonitor({ isMechanicView = false, isDriverView = false, 
 
   // Sync virtual list real-time via Firestore (whatsapp_messages)
   useEffect(() => {
-    const q = query(collection(db, 'whatsapp_messages'), orderBy('timestamp', 'asc'));
+    const q = query(collection(db, 'whatsapp_messages'), orderBy('timestamp', 'desc'), limit(100));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs: any[] = [];
       snapshot.forEach(docSnap => {

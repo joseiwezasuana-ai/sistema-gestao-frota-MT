@@ -17,7 +17,7 @@ import {
   LogIn,
   Filter
 } from 'lucide-react';
-import { db, collection, query, orderBy, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, getActiveTenantId } from '../lib/firebase';
+import { db, collection, query, orderBy, limit, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, getActiveTenantId } from '../lib/firebase';
 
 interface ShiftMonitorProps {
   user?: any;
@@ -53,7 +53,7 @@ export default function ShiftMonitor({ user }: ShiftMonitorProps) {
       });
 
       // 2. Listen to driver shift logs history
-      const qLogs = query(collection(db, 'driver_shift_logs'), orderBy('timestamp', 'desc'));
+      const qLogs = query(collection(db, 'driver_shift_logs'), orderBy('timestamp', 'desc'), limit(50));
       unsubLogs = onSnapshot(qLogs, (snapshot) => {
         const logs = snapshot.docs.map(docSnap => ({
           id: docSnap.id,

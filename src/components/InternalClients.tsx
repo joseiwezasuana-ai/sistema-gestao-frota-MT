@@ -27,6 +27,7 @@ import {
   updateDoc, 
   serverTimestamp,
   orderBy,
+  limit,
   where
 } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
@@ -108,7 +109,7 @@ export default function InternalClients({ user }: { user?: any }) {
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'internal_contracts'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'internal_contracts'), orderBy('createdAt', 'desc'), limit(50));
     const unsub = onSnapshot(q, (snapshot) => {
       setClients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);

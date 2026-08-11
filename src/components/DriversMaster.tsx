@@ -26,7 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, getDocs, where, writeBatch, updateDoc } from '@/src/lib/firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, limit, getDocs, where, writeBatch, updateDoc } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType, getActiveTenantId } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { geminiService } from '../services/geminiService';
@@ -534,7 +534,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
 
   // Listen to global accidents & vehicles
   useEffect(() => {
-    const qAcc = query(collection(db, 'accident_logs'), orderBy('date', 'desc'));
+    const qAcc = query(collection(db, 'accident_logs'), orderBy('date', 'desc'), limit(50));
     const unsubAcc = onSnapshot(qAcc, (snapshot) => {
       setAllAccidents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => console.error("Erro ao carregar acidentes:", error));

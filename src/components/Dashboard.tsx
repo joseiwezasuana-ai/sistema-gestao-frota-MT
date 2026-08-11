@@ -224,19 +224,19 @@ export default function Dashboard({ user }: { user: any }) {
 
   useEffect(() => {
     // Listen for Revenues for performance charts
-    const qRev = query(collection(db, 'revenue_logs'), orderBy('timestamp', 'asc'));
+    const qRev = query(collection(db, 'revenue_logs'), orderBy('timestamp', 'desc'), limit(150));
     const unsubRev = onSnapshot(qRev, (snapshot) => {
       setRevenues(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'revenue_logs'));
 
     // Listen for accidents for driver performance classification
-    const qAcc = query(collection(db, 'accident_logs'));
+    const qAcc = query(collection(db, 'accident_logs'), limit(50));
     const unsubAcc = onSnapshot(qAcc, (snapshot) => {
       setAccidents(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => console.error("Error listening to accident_logs in Dashboard:", error));
 
     // Listen for Maintenance logs for financial charts
-    const qMaint = query(collection(db, 'maintenance_logs'), orderBy('timestamp', 'asc'));
+    const qMaint = query(collection(db, 'maintenance_logs'), orderBy('timestamp', 'desc'), limit(100));
     const unsubMaint = onSnapshot(qMaint, (snapshot) => {
       setMaintenanceLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => console.error("Error listening to maintenance_logs in Dashboard:", error));
