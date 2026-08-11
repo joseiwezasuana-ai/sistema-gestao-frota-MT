@@ -1,0 +1,58 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgDark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+
+    <!-- Ring Gradient (Blue to Amber) -->
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="40%" stop-color="#3B82F6"/>
+      <stop offset="70%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+
+    <!-- Yellow Car Gradient -->
+    <linearGradient id="carYellow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FEF08A"/>
+      <stop offset="30%" stop-color="#FDE047"/>
+      <stop offset="70%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Base Icon Square with Smooth Curved Corners for Mobile App Icon -->
+  <rect width="512" height="512" rx="112" fill="url(#bgDark)"/>
+
+  <!-- Outer Ring with Vibrant Gradient (Blue-Amber) -->
+  <rect x="40" y="40" width="432" height="432" rx="96" fill="url(#ringGrad)"/>
+
+  <!-- Inner Dark Slate Card Container -->
+  <rect x="56" y="56" width="400" height="400" rx="82" fill="#020617"/>
+
+  <!-- Yellow Taxi Car Icon (Matching Lucide Car on Initialization Screen) -->
+  <g transform="translate(92, 112)">
+    <!-- Taxi Light Cap on Roof -->
+    <rect x="136" y="44" width="56" height="18" rx="6" fill="#FDE047"/>
+
+    <!-- Main Car Body Path -->
+    <path d="M260 220 H280 C290 220 300 210 300 198 V165 C300 152 290 140 278 138 C258 134 220 126 220 126 C220 126 200 92 186 78 C178 70 168 66 156 66 H108 C96 66 86 70 78 78 C64 92 44 126 44 126 C44 126 6 134 -14 138 C-26 140 -36 152 -36 165 V198 C-36 210 -26 220 -14 220 H6"
+          transform="translate(36, 16)"
+          stroke="url(#carYellow)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+    <!-- Front & Rear Wheels -->
+    <circle cx="106" cy="236" r="34" stroke="url(#carYellow)" stroke-width="24" fill="#020617"/>
+    <circle cx="258" cy="236" r="34" stroke="url(#carYellow)" stroke-width="24" fill="#020617"/>
+    <circle cx="106" cy="236" r="12" fill="#FDE047"/>
+    <circle cx="258" cy="236" r="12" fill="#FDE047"/>
+
+    <!-- Connecting Chassis Line -->
+    <path d="M140 236 H224" stroke="url(#carYellow)" stroke-width="24" stroke-linecap="round"/>
+
+    <!-- Windshield and Window outline -->
+    <path d="M106 142 L130 102 C134 96 140 92 148 92 H216 C224 92 230 96 234 102 L258 142"
+          stroke="url(#carYellow)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>

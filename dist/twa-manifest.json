@@ -1,0 +1,27 @@
+{
+  "packageId": "app.web.jis_st.twa",
+  "host": "jis-st.web.app",
+  "name": "SUPER Táxi - JIS TaxiControl",
+  "launcherName": "SUPER Táxi",
+  "display": "standalone",
+  "themeColor": "#0F172A",
+  "navigationColor": "#0F172A",
+  "backgroundColor": "#0F172A",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://jis-st.web.app/favicon.ico",
+  "maskableIconUrl": "https://jis-st.web.app/favicon.ico",
+  "appVersionName": "6.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "C:\\Users\\Admin\\Documents\\sistema-frota-novo\\android.keystore",
+    "alias": "android"
+  },
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://jis-st.web.app/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  }
+}
