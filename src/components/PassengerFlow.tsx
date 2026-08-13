@@ -1094,6 +1094,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
     if (rd.status === 'cancelled') return 'Cancelada';
     if (rd.status === 'rejected') return 'Recusada';
     if (rd.status === 'ignored') return 'Expirada';
+    const isBonus = rd.usedBonus === true || rd.paidWithBonus === true || rd.paymentMethod === 'bonus';
+    if (isBonus) {
+      return rd.price ? `${Number(rd.price).toLocaleString()} Kz (Debitado por Bónus)` : 'Debitado por Bónus';
+    }
     return rd.price ? `${Number(rd.price).toLocaleString()} Kz` : 'A negociar';
   };
 
@@ -1610,10 +1614,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
           prevPriceRef.current = data.price;
         } else if (prevStatus && prevStatus !== data.status) {
           if (data.status === 'connected') {
-            playNotificationSound('ding', 'Chamada Atendida!', 'O motorista está em linha. Fale diretamente no canal de voz segura.');
+            playNotificationSound('ding', 'Chamada Atendida!', 'O motorista está em linha.');
             setNotificationBanner({
               title: 'Chamada Atendida!',
-              message: 'O motorista está em linha. Fale diretamente no canal de voz segura.',
+              message: 'O motorista está em linha.',
               type: 'info',
               visible: true
             });
@@ -2519,42 +2523,67 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
           
           {/* Passenger App Interactive Header - Only visible when passenger is logged into their account */}
           {passengerProfile && (
-            <header className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20 shrink-0 relative z-50">
-              <div className="flex items-center gap-2">
-                <div className={`p-1.5 rounded-lg ${currentTheme.cardClass}`}>
-                  <Car size={14} className={currentTheme.textClass} />
+            <header className="p-2.5 sm:p-3 border-b border-white/10 flex items-center justify-between bg-slate-950/90 backdrop-blur-md shrink-0 relative z-50 gap-2 shadow-xl">
+              
+              {/* 1. BRANDING (SUPER TÁXI PASSAGEIRO OFICIAL - posição e tamanho originais) + PERFIL DO PASSAGEIRO */}
+              <div className="flex items-center gap-2.5 min-w-0">
+                {/* Brand Logo & Title (Posição e tamanho originais) */}
+                <div className="flex items-center gap-2 shrink-0 border-r border-white/10 pr-2.5">
+                  <div className={`p-1.5 rounded-xl ${currentTheme.cardClass} border border-white/10 shadow-sm`}>
+                    <Car size={14} className={currentTheme.textClass} />
+                  </div>
+                  <div className="leading-none">
+                    <h1 className="text-xs font-black uppercase tracking-tighter italic text-white">SUPER TÁXI</h1>
+                    <p className="text-[7.5px] text-amber-400 font-extrabold uppercase tracking-widest leading-none mt-0.5">Passageiro Oficial</p>
+                  </div>
                 </div>
-                <div>
-                  <h1 className="text-xs font-black uppercase tracking-tighter italic">SUPER TÁXI</h1>
-                  <p className="text-[7.5px] text-slate-500 font-extrabold uppercase tracking-widest leading-none mt-0.5">Passageiro Oficial</p>
-                  <div className="mt-1 flex items-center gap-1 bg-black/45 px-1.5 py-0.5 rounded border border-white/5 shadow-inner">
-                    <label htmlFor="passenger-company-select" className="text-[6.5px] text-slate-400 font-extrabold uppercase tracking-widest shrink-0">Central:</label>
-                    <select
-                      id="passenger-company-select"
-                      value={activeTenant}
-                      onChange={(e) => handleSelectCompany(e.target.value)}
-                      className="text-[8px] font-black bg-transparent text-amber-400 outline-none uppercase tracking-normal cursor-pointer max-w-[110px] truncate border-0 p-0 focus:ring-0"
-                    >
-                      {companies.map((comp) => (
-                        <option key={comp.id} value={comp.id} className="text-[8px] uppercase font-bold bg-slate-950 text-white">
-                          {comp.id === 'psm' ? 'PSMOREIRA' : comp.name || comp.id}
-                        </option>
-                      ))}
-                    </select>
+
+                {/* Perfil do Passageiro (Foto, Nome, Endereço, Contacto) */}
+                <div className="flex items-center gap-2 min-w-0">
+                  <div 
+                    onClick={() => setShowProfilePicModal(true)} 
+                    className="relative shrink-0 cursor-pointer group"
+                    title="Clique para trocar foto de perfil"
+                  >
+                    <PassengerAvatar 
+                      src={passengerProfile.photoUrl || selectedAvatar} 
+                      name={passengerProfile.name} 
+                      size="sm" 
+                    />
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-600 rounded-full border border-slate-950 flex items-center justify-center text-white shadow">
+                      <Camera size={7} />
+                    </div>
+                  </div>
+
+                  <div className="min-w-0 leading-tight space-y-0.5">
+                    <h2 className="text-[10px] font-black text-white uppercase tracking-tight truncate max-w-[120px]">
+                      {passengerProfile.name || 'Passageiro'}
+                    </h2>
+                    <div className="flex flex-col text-[7.5px] text-slate-400 font-bold leading-none space-y-0.5">
+                      <span className="truncate flex items-center gap-0.5">
+                        <MapPin size={8} className="text-amber-500 shrink-0" />
+                        <span className="truncate max-w-[105px]">{passengerProfile.address || passengerProfile.province || 'Luena, Moxico'}</span>
+                      </span>
+                      <span className="truncate font-mono flex items-center gap-0.5 text-slate-300">
+                        <Phone size={8} className="text-emerald-400 shrink-0" />
+                        <span className="truncate max-w-[105px]">{passengerProfile.phone || passengerProfile.backupPhone || '+244'}</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Theme Selector & Navigation Menu */}
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-black/30 px-2 py-1 rounded-full border border-white/5 shadow-inner">
+              {/* 2. PALETA DE CORES EM CIMA DO MENU DOS TRÊS PONTINHOS (Direita) */}
+              <div className="flex flex-col items-end gap-1 shrink-0 ml-auto">
+                {/* Paleta de Cores (Cima) */}
+                <div className="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded-full border border-white/10 shadow-inner">
                   {(Object.keys(PALETTES) as PassengerTheme[]).map((pal) => (
                     <button
                       key={pal}
                       onClick={() => handlePaletteChange(pal)}
-                      className={`w-3.5 h-3.5 rounded-full border transition-all cursor-pointer ${
+                      className={`w-3 h-3 rounded-full border transition-all cursor-pointer ${
                         activePalette === pal && hasClickedTheme 
-                          ? 'scale-125 border-white shadow-lg ring-1 ring-white/50' 
+                          ? 'scale-125 border-white shadow-lg ring-2 ring-amber-400/50' 
                           : 'border-white/20 hover:scale-110 opacity-70 hover:opacity-100'
                       }`}
                       style={{ backgroundColor: PALETTES[pal].accentColor }}
@@ -2567,7 +2596,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         setHasClickedTheme(false);
                         localStorage.removeItem('psm-passenger-theme-clicked');
                       }}
-                      className="text-[7px] font-black text-amber-400 hover:text-white uppercase tracking-tighter px-1 cursor-pointer transition-colors"
+                      className="text-[6.5px] font-black text-amber-400 hover:text-white uppercase tracking-tighter px-0.5 cursor-pointer transition-colors"
                       title="Restaurar cor oficial da companhia"
                     >
                       Reset
@@ -2575,7 +2604,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   )}
                 </div>
 
-                {/* 3-Dots Navigation Menu Button */}
+                {/* Menu dos 3 Pontinhos (Baixo) */}
                 <div ref={navMenuRef} className="relative z-[60]">
                   <button
                     onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
@@ -2588,7 +2617,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   </button>
 
                   {isNavMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-44 bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-100">
+                    <div className="absolute right-0 mt-2 w-48 bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-100">
                       <div className="px-3 py-1.5 border-b border-white/5 bg-black/40">
                         <p className="text-[7.5px] text-slate-500 font-extrabold uppercase tracking-widest">Navegação Rápida</p>
                       </div>
@@ -2605,6 +2634,17 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       >
                         <Car size={13} />
                         Pedir Táxi
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setShowRidesHistoryModal(true);
+                          setIsNavMenuOpen(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-white hover:bg-white/5 border-b border-white/5 cursor-pointer"
+                      >
+                        <Trophy size={13} className="text-amber-400" />
+                        Minhas Corridas Recentes
                       </button>
 
                       <button
@@ -3145,29 +3185,6 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                 /* IN-APP LOGGED-IN PASSENGER HOME VIEW */
                 <div className={passengerTab === 'viagem' ? "absolute inset-0 overflow-hidden" : "space-y-4"}>
                    
-                  {/* Miniature Header Card Welcome */}
-                  {passengerProfile && passengerTab !== 'viagem' && (
-                    <div className={`p-4 rounded-2xl ${currentTheme.cardClass} flex items-center justify-between`}>
-                      <div className="flex items-center gap-3">
-                        <PassengerAvatar src={passengerProfile.photoUrl || selectedAvatar} name={passengerProfile.name} size="md" />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1">
-                            <p className="text-xs font-black uppercase tracking-tight truncate max-w-[120px]">{passengerProfile.name}</p>
-                            <ShieldCheck size={11} className={currentTheme.textClass} />
-                          </div>
-                          <p className="text-[8.5px] text-slate-400 font-bold uppercase tracking-widest">{passengerProfile.province} • {passengerProfile.backupPhone || 'Sem Backup'}</p>
-                        </div>
-                      </div>
-
-                      <button 
-                        onClick={handleLogout}
-                        className="text-[8px] font-black uppercase text-rose-400 hover:text-rose-500 bg-rose-500/10 px-2 py-1 rounded"
-                      >
-                        Sair
-                      </button>
-                    </div>
-                  )}
-
                   {/* ABA 1: VIAGEM / PEDIDOS */}
                   {passengerTab === 'viagem' && (
                     <div className="absolute inset-0 animate-in fade-in duration-300">
@@ -3235,16 +3252,38 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         )}
                       </div>
 
-                      {/* Live satellite indicator overlay on top of full-screen map (Top-left floating info) */}
-                      <div className="absolute top-4 left-4 z-10 space-y-2 pointer-events-none">
-                        <div className="bg-slate-950/90 backdrop-blur px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5 shadow-lg select-none pointer-events-auto">
-                          <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
-                          Monitorização Satélite Ativa
+                      {/* 1. BLOCO CENTRAL FLUTUANTE À ESQUERDA POR CIMA DO MAPA */}
+                      <div className="absolute top-3 left-3 z-20 pointer-events-auto">
+                        <div className="bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 shadow-2xl flex flex-col items-center justify-center">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                            <label htmlFor="passenger-company-select" className="text-[7.5px] text-slate-400 font-black uppercase tracking-widest shrink-0">Central:</label>
+                            <select
+                              id="passenger-company-select"
+                              value={activeTenant}
+                              onChange={(e) => handleSelectCompany(e.target.value)}
+                              className="text-[8.5px] font-black bg-transparent text-amber-400 outline-none uppercase tracking-normal cursor-pointer max-w-[100px] truncate border-0 p-0 focus:ring-0"
+                            >
+                              {companies.map((comp) => (
+                                <option key={comp.id} value={comp.id} className="text-[8.5px] uppercase font-bold bg-slate-950 text-white">
+                                  {comp.id === 'psm' ? 'PSMOREIRA' : comp.name || comp.id}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <span className="text-[6.5px] text-slate-500 font-black uppercase tracking-widest leading-none mt-0.5">JIS ANGOLA • LUENA</span>
                         </div>
                       </div>
 
-                      {/* Right top corner compass overlay with GPS button */}
-                      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2 pointer-events-none">
+                      {/* 2. CANTO SUPERIOR DIREITO DO MAPA: Monitorização Satélite por cima do Raio Máx */}
+                      <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-1.5 pointer-events-none">
+                        {/* Monitorização Satélite Ativa */}
+                        <div className="bg-slate-950/90 backdrop-blur px-2.5 py-1 rounded-xl border border-white/10 text-[7.5px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5 shadow-lg select-none pointer-events-auto">
+                          <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
+                          Monitorização Satélite Ativa
+                        </div>
+
+                        {/* Raio Máx */}
                         <span className="flex items-center gap-1 bg-slate-950/90 text-white text-[7.5px] font-bold px-2 py-1 rounded-xl backdrop-blur border border-white/10 shadow-lg pointer-events-auto select-none">
                           <Compass size={9} className="animate-spin text-amber-500" /> Raio Máx: {appConfig?.searchRadiusKm || 15}km
                         </span>
@@ -3261,8 +3300,8 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
                       {/* UPPER LAYER FLOATING INFO & CONTROLS: */}
                       <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 z-10">
-                        {/* Upper panel - for messages, state banner alert */}
-                        <div className="space-y-2 w-full pointer-events-auto">
+                        {/* Upper panel - for messages, state banner alert (positioned below GPS reorientation button) */}
+                        <div className="space-y-2 w-full pointer-events-auto mt-28">
                           {/* Active Background Ride / Call Alert Banner to Resume */}
                           {activeRideRecord && !['completed', 'cancelled', 'rejected', 'ignored'].includes(activeRideRecord.status) && (
                             <div className="bg-slate-900/95 backdrop-blur border border-amber-500/35 p-3 rounded-2xl flex items-center justify-between gap-3 shadow-xl">
@@ -3464,55 +3503,60 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
                   {/* ABA 2: SEGURANÇA E SUPORTE */}
                   {passengerTab === 'seguranca' && (
-                    <div className="space-y-4 animate-in fade-in duration-300">
+                    <div className="space-y-3.5 animate-in fade-in duration-300 text-left">
                       {/* RECOMENDAÇÃO DE SEGURANÇA TAXICONTROL - CENTRAL DE PROTEÇÃO */}
-                      <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
-                        <div className={`p-3 flex items-center gap-2 ${currentTheme.cardClass} border-none`}>
-                           <ShieldCheck size={14} className={currentTheme.textClass} />
-                           <span className="text-[10px] font-black uppercase tracking-widest">Proteção Central TAXICONTROL</span>
+                      <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-xl text-left">
+                        <div className="p-3 bg-rose-500/10 border-b border-rose-500/20 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ShieldCheck size={16} className="text-rose-500" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-white">Central de Segurança TAXICONTROL</span>
+                          </div>
+                          <span className="text-[7.5px] bg-rose-500/20 text-rose-400 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">24/7 Ativa</span>
                         </div>
-                        <div className="p-4 space-y-4">
-                          <div className="flex gap-3">
-                            <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
-                              <Smartphone size={14} className="text-blue-500" />
+                        
+                        <div className="p-4 space-y-3.5">
+                          <div className="flex gap-3 items-start">
+                            <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0 border border-blue-500/20">
+                              <Smartphone size={14} className="text-blue-400" />
                             </div>
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] font-black text-white uppercase tracking-tight">Contacto de Reenvio</p>
-                              <p className="text-[9px] text-slate-400 leading-relaxed font-bold">
-                                Se ficar sem internet (offline), a nossa central ligará para: <span className="text-white">{passengerProfile?.backupPhone || 'Número não definido'}</span>.
+                            <div className="space-y-0.5 min-w-0">
+                              <p className="text-[10px] font-black text-white uppercase tracking-tight">Contacto de Reenvio Offline</p>
+                              <p className="text-[8.5px] text-slate-400 leading-relaxed font-semibold">
+                                Se ficar sem internet, a central liga diretamente para o número de emergência guardado no seu perfil.
                               </p>
                             </div>
                           </div>
 
-                          <div className="flex gap-3">
-                            <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
-                              <RefreshCw size={14} className="text-amber-500" />
+                          <div className="flex gap-3 items-start">
+                            <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
+                              <RefreshCw size={14} className="text-amber-400" />
                             </div>
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] font-black text-white uppercase tracking-tight">Chamada Reencaminhada</p>
-                              <p className="text-[9px] text-slate-400 leading-relaxed font-bold">
-                                As chamadas motorista-colega são auditadas. Se o seu motorista delegar a viagem, receberá um alerta imediato.
+                            <div className="space-y-0.5 min-w-0">
+                              <p className="text-[10px] font-black text-white uppercase tracking-tight">Chamada Auditada & Reencaminhada</p>
+                              <p className="text-[8.5px] text-slate-400 leading-relaxed font-semibold">
+                                As chamadas entre passageiros e motoristas são gravadas para auditoria de segurança no Luena.
                               </p>
                             </div>
                           </div>
 
-                          <div className="flex gap-3">
-                            <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
-                              <Lock size={14} className="text-emerald-500" />
+                          <div className="flex gap-3 items-start">
+                            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                              <Lock size={14} className="text-emerald-400" />
                             </div>
-                            <div className="space-y-0.5">
-                              <p className="text-[10px] font-black text-white uppercase tracking-tight">Token de Segurança</p>
-                              <p className="text-[9px] text-slate-400 leading-relaxed font-bold">
-                                O token de embarque garante que entra na viatura PSM correta. Nunca partilhe o seu PIN de acesso.
+                            <div className="space-y-0.5 min-w-0">
+                              <p className="text-[10px] font-black text-white uppercase tracking-tight">PIN & Token de Validação</p>
+                              <p className="text-[8.5px] text-slate-400 leading-relaxed font-semibold">
+                                O código de embarque único garante que você entra na viatura oficial autorizada pela central.
                               </p>
                             </div>
                           </div>
                         </div>
                       </div>
 
+                      {/* AÇÕES DIRETA DE SEGURANÇA */}
                       <button
                         onClick={() => setShowComplaintsModal(true)}
-                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
+                        className={`w-full p-3.5 border rounded-2xl flex items-center justify-between text-left transition-all group cursor-pointer ${
                           isDark 
                             ? 'bg-slate-900 border-white/5 hover:border-rose-500/35 hover:bg-slate-800/80' 
                             : 'bg-white border-slate-200 hover:border-rose-500/35 hover:bg-slate-50 shadow-sm'
@@ -3533,7 +3577,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       {/* CONSULTAR TERMOS DE SEGURANÇA E POLÍTICAS */}
                       <button
                         onClick={() => setShowTermsModal(true)}
-                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
+                        className={`w-full p-3.5 border rounded-2xl flex items-center justify-between text-left transition-all group cursor-pointer ${
                           isDark 
                             ? 'bg-slate-900 border-white/5 hover:border-amber-500/35 hover:bg-slate-800/80' 
                             : 'bg-white border-slate-200 hover:border-amber-500/35 hover:bg-slate-50 shadow-sm'
@@ -3553,108 +3597,64 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </div>
                   )}
 
-                  {/* ABA 3: PERFIL E AJUSTES */}
+                  {/* ABA 3: PERFIL E AJUSTES (MINHA CONTA) */}
                   {passengerTab === 'perfil' && (
-                    <div className="space-y-4 animate-in fade-in duration-300">
+                    <div className="space-y-3.5 animate-in fade-in duration-300 text-left">
                       
-                      {/* INSTALAR APLICAÇÃO SUPER TÁXI (PWA) BUTTON REMOVED BY USER REQUEST */}
-
-                      {/* SUGERIR APP (CÓDIGO QR) BUTTON */}
-                      <button
-                        onClick={() => setShowQrModal(true)}
-                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
-                          isDark 
-                            ? 'bg-slate-900 border-white/5 hover:border-amber-500/35 hover:bg-slate-800/80' 
-                            : 'bg-white border-slate-200 hover:border-amber-500/35 hover:bg-slate-50 shadow-sm'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0 group-hover:scale-110 transition-transform">
-                            <QrCode size={16} />
-                          </div>
-                          <div>
-                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Sugerir App (Código QR)</p>
-                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Partilhar o SUPER Táxi com amigos</p>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-black text-amber-400 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
-                      </button>
-
-                      {/* TROCAR FOTO DE PERFIL BUTTON */}
-                      <button
-                        onClick={() => setShowProfilePicModal(true)}
-                        className={`w-full p-4 border rounded-2xl flex items-center justify-between text-left transition-all group ${
-                          isDark 
-                            ? 'bg-slate-900 border-white/5 hover:border-blue-500/35 hover:bg-slate-800/80' 
-                            : 'bg-white border-slate-200 hover:border-blue-500/35 hover:bg-slate-50 shadow-sm'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0 group-hover:scale-110 transition-transform">
-                            <Camera size={16} />
-                          </div>
-                          <div>
-                            <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Trocar Foto de Perfil</p>
-                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Alterar ou enviar nova foto</p>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-black text-blue-400 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
-                      </button>
-
-                      {/* CLUB BONUS & OFFERS PANEL (JIS) - Moved inside "MINHA CONTA" */}
+                      {/* CLUB BONUS & OFFERS PANEL (JIS) */}
                       {appConfig?.bonusClubEnabled !== false && (
-                        <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl text-left space-y-3">
+                        <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl text-left space-y-3 shadow-xl">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <div className="p-1.5 bg-amber-500/10 rounded-lg text-amber-500">
+                              <div className="p-1.5 bg-amber-500/10 rounded-xl text-amber-500 border border-amber-500/20">
                                 <Gift size={14} />
                               </div>
                               <div>
                                 <h4 className="text-[10px] font-black uppercase text-white tracking-wider leading-none">SUPER Táxi Clube de Bónus 🌟</h4>
-                                <p className="text-[8px] text-slate-450 font-bold uppercase mt-0.5">O seu plano de fidelidade & ofertas</p>
+                                <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">Plano de fidelidade & ofertas JIS</p>
                               </div>
                             </div>
-                            <span className="text-[8px] bg-emerald-500/10 text-emerald-400 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider animate-pulse">{(appConfig?.bonusClubCashbackPercent || 5)}% Cashback</span>
+                            <span className="text-[8px] bg-emerald-500/10 text-emerald-400 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">{(appConfig?.bonusClubCashbackPercent || 5)}% Cashback</span>
                           </div>
 
                           {passengerProfile ? (
                             <div className="space-y-1">
-                              <div className="flex justify-between items-baseline p-2.5 bg-white/5 rounded-xl border border-white/5">
-                                <span className="text-[9px] text-slate-400 font-bold uppercase">O Seu Saldo Atual:</span>
+                              <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                                <span className="text-[9px] text-slate-400 font-bold uppercase">Saldo Atual de Bónus:</span>
                                 <span className="text-base font-black text-amber-400 font-mono">
                                   {Number(passengerProfile.bonusBalance || 0).toLocaleString()} Kz
                                 </span>
                               </div>
-                              <p className="text-[8.5px] text-slate-400 font-bold uppercase tracking-tight text-center pt-1">
+                              <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tight text-center pt-1">
                                 {Number(passengerProfile.bonusBalance || 0) > 0 
-                                  ? "🎉 Pode usar este saldo para pagar as suas viagens!" 
-                                  : "Faça corridas para acumular bónus!"}
+                                  ? "🎉 Utilize este saldo para descontar no valor total das suas corridas!" 
+                                  : "Realize viagens para acumular bónus no seu perfil!"}
                               </p>
                             </div>
                           ) : (
-                            <div className="text-left py-1 text-slate-400 text-[9px] leading-tight font-medium space-y-1">
-                              <p>Crie ou aceda à sua conta oficial de passageiro para acumular bónus!</p>
-                              <p>Cada viagem dá-lhe <strong className="text-white font-extrabold">{(appConfig?.bonusClubCashbackPercent || 5)}% de cashback</strong> para usar em futuras corridas!</p>
+                            <div className="text-left py-1 text-slate-400 text-[8.5px] leading-tight font-medium space-y-1">
+                              <p>Acumule saldo em cada viagem realizada com motoristas oficiais TaxiControl.</p>
+                              <p>Cada corrida atribui-lhe <strong className="text-white font-extrabold">{(appConfig?.bonusClubCashbackPercent || 5)}% de cashback</strong> direto.</p>
                             </div>
                           )}
                         </div>
                       )}
 
-                      {/* FORMULÁRIO DE EDIÇÃO DE DADOS DE PERFIL (Collapsible requested by JIS) */}
-                      <div className={`p-4 border rounded-2xl space-y-3 text-left ${
+                      {/* FORMULÁRIO DE EDIÇÃO DE DADOS DE PERFIL */}
+                      <div className={`p-4 border rounded-2xl space-y-3 text-left shadow-xl ${
                         isDark ? 'bg-slate-900 border-white/5 text-white' : 'bg-white border-slate-200 text-slate-900 shadow-sm'
                       }`}>
                         <button
                           type="button"
                           onClick={() => setIsEditProfileOpen(!isEditProfileOpen)}
-                          className="w-full flex items-center justify-between text-left focus:outline-none"
+                          className="w-full flex items-center justify-between text-left focus:outline-none cursor-pointer"
                         >
                           <div className="flex items-center gap-2">
                             <User size={14} className="text-amber-500" />
-                            <h4 className={`text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-white' : 'text-slate-900'}`}>Editar Dados de Perfil</h4>
+                            <h4 className={`text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-white' : 'text-slate-900'}`}>Editar Dados do Perfil</h4>
                           </div>
-                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                            {isEditProfileOpen ? 'Recolher ▲' : 'Expandir dados ▼'}
+                          <span className="text-[9px] text-amber-400 font-bold uppercase tracking-wider">
+                            {isEditProfileOpen ? 'Recolher ▲' : 'Expandir formulário ▼'}
                           </span>
                         </button>
 
@@ -3770,7 +3770,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             <button
                               type="submit"
                               disabled={isSavingProfile}
-                              className={`w-full py-2 px-4 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all duration-200 active:scale-95 shadow-md ${
+                              className={`w-full py-2 px-4 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all duration-200 active:scale-95 shadow-md cursor-pointer ${
                                 isSavingProfile 
                                   ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
                                   : currentTheme.btnClass
@@ -3782,37 +3782,49 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         )}
                       </div>
 
-                      {/* MINI LISTA DE CORRIDAS RECENTES INTEGRADA DIRETAMENTE NA ABA DO PERFIL */}
-                      <div className="p-4 bg-slate-900 border border-white/5 rounded-2xl space-y-3">
-                        <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-                          <Trophy size={14} className="text-amber-500" />
-                          <h4 className="text-[10px] font-black uppercase tracking-widest text-white">Minhas Corridas Recentes</h4>
-                        </div>
+                      {/* GRELHA DE OUTRAS OPÇÕES DA CONTA */}
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {/* TROCAR FOTO DE PERFIL BUTTON */}
+                        <button
+                          onClick={() => setShowProfilePicModal(true)}
+                          className={`p-3.5 border rounded-2xl flex flex-col items-center justify-center text-center transition-all group cursor-pointer ${
+                            isDark 
+                              ? 'bg-slate-900 border-white/5 hover:border-blue-500/35 hover:bg-slate-800/80' 
+                              : 'bg-white border-slate-200 hover:border-blue-500/35 hover:bg-slate-50 shadow-sm'
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0 group-hover:scale-110 transition-transform mb-1.5">
+                            <Camera size={16} />
+                          </div>
+                          <p className={`text-[9.5px] font-black uppercase tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Trocar Foto</p>
+                          <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Alterar Avatar</p>
+                        </button>
 
-                        {myRides.length === 0 ? (
-                          <div className="p-4 text-center bg-slate-950/65 rounded-xl border border-white/5 space-y-1">
-                            <Car size={24} className="mx-auto text-slate-600 animate-pulse" />
-                            <p className="text-[8.5px] text-slate-500 uppercase font-black">Nenhuma corrida registada</p>
+                        {/* SUGERIR APP (CÓDIGO QR) BUTTON */}
+                        <button
+                          onClick={() => setShowQrModal(true)}
+                          className={`p-3.5 border rounded-2xl flex flex-col items-center justify-center text-center transition-all group cursor-pointer ${
+                            isDark 
+                              ? 'bg-slate-900 border-white/5 hover:border-amber-500/35 hover:bg-slate-800/80' 
+                              : 'bg-white border-slate-200 hover:border-amber-500/35 hover:bg-slate-50 shadow-sm'
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0 group-hover:scale-110 transition-transform mb-1.5">
+                            <QrCode size={16} />
                           </div>
-                        ) : (
-                          <div className="space-y-2 max-h-48 overflow-y-auto no-scrollbar">
-                            {myRides.map((rd: any) => (
-                              <div key={rd.id} className="p-2.5 bg-slate-950 rounded-xl border border-white/5 flex items-center justify-between text-xs">
-                                <div className="space-y-0.5">
-                                  <p className="font-extrabold text-white text-[10px]">{rd.pickup} ➔ {rd.destination}</p>
-                                  <p className="text-[8px] text-slate-400 font-bold uppercase">Motorista: {rd.driverName || 'Não Alocado'}</p>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <span className="text-[10px] font-black text-amber-500 block">
-                                    {getRidePriceText(rd)}
-                                  </span>
-                                  {getRideStatusBadge(rd)}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                          <p className={`text-[9.5px] font-black uppercase tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Sugerir App</p>
+                          <p className="text-[7.5px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Código QR</p>
+                        </button>
                       </div>
+
+                      {/* BOTAO SAIR DA CONTA */}
+                      <button
+                        onClick={handleLogout}
+                        className="w-full p-3 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 rounded-2xl flex items-center justify-center gap-2 text-rose-400 font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 cursor-pointer mt-2"
+                      >
+                        <X size={14} />
+                        Sair da Conta / Mudar Usuário
+                      </button>
 
                     </div>
                   )}
@@ -4628,51 +4640,142 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
               </div>
             )}
 
-            {/* MODAL 1: HISTÓRICO DE CORRIDAS RECENTES (JIS) */}
+            {/* TELA DEDICADA: HISTÓRICO COMPLETO DE MINHAS CORRIDAS RECENTES (JIS) */}
             {showRidesHistoryModal && (
-              <div className="absolute inset-0 bg-black/85 z-[2000] flex flex-col justify-end">
-                <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
-                      <Trophy size={14} className="text-amber-500" />
-                      Minhas Corridas Recentes
-                    </h3>
-                    <button 
-                      onClick={() => setShowRidesHistoryModal(false)}
-                      className="p-1 hover:bg-white/10 rounded text-slate-400"
-                    >
-                      <X size={16} />
-                    </button>
+              <div className="absolute inset-0 bg-slate-950 z-[2000] flex flex-col p-4 sm:p-5 overflow-hidden animate-in slide-in-from-bottom duration-300 text-white">
+                {/* Header da Tela Dedicada - FIXO */}
+                <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3 shrink-0 bg-slate-950">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
+                      <Trophy size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-white truncate">
+                          Minhas Corridas Recentes
+                        </h3>
+                        <span className="text-[8px] font-black bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full uppercase shrink-0">
+                          {myRides.length} {myRides.length === 1 ? 'Viagem' : 'Viagens'}
+                        </span>
+                      </div>
+                      <p className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-widest truncate mt-0.5">
+                        Tela Individual • Histórico Completo SUPER Táxi
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="space-y-2">
-                    {myRides.length === 0 ? (
-                      <div className="p-8 text-center bg-white/5 rounded-2xl border border-white/5 space-y-2">
-                        <Car size={32} className="mx-auto text-slate-600 animate-pulse" />
-                        <p className="text-[10px] text-slate-400 uppercase font-black">Nenhuma corrida registada</p>
-                        <p className="text-[9px] text-slate-500 font-bold">Faça o seu primeiro pedido de Super Táxi para ver o progresso.</p>
+                  <button 
+                    onClick={() => setShowRidesHistoryModal(false)}
+                    className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-slate-400 hover:text-white transition-all active:scale-95 shrink-0 border border-white/5 cursor-pointer"
+                    title="Fechar Tela"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Lista de Corridas - NAVEGAÇÃO E SCROLL APENAS AQUI */}
+                <div className="flex-1 overflow-y-auto no-scrollbar space-y-3 pb-8 pr-0.5">
+                  {myRides.length === 0 ? (
+                    <div className="p-8 text-center bg-white/5 rounded-2xl border border-white/5 space-y-3 my-auto">
+                      <div className="w-14 h-14 bg-amber-500/10 rounded-2xl mx-auto flex items-center justify-center text-amber-500 border border-amber-500/20">
+                        <Car size={28} className="animate-pulse" />
                       </div>
-                    ) : (
-                      myRides.map((rd: any) => (
-                        <div key={rd.id} className="p-3.5 bg-white/5 rounded-xl border border-white/5 flex items-center justify-between gap-3 text-xs">
-                          <div className="space-y-1">
-                            <p className="font-extrabold text-white text-[11px]">{rd.pickup} ➔ {rd.destination}</p>
-                            <div className="flex items-center gap-2 text-[9px] text-slate-400 font-bold">
-                              <span>Motorista: <strong className="text-slate-300">{rd.driverName || 'Não Alocado'}</strong></span>
-                              <span>Plaque: <strong className="text-slate-300">{rd.vehiclePlate}</strong></span>
-                            </div>
-                            <p className="text-[8.5px] text-slate-500 uppercase font-bold">Token: {rd.boardingToken || 'N/A'}</p>
+                      <div className="space-y-1">
+                        <p className="text-xs text-slate-200 uppercase font-black">Nenhuma corrida registada ainda</p>
+                        <p className="text-[9.5px] text-slate-400 font-bold max-w-xs mx-auto">
+                          Os seus pedidos de SUPER Táxi no Luena e Moxico ficarão arquivados detalhadamente nesta tela individual.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowRidesHistoryModal(false);
+                          setPassengerTab('viagem');
+                        }}
+                        className={`px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl ${currentTheme.btnClass} cursor-pointer inline-block`}
+                      >
+                        Pedir a Sua Primeira Corrida Agora
+                      </button>
+                    </div>
+                  ) : (
+                    myRides.map((rd: any) => (
+                      <div 
+                        key={rd.id} 
+                        className="p-4 bg-slate-900/90 border border-white/10 hover:border-amber-500/30 rounded-2xl space-y-3 text-xs shadow-lg transition-all"
+                      >
+                        {/* Header da Corrida */}
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                          <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-extrabold uppercase">
+                            <Clock size={11} className="text-amber-500" />
+                            <span>
+                              {rd.createdAt ? new Date(rd.createdAt).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Data Recente'}
+                            </span>
                           </div>
-                          <div className="text-right shrink-0 space-y-1">
-                            <span className="text-[11px] font-black text-amber-500 block">
+                          <div className="flex items-center gap-2">
+                            {getRideStatusBadge(rd, true)}
+                            {(rd.usedBonus === true || rd.paidWithBonus === true || rd.paymentMethod === 'bonus') && (
+                              <span className="text-[7.5px] font-black px-1.5 py-0.5 rounded border uppercase bg-amber-500/10 text-amber-400 border-amber-500/20">
+                                🎁 Debitado por Bónus
+                              </span>
+                            )}
+                            <span className="text-xs font-black text-amber-400 font-mono">
                               {getRidePriceText(rd)}
                             </span>
-                            {getRideStatusBadge(rd, true)}
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
+
+                        {/* Rota (Origem -> Destino) */}
+                        <div className="space-y-1.5 bg-black/40 p-2.5 rounded-xl border border-white/5">
+                          <div className="flex items-start gap-2">
+                            <MapPin size={12} className="text-emerald-400 shrink-0 mt-0.5" />
+                            <div>
+                              <span className="text-[7.5px] font-extrabold text-emerald-400 uppercase tracking-widest block leading-none">Ponto de Recolha</span>
+                              <span className="text-[10.5px] font-extrabold text-white">{rd.pickup}</span>
+                            </div>
+                          </div>
+                          <div className="h-px bg-white/5 border-dashed my-1" />
+                          <div className="flex items-start gap-2">
+                            <Navigation size={12} className="text-amber-400 shrink-0 mt-0.5" />
+                            <div>
+                              <span className="text-[7.5px] font-extrabold text-amber-400 uppercase tracking-widest block leading-none">Destino Final</span>
+                              <span className="text-[10.5px] font-extrabold text-white">{rd.destination}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Detalhes do Motorista e Viatura */}
+                        <div className="grid grid-cols-2 gap-2 text-[9.5px]">
+                          <div className="p-2 bg-white/5 rounded-xl border border-white/5">
+                            <span className="text-[7.5px] text-slate-400 font-bold uppercase block">Motorista Atribuído</span>
+                            <span className="font-extrabold text-white truncate block">{rd.driverName || 'Não Alocado'}</span>
+                          </div>
+                          <div className="p-2 bg-white/5 rounded-xl border border-white/5">
+                            <span className="text-[7.5px] text-slate-400 font-bold uppercase block">Viatura & Matrícula</span>
+                            <span className="font-extrabold text-slate-200 truncate block">
+                              {rd.model || 'Táxi'} {rd.vehiclePlate ? `(${rd.vehiclePlate})` : ''}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Token de Embarque e Avaliação */}
+                        <div className="flex items-center justify-between text-[9px] pt-1">
+                          {rd.boardingToken && (
+                            <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                              <ShieldCheck size={11} className="text-emerald-400" />
+                              <span className="text-slate-300 font-bold uppercase">Token Validação:</span>
+                              <strong className="text-emerald-400 font-mono font-black">{rd.boardingToken}</strong>
+                            </div>
+                          )}
+
+                          {(rd.rating || rd.passengerRating || rd.stars) ? (
+                            <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg text-amber-400 font-black ml-auto">
+                              <span>★ {rd.rating || rd.passengerRating || rd.stars}</span>
+                              <span className="text-[8px] text-slate-400 uppercase font-bold">Avaliado</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

@@ -191,7 +191,10 @@ export default function CallSmsDossier() {
 
     const totalEarnings = driverCalls
       .filter(c => c.status === 'completed' || c.status === 'concluída')
-      .reduce((sum, c) => sum + (Number(c.price) || 0), 0);
+      .reduce((sum, c) => {
+        const isBonus = c.usedBonus === true || c.paidWithBonus === true || c.paymentMethod === 'bonus';
+        return sum + (isBonus ? 0 : (Number(c.price) || 0));
+      }, 0);
 
     // Get last active communication date
     let lastActive: any = null;

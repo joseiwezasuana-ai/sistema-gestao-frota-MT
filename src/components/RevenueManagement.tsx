@@ -558,10 +558,16 @@ export default function RevenueManagement({ user }: { user: any }) {
   const stats = {
     totalFinalized: revenues
       .filter(r => (r.status === 'finalized' || r.status === 'paid_to_staff'))
-      .reduce((acc, curr) => acc + (curr.amount || 0), 0),
+      .reduce((acc, curr) => {
+        const isBonus = curr.usedBonus === true || curr.paidWithBonus === true || curr.paymentMethod === 'bonus' || curr.isBonus === true;
+        return acc + (isBonus ? 0 : (curr.amount || 0));
+      }, 0),
     totalProcess: revenues
       .filter(r => !['finalized', 'paid_to_staff', 'archived'].includes(r.status))
-      .reduce((acc, curr) => acc + (curr.amount || 0), 0),
+      .reduce((acc, curr) => {
+        const isBonus = curr.usedBonus === true || curr.paidWithBonus === true || curr.paymentMethod === 'bonus' || curr.isBonus === true;
+        return acc + (isBonus ? 0 : (curr.amount || 0));
+      }, 0),
     totalExpenses: revenues
       .filter(r => r.status !== 'archived')
       .reduce((acc, curr) => acc + (curr.breakdown?.expenses || 0), 0),

@@ -550,7 +550,8 @@ export default function Dashboard({ user }: { user: any }) {
         dailyEarnings[date] = { total: 0, drivers: new Set() };
       }
       
-      dailyEarnings[date].total += (rev.amount || 0);
+      const isBonus = rev.usedBonus === true || rev.paidWithBonus === true || rev.paymentMethod === 'bonus' || rev.isBonus === true;
+      dailyEarnings[date].total += (isBonus ? 0 : (rev.amount || 0));
       const driverId = rev.driverId || rev.driverName || 'Unknown';
       dailyEarnings[date].drivers.add(driverId);
     });
@@ -609,7 +610,8 @@ export default function Dashboard({ user }: { user: any }) {
         if (selectedFinancialFleet === 'geral' && (isTaxi || isRent)) return;
 
         if (monthlyMap[mKey]) {
-          monthlyMap[mKey].revenue += (rev.amount || 0);
+          const isBonus = rev.usedBonus === true || rev.paidWithBonus === true || rev.paymentMethod === 'bonus' || rev.isBonus === true;
+          monthlyMap[mKey].revenue += (isBonus ? 0 : (rev.amount || 0));
         }
       });
     }
@@ -661,7 +663,8 @@ export default function Dashboard({ user }: { user: any }) {
     if (Array.isArray(revenues)) {
       revenues.forEach(rev => {
         const prefix = (rev.prefix || '').toUpperCase();
-        const amount = rev.amount || 0;
+        const isBonus = rev.usedBonus === true || rev.paidWithBonus === true || rev.paymentMethod === 'bonus' || rev.isBonus === true;
+        const amount = isBonus ? 0 : (rev.amount || 0);
         if (prefix.includes('TAX')) {
           stats.taxi.revenue += amount;
         } else if (prefix.includes('ALG') || prefix.includes('RENT')) {
@@ -774,7 +777,10 @@ export default function Dashboard({ user }: { user: any }) {
   };
 
   const getDriverClassification = (rewards: any[], driverCallsList: any[], accidentsList: any[]) => {
-    const totalRev = rewards.reduce((sum, log) => sum + (Number(log.amount) || Number(log.value) || 0), 0);
+    const totalRev = rewards.reduce((sum, log) => {
+      const isBonus = log.usedBonus === true || log.paidWithBonus === true || log.paymentMethod === 'bonus' || log.isBonus === true;
+      return sum + (isBonus ? 0 : (Number(log.amount) || Number(log.value) || 0));
+    }, 0);
     const completedCallsCount = driverCallsList.filter(c => c.status === 'completed' || c.status === 'concluída').length;
     const totalCallsCount = driverCallsList.length;
     const compRate = totalCallsCount > 0 ? (completedCallsCount / totalCallsCount) * 100 : 0;

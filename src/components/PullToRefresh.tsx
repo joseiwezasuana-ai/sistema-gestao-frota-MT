@@ -71,8 +71,22 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({
           if (onRefresh) {
             await onRefresh();
           } else {
-            // Default action: soft refresh or reload
-            await new Promise((resolve) => setTimeout(resolve, 800));
+            // Default action: clear caches & force hard reload
+            try {
+              if ('caches' in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+              }
+              if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (const reg of regs) {
+                  await reg.update();
+                }
+              }
+            } catch (cErr) {
+              console.warn("[PullToRefresh] Cache purge warning:", cErr);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 600));
             window.location.reload();
           }
           setShowSuccessToast(true);

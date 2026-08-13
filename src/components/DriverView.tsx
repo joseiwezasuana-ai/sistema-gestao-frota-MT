@@ -602,7 +602,11 @@ export default function DriverView({ user }: DriverViewProps) {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const total = snapshot.docs.reduce(
-        (acc, doc) => acc + (doc.data().amount || 0),
+        (acc, doc) => {
+          const data = doc.data();
+          const isBonus = data.usedBonus === true || data.paidWithBonus === true || data.paymentMethod === 'bonus' || data.isBonus === true;
+          return acc + (isBonus ? 0 : (data.amount || 0));
+        },
         0,
       );
       setEarnings(total);
@@ -622,7 +626,11 @@ export default function DriverView({ user }: DriverViewProps) {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const total = snapshot.docs.reduce(
-        (acc, doc) => acc + (doc.data().amount || 0),
+        (acc, doc) => {
+          const data = doc.data();
+          const isBonus = data.usedBonus === true || data.paidWithBonus === true || data.paymentMethod === 'bonus' || data.isBonus === true;
+          return acc + (isBonus ? 0 : (data.amount || 0));
+        },
         0,
       );
       setApprovedEarnings(total);
@@ -1454,55 +1462,61 @@ export default function DriverView({ user }: DriverViewProps) {
         return p.toUpperCase().replace(/[^A-Z0-9]/g, '');
       };
 
-      // Try tracking current active service first or locate newest valid pending service
-      const ourMatchedDoc = snapshot.docs.find((doc: any) => {
-        const d = doc.data();
-        if (["completed", "cancelled", "rejected", "ignored"].includes(d.status)) return false;
-        if (hiddenCallIdsRef.current.includes(doc.id)) return false;
+      // First check if our current active service in memory was updated in Firestore
+      const currentActiveId = currentServiceRef.current?.id;
+      let ourMatchedDoc: any = null;
 
-        const callDriverNameClean = cleanName(d.driverName || "");
-        const loggedDriverNameClean = cleanName(user?.name || "");
-        const vehicleDriverNameClean = cleanName(assignedVehicle?.driverName || "");
-
-        const isNameMatch = (
-          (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean === loggedDriverNameClean) ||
-          (callDriverNameClean !== "" && vehicleDriverNameClean !== "" && callDriverNameClean === vehicleDriverNameClean) ||
-          (callDriverNameClean !== "" && loggedDriverNameClean !== "" && (callDriverNameClean.includes(loggedDriverNameClean) || loggedDriverNameClean.includes(callDriverNameClean)))
-        );
-
-        const callPlateClean = cleanPlate(d.vehiclePlate || "");
-        const assignedPlateClean = cleanPlate(assignedVehicle?.plate || "");
-        const isPlateMatch = callPlateClean !== "" && assignedPlateClean !== "" && callPlateClean === assignedPlateClean;
-
-        const isDriverIdMatch = (
-          (d.driverId && user?.uid && d.driverId === user.uid) ||
-          (assignedVehicle?.id && d.driverId === assignedVehicle.id) ||
-          (assignedVehicle?.driverId && d.driverId === assignedVehicle.driverId)
-        );
-
-        // If call is explicitly reassigned/delegated to another driver, exclude it for current driver
-        const isAssignedToOther = (
-          (d.driverId && user?.uid && d.driverId !== user.uid && (!assignedVehicle?.id || d.driverId !== assignedVehicle.id) && (!assignedVehicle?.driverId || d.driverId !== assignedVehicle.driverId)) ||
-          (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean !== loggedDriverNameClean && (!vehicleDriverNameClean || callDriverNameClean !== vehicleDriverNameClean))
-        );
-
-        if (isAssignedToOther && !isNameMatch && !isDriverIdMatch) {
-          return false;
+      if (currentActiveId) {
+        const activeDoc = snapshot.docs.find((doc: any) => doc.id === currentActiveId);
+        if (activeDoc) {
+          ourMatchedDoc = activeDoc;
         }
+      }
 
-        if (currentServiceRef.current?.id && doc.id === currentServiceRef.current.id) {
-          // Verify if it wasn't transferred to someone else
-          if (!isAssignedToOther || isNameMatch || isDriverIdMatch) {
-            return true;
+      // If no current active service doc found, search for new active service for this driver
+      if (!ourMatchedDoc) {
+        ourMatchedDoc = snapshot.docs.find((doc: any) => {
+          const d = doc.data();
+          if (["completed", "cancelled", "rejected", "ignored"].includes(d.status)) return false;
+          if (hiddenCallIdsRef.current.includes(doc.id)) return false;
+
+          const callDriverNameClean = cleanName(d.driverName || "");
+          const loggedDriverNameClean = cleanName(user?.name || "");
+          const vehicleDriverNameClean = cleanName(assignedVehicle?.driverName || "");
+
+          const isNameMatch = (
+            (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean === loggedDriverNameClean) ||
+            (callDriverNameClean !== "" && vehicleDriverNameClean !== "" && callDriverNameClean === vehicleDriverNameClean) ||
+            (callDriverNameClean !== "" && loggedDriverNameClean !== "" && (callDriverNameClean.includes(loggedDriverNameClean) || loggedDriverNameClean.includes(callDriverNameClean)))
+          );
+
+          const callPlateClean = cleanPlate(d.vehiclePlate || "");
+          const assignedPlateClean = cleanPlate(assignedVehicle?.plate || "");
+          const isPlateMatch = callPlateClean !== "" && assignedPlateClean !== "" && callPlateClean === assignedPlateClean;
+
+          const isDriverIdMatch = (
+            (d.driverId && user?.uid && d.driverId === user.uid) ||
+            (assignedVehicle?.id && d.driverId === assignedVehicle.id) ||
+            (assignedVehicle?.driverId && d.driverId === assignedVehicle.driverId)
+          );
+
+          // If call is explicitly reassigned/delegated to another driver, exclude it for current driver
+          const isAssignedToOther = (
+            (d.driverId && user?.uid && d.driverId !== user.uid && (!assignedVehicle?.id || d.driverId !== assignedVehicle.id) && (!assignedVehicle?.driverId || d.driverId !== assignedVehicle.driverId)) ||
+            (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean !== loggedDriverNameClean && (!vehicleDriverNameClean || callDriverNameClean !== vehicleDriverNameClean))
+          );
+
+          if (isAssignedToOther && !isNameMatch && !isDriverIdMatch) {
+            return false;
           }
-        }
 
-        return (
-          isNameMatch ||
-          isPlateMatch ||
-          isDriverIdMatch
-        );
-      });
+          return (
+            isNameMatch ||
+            isPlateMatch ||
+            isDriverIdMatch
+          );
+        });
+      }
 
       if (ourMatchedDoc) {
         const callData = { id: ourMatchedDoc.id, ...ourMatchedDoc.data() };
@@ -1510,8 +1524,17 @@ export default function DriverView({ user }: DriverViewProps) {
         if (["completed", "cancelled", "rejected", "ignored"].includes(callData.status)) {
           // Clean up state on cancellation or completion
           if (callData.status === "cancelled") {
-            console.log("Passenger cancelled or ended call, informing driver");
+            console.log("[DriverView] Passenger cancelled call, notifying driver and clearing ringing");
             setLastCancelledService(callData);
+            setNotificationBanner({
+              title: "⚠️ CHAMADA CANCELADA",
+              message: `O passageiro ${callData.passengerName || 'de Luena'} cancelou a chamada.`,
+              type: "warning",
+              visible: true
+            });
+            if (assignedVehicle?.id) {
+              updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" }).catch(() => {});
+            }
           }
           setCurrentService(null);
           setShowNotification(false);
@@ -1576,11 +1599,6 @@ export default function DriverView({ user }: DriverViewProps) {
           }
         }
       } else {
-        // Protect active call state from transient query drops
-        if (currentServiceRef.current?.id && !["completed", "cancelled", "rejected", "ignored"].includes(currentServiceRef.current.status)) {
-          console.log("Preserving current active service in DriverView:", currentServiceRef.current);
-          return;
-        }
         // Clear if not found and no active call
         setCurrentService(null);
         setShowNotification(false);

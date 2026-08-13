@@ -244,7 +244,10 @@ export default function DriverDashboard() {
     : [];
 
   // Calculate stats for selected driver
-  const totalCollected = driverRevenues.reduce((sum, rev) => sum + (Number(rev.amount) || Number(rev.value) || 0), 0);
+  const totalCollected = driverRevenues.reduce((sum, rev) => {
+    const isBonus = rev.usedBonus === true || rev.paidWithBonus === true || rev.paymentMethod === 'bonus' || rev.isBonus === true;
+    return sum + (isBonus ? 0 : (Number(rev.amount) || Number(rev.value) || 0));
+  }, 0);
   const completedCalls = driverCalls.filter(c => c.status === 'completed' || c.status === 'concluída').length;
   const canceledCalls = driverCalls.filter(c => c.status === 'cancelled' || c.status === 'cancelada').length;
   const pendingCalls = driverCalls.filter(c => c.status === 'pending' || c.status === 'pendente' || c.status === 'accepted').length;

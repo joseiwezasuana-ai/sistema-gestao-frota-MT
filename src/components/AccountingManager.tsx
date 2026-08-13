@@ -378,7 +378,8 @@ export default function AccountingManager({ user }: { user?: any }) {
       const key = driverNameStr ? driverNameStr.toLowerCase() : (rev.driverId || '');
       if (!key) return;
 
-      const gross = (rev.breakdown?.tpa || 0) + (rev.breakdown?.cash || 0) + (rev.breakdown?.transfer || 0) || (rev.amount || 0);
+      const isBonusRev = rev.usedBonus === true || rev.paidWithBonus === true || rev.paymentMethod === 'bonus' || rev.isBonus === true;
+      const gross = isBonusRev ? 0 : ((rev.breakdown?.tpa || 0) + (rev.breakdown?.cash || 0) + (rev.breakdown?.transfer || 0) || (rev.amount || 0));
       const exp = rev.breakdown?.expenses || 0;
       const disc = rev.breakdown?.discounts || rev.discounts || rev.discountValue || 0;
       const net = gross - exp - disc;
@@ -574,8 +575,14 @@ export default function AccountingManager({ user }: { user?: any }) {
     return (r.status === 'approved_by_operator' || r.status === 'approved_by_accountant' || r.status === 'finalized' || r.status === 'paid_to_staff') && rMonth === currentMonth;
   });
 
-  const totalPendingSum = monthlyPendingLogs.reduce((acc, curr) => acc + (curr.amount || 0), 0);
-  const totalApprovedSum = monthlyApprovedLogs.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+  const totalPendingSum = monthlyPendingLogs.reduce((acc, curr) => {
+    const isBonus = curr.usedBonus === true || curr.paidWithBonus === true || curr.paymentMethod === 'bonus' || curr.isBonus === true;
+    return acc + (isBonus ? 0 : (curr.amount || 0));
+  }, 0);
+  const totalApprovedSum = monthlyApprovedLogs.reduce((acc, curr) => {
+    const isBonus = curr.usedBonus === true || curr.paidWithBonus === true || curr.paymentMethod === 'bonus' || curr.isBonus === true;
+    return acc + (isBonus ? 0 : (curr.amount || 0));
+  }, 0);
 
   // Estados para intervalo customizável do PDF Consolidado de Receita de Rendas (José Iweza Suana)
   const [consolidatedStartDate, setConsolidatedStartDate] = useState<string>(() => {

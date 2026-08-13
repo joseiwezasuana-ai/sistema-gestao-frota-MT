@@ -700,7 +700,11 @@ export default function RealTimeMap() {
                             </p>
                             {(call.price || call.finalPrice) && (
                               <p className="text-[11px] text-emerald-600 font-black italic mt-1.5">
-                                Faturação: {Number(call.price || call.finalPrice).toLocaleString('pt-PT')} Kz
+                                {(call.usedBonus === true || call.paidWithBonus === true || call.paymentMethod === 'bonus') ? (
+                                  <span className="text-amber-500">Faturação: 0 Kz (Debitado por Bónus)</span>
+                                ) : (
+                                  `Faturação: ${Number(call.price || call.finalPrice).toLocaleString('pt-PT')} Kz`
+                                )}
                               </p>
                             )}
                           </div>

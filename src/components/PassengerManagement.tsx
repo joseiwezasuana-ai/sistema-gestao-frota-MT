@@ -353,7 +353,8 @@ export default function PassengerManagement({ user }: { user: any }) {
       const isCompleted = c.status === 'completed';
       if (isCompleted) {
         driverMap[driverKey].completedTrips += 1;
-        const tripPrice = Number(c.price || c.finalPrice || 0);
+        const isBonus = c.usedBonus === true || c.paidWithBonus === true || c.paymentMethod === 'bonus';
+        const tripPrice = isBonus ? 0 : Number(c.price || c.finalPrice || 0);
         driverMap[driverKey].totalRevenue += tripPrice;
       }
 
@@ -1184,10 +1185,19 @@ export default function PassengerManagement({ user }: { user: any }) {
                       {/* Rating/Price details */}
                       <td className="p-3 text-right">
                         <div className="space-y-1">
-                          <div className="flex justify-end">
+                          <div className="flex justify-end gap-1">
                             {getStatusBadge(c.status)}
+                            {(c.usedBonus === true || c.paidWithBonus === true || c.paymentMethod === 'bonus') && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                                🎁 Debitado por Bónus
+                              </span>
+                            )}
                           </div>
-                          {c.price || c.finalPrice ? (
+                          {(c.usedBonus === true || c.paidWithBonus === true || c.paymentMethod === 'bonus') ? (
+                            <div className="text-[11px] font-black text-amber-500">
+                              0 Kz <span className="text-[8.5px] opacity-80">(Bónus {Number(c.price || c.finalPrice || 0).toLocaleString()} Kz)</span>
+                            </div>
+                          ) : c.price || c.finalPrice ? (
                             <div className="text-[11px] font-black text-brand-primary dark:text-amber-400">
                               {Number(c.price || c.finalPrice).toLocaleString('pt-PT')} Kz
                             </div>

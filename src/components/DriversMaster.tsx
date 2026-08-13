@@ -21,7 +21,8 @@ import {
   Printer,
   Download,
   LayoutDashboard,
-  Coins
+  Coins,
+  Star
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -84,7 +85,10 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
   });
 
   const getDriverClassification = (rewards: any[], calls: any[], accidents: any[]) => {
-    const totalRev = rewards.reduce((acc, log) => acc + (Number(log.amount) || Number(log.value) || 0), 0);
+    const totalRev = rewards.reduce((acc, log) => {
+      const isBonus = log.usedBonus === true || log.paidWithBonus === true || log.paymentMethod === 'bonus' || log.isBonus === true;
+      return acc + (isBonus ? 0 : (Number(log.amount) || Number(log.value) || 0));
+    }, 0);
     const completedCallsCount = calls.filter(c => c.status === 'completed' || c.status === 'concluída').length;
     const totalCallsCount = calls.length;
     const compRate = totalCallsCount > 0 ? (completedCallsCount / totalCallsCount) * 100 : 0;
@@ -229,7 +233,10 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
     setAiInsight('');
     
     // Calculate simple stats
-    const totalRevenue = driverRevenueLogs.reduce((acc, log) => acc + (Number(log.amount) || Number(log.value) || 0), 0);
+    const totalRevenue = driverRevenueLogs.reduce((acc, log) => {
+      const isBonus = log.usedBonus === true || log.paidWithBonus === true || log.paymentMethod === 'bonus' || log.isBonus === true;
+      return acc + (isBonus ? 0 : (Number(log.amount) || Number(log.value) || 0));
+    }, 0);
     const completedCalls = driverCalls.filter(c => c.status === 'completed' || c.status === 'concluída').length;
     const totalCalls = driverCalls.length;
     const stats = {
@@ -262,7 +269,10 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
       return;
     }
     
-    const totalRev = driverRevenueLogs.reduce((acc, log) => acc + (Number(log.amount) || Number(log.value) || 0), 0).toLocaleString('pt-PT', { style: 'currency', currency: 'AOA' });
+    const totalRev = driverRevenueLogs.reduce((acc, log) => {
+      const isBonus = log.usedBonus === true || log.paidWithBonus === true || log.paymentMethod === 'bonus' || log.isBonus === true;
+      return acc + (isBonus ? 0 : (Number(log.amount) || Number(log.value) || 0));
+    }, 0).toLocaleString('pt-PT', { style: 'currency', currency: 'AOA' });
     const callsCount = driverCalls.length;
     const sosCount = driverPanicAlerts.length;
     const accCount = driverAccidents.length;
@@ -454,7 +464,10 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
     doc.text("ALERTA S.O.S", 120, 74);
     doc.text("SINISTROS", 160, 74);
     
-    const totalRev = driverRevenueLogs.reduce((acc, log) => acc + (Number(log.amount) || Number(log.value) || 0), 0).toLocaleString('pt-PT', { style: 'currency', currency: 'AOA' });
+    const totalRev = driverRevenueLogs.reduce((acc, log) => {
+      const isBonus = log.usedBonus === true || log.paidWithBonus === true || log.paymentMethod === 'bonus' || log.isBonus === true;
+      return acc + (isBonus ? 0 : (Number(log.amount) || Number(log.value) || 0));
+    }, 0).toLocaleString('pt-PT', { style: 'currency', currency: 'AOA' });
     doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
     doc.setFont("helvetica", "bold");
@@ -1478,7 +1491,10 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
                           <div className="bg-white p-5 border border-slate-200 rounded-[1.25rem] flex flex-col justify-between shadow-sm">
                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Rendimento Total</span>
                             <h4 className="text-xl font-black text-slate-900 tracking-tight font-mono mt-2">
-                              {driverRevenueLogs.reduce((acc, log) => acc + (Number(log.amount) || Number(log.value) || 0), 0).toLocaleString('pt-PT', { style: 'currency', currency: 'AOA' })}
+                              {driverRevenueLogs.reduce((acc, log) => {
+                                const isBonus = log.usedBonus === true || log.paidWithBonus === true || log.paymentMethod === 'bonus' || log.isBonus === true;
+                                return acc + (isBonus ? 0 : (Number(log.amount) || Number(log.value) || 0));
+                              }, 0).toLocaleString('pt-PT', { style: 'currency', currency: 'AOA' })}
                             </h4>
                             <p className="text-[9px] text-emerald-600 font-bold uppercase mt-1">Registos em Faturamento</p>
                           </div>
