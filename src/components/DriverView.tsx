@@ -1,0 +1,5625 @@
+// @ts-nocheck
+import React, { useState, useEffect, useRef } from "react";
+import {
+  Smartphone,
+  Power,
+  MapPin,
+  Navigation,
+  Menu,
+  Bell,
+  Star,
+  DollarSign,
+  Clock,
+  CheckCircle2,
+  Plus,
+  XCircle,
+  Phone,
+  PhoneIncoming,
+  PhoneCall,
+  MessageCircle,
+  MoreVertical,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+  Activity,
+  History,
+  AlertTriangle,
+  Wallet,
+  Wrench,
+  Settings,
+  FileSignature,
+  X,
+  Users,
+  Loader2,
+  ExternalLink,
+  RefreshCw,
+  Zap,
+  MessageSquare,
+  Layout,
+  AlertCircle,
+  Lock,
+} from "lucide-react";
+import RevenueManagement from "./RevenueManagement";
+import PermissionManager from "./PermissionManager";
+import { WhatsAppMonitor } from "./WhatsAppMonitor";
+import { WebRTCAudioCall } from "./WebRTCAudioCall";
+import { TeamCollaborativeChat } from "./TeamCollaborativeChat";
+import { useUnreadTeamChat } from "../lib/useUnreadTeamChat";
+import WaitingTimer from './WaitingTimer';
+import { motion, AnimatePresence } from "motion/react";
+import { cn } from "../lib/utils";
+import { format } from "date-fns";
+import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import {
+  collection,
+  query,
+  where,
+  or,
+  and,
+  onSnapshot,
+  orderBy,
+  limit,
+  doc,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
+  arrayUnion,
+  addDoc,
+  getDocs,
+  getDoc,
+} from '@/src/lib/firebase';
+
+import { auth } from "../lib/firebase";
+import { signOut } from "firebase/auth";
+
+import { MapContainer, TileLayer, Marker, useMap, Popup } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+import { geminiService } from "../services/geminiService";
+import { sendPassengerPushNotification } from "../lib/fcmService";
+
+// Fix for Leaflet default icon issues safely
+try {
+  if (typeof window !== 'undefined' && L && L.Icon && L.Icon.Default && L.Icon.Default.prototype) {
+    // @ts-ignore
+    delete L.Icon.Default.prototype._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+    });
+  }
+} catch (e) {
+  console.warn("Leaflet icon setup skipped:", e);
+}
+
+// Custom markers for Driver and Passenger
+const driverMapIcon = typeof window !== 'undefined' ? L.divIcon({
+  html: `
+    <div class="relative flex flex-col items-center">
+      <!-- Label -->
+      <span class="absolute -top-6 bg-slate-950/95 border border-amber-500/30 text-amber-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap z-50">TÁXI (VOCÊ)</span>
+      <!-- Pulsing ring -->
+      <div class="absolute w-8 h-8 rounded-full bg-amber-500 animate-ping opacity-25" style="top: 0px;"></div>
+      <!-- Center Circle -->
+      <div class="relative w-8 h-8 rounded-full bg-slate-950 border-2 border-amber-500 flex items-center justify-center shadow-xl">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-car"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+      </div>
+    </div>
+  `,
+  className: '',
+  iconSize: [60, 40],
+  iconAnchor: [30, 16],
+}) : null;
+
+const passengerMapIcon = typeof window !== 'undefined' ? L.divIcon({
+  html: `
+    <div class="relative flex flex-col items-center">
+      <!-- Label -->
+      <span class="absolute -top-6 bg-slate-950/95 border border-emerald-500/30 text-emerald-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg whitespace-nowrap z-50">PASSAGEIRO</span>
+      <!-- Pulsing ring -->
+      <div class="absolute w-8 h-8 rounded-full bg-emerald-500 animate-pulse opacity-35" style="top: 0px;"></div>
+      <!-- Center Circle -->
+      <div class="relative w-8 h-8 rounded-full bg-slate-950 border-2 border-emerald-500 flex items-center justify-center shadow-xl">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-user"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </div>
+    </div>
+  `,
+  className: '',
+  iconSize: [60, 40],
+  iconAnchor: [30, 16],
+}) : null;
+
+const ForwardedCallCountdown: React.FC<{ call: any; onExpire: () => void }> = ({ call, onExpire }) => {
+  const [secondsLeft, setSecondsLeft] = useState<number>(() => {
+    let expiresAt = call?.forwardExpiresAt;
+    if (typeof expiresAt === 'string') {
+      expiresAt = new Date(expiresAt).getTime();
+    } else if (expiresAt && typeof expiresAt === 'object' && expiresAt.toMillis) {
+      expiresAt = expiresAt.toMillis();
+    }
+    if (!expiresAt) {
+      const startTime = call?.forwardedAt ? new Date(call.forwardedAt).getTime() : (call?.timestamp ? new Date(call.timestamp).getTime() : Date.now());
+      expiresAt = startTime + 3 * 60 * 1000;
+    }
+    return Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+  });
+
+  useEffect(() => {
+    if (secondsLeft <= 0) {
+      onExpire();
+      return;
+    }
+    const interval = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          onExpire();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [call?.id, onExpire]);
+
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = secondsLeft % 60;
+  const timeFormatted = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+  return (
+    <div className="bg-amber-500/20 border border-amber-500/40 p-3 rounded-2xl text-center space-y-1 my-2">
+      <div className="flex items-center justify-center gap-1.5 text-amber-400 text-[9px] font-black uppercase tracking-widest">
+        <Clock size={12} className="animate-spin text-amber-400" />
+        <span>Aguardando Aceitação (3 Minutos):</span>
+      </div>
+      <div className="text-2xl font-mono font-black text-amber-400 tracking-tight">
+        ⏱️ {timeFormatted}
+      </div>
+      <p className="text-[8px] text-amber-300/80 font-bold uppercase tracking-wider">
+        Se não aceitar dentro deste tempo, a chamada expira e é devolvida ao colega.
+      </p>
+    </div>
+  );
+};
+
+function PassengerAvatar({ src, name, size = "md" }: { src?: string; name?: string; size?: "sm" | "md" | "lg" }) {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const initials = (name || "P")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(n => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const sizeClasses = {
+    sm: "w-6 h-6 text-[10px] rounded-full",
+    md: "w-10 h-10 text-xs rounded-full",
+    lg: "w-14 h-14 text-sm rounded-full"
+  };
+
+  const bgColors = [
+    "bg-amber-500/10 text-amber-500 border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+    "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/30",
+    "bg-blue-500/10 text-blue-500 border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30",
+    "bg-purple-500/10 text-purple-500 border-purple-500/20 dark:bg-purple-500/20 dark:text-purple-400 dark:border-purple-500/30",
+    "bg-rose-500/10 text-rose-500 border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30",
+  ];
+
+  const getStableBg = (str: string) => {
+    let sum = 0;
+    for (let i = 0; i < str.length; i++) {
+      sum += str.charCodeAt(i);
+    }
+    return bgColors[sum % bgColors.length];
+  };
+
+  if (src && !hasError) {
+    return (
+      <img
+        src={src}
+        alt={name || "Passageiro"}
+        referrerPolicy="no-referrer"
+        onError={() => setHasError(true)}
+        className={`${sizeClasses[size]} object-cover border border-white/10 shrink-0`}
+      />
+    );
+  }
+
+  return (
+    <div className={`${sizeClasses[size]} flex items-center justify-center font-black uppercase tracking-tight border shrink-0 ${getStableBg(name || "P")}`}>
+      {initials || "P"}
+    </div>
+  );
+}
+
+function parseDateSafely(val: any): Date {
+  if (!val) return new Date();
+  if (typeof val.toDate === "function") {
+    try {
+      return val.toDate();
+    } catch (e) {
+      console.warn("toDate failed:", e);
+    }
+  }
+  if (val.seconds !== undefined && val.seconds !== null) {
+    return new Date(Number(val.seconds) * 1000);
+  }
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d;
+  } catch (e) {
+    console.warn("new Date parsing failed:", e);
+  }
+  return new Date();
+}
+
+function MapUpdater({ center }: { center: [number, number] }) {
+  try {
+    const map = useMap();
+    useEffect(() => {
+      if (map && center && typeof center[0] === 'number' && typeof center[1] === 'number') {
+        map.setView(center, map.getZoom ? map.getZoom() : 14);
+      }
+    }, [center, map]);
+  } catch (e) {
+    console.warn("MapUpdater notice:", e);
+  }
+  return null;
+}
+
+class MapErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any) {
+    console.warn("Map component error caught safely:", error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-slate-950/90 rounded-2xl p-6 text-center border border-white/10 text-white space-y-1">
+          <p className="text-xs font-black text-amber-400 uppercase tracking-widest">
+            📍 Localização GPS Sincronizada (Luena)
+          </p>
+          <p className="text-[10px] text-slate-400 font-bold">
+            Rastreamento do veículo em funcionamento no sistema.
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+interface DriverViewProps {
+  user: any;
+}
+
+export default function DriverView({ user }: DriverViewProps) {
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem("driver_is_online");
+      return saved === "true";
+    }
+    return false;
+  });
+  const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
+  const [isTeamChatOpen, setIsTeamChatOpen] = useState(false);
+  const { hasUnread, markAsRead } = useUnreadTeamChat(user?.uid || user?.id);
+
+  // Listen to background chat commands to open/close chat modal
+  useEffect(() => {
+    const handleToggle = (e: any) => {
+      setIsTeamChatOpen(e.detail?.open ?? true);
+    };
+    window.addEventListener('toggle-team-chat', handleToggle);
+    return () => window.removeEventListener('toggle-team-chat', handleToggle);
+  }, []);
+
+  const [currentService, setCurrentService] = useState<any>(null);
+  const currentServiceRef = useRef<any>(null);
+  useEffect(() => {
+    currentServiceRef.current = currentService;
+  }, [currentService]);
+
+  // Toast notification state for driver view
+  const [notificationBanner, setNotificationBanner] = useState<{
+    title: string;
+    message: string;
+    visible: boolean;
+    type?: 'info' | 'success' | 'warning';
+  }>({ title: '', message: '', visible: false, type: 'info' });
+
+  // Toast self-cleanup effect
+  useEffect(() => {
+    if (notificationBanner.visible) {
+      const t = setTimeout(() => {
+        setNotificationBanner(prev => ({ ...prev, visible: false }));
+      }, 10000); // 10 seconds auto-dismiss
+      return () => clearTimeout(t);
+    }
+  }, [notificationBanner.visible]);
+  const [lastCancelledService, setLastCancelledService] = useState<any | null>(null);
+  const [otherDrivers, setOtherDrivers] = useState<any[]>([]);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [isNewCallTransferModalOpen, setIsNewCallTransferModalOpen] = useState(false);
+  const [proposedPrice, setProposedPrice] = useState("");
+  const [mapMode, setMapMode] = useState<"radar" | "real">("real");
+  const [showOperationalMap, setShowOperationalMap] = useState(false);
+  const [showTripDetailsInConsole, setShowTripDetailsInConsole] = useState<boolean>(true);
+  const [driverLiveCoords, setDriverLiveCoords] = useState<[number, number]>([-11.7833, 19.9167]);
+
+  // Notification Permission Check & Explanatory Modal for Drivers
+  const [showDeniedNotifModal, setShowDeniedNotifModal] = useState<boolean>(false);
+  const [notifPermissionStatus, setNotifPermissionStatus] = useState<NotificationPermission>('default');
+
+  const checkDriverNotificationPermissions = React.useCallback(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && window.Notification) {
+      const status = window.Notification.permission;
+      setNotifPermissionStatus(status);
+      if (status === 'denied') {
+        setShowDeniedNotifModal(true);
+      } else if (status === 'default' && typeof window.Notification.requestPermission === 'function') {
+        try {
+          window.Notification.requestPermission().then((res) => {
+            setNotifPermissionStatus(res);
+            if (res === 'denied') {
+              setShowDeniedNotifModal(true);
+            }
+          }).catch(() => {});
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    checkDriverNotificationPermissions();
+  }, [checkDriverNotificationPermissions]);
+
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          let lat = position.coords.latitude;
+          let lng = position.coords.longitude;
+          if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+            lat = -11.7833;
+            lng = 19.9167;
+          }
+          setDriverLiveCoords([lat, lng]);
+        },
+        (err) => console.log("Initial geolocation fetch failed: ", err)
+      );
+    }
+  }, []);
+
+  const triggerNativeDriverNotification = (callData: any) => {
+    if (typeof window !== "undefined" && "Notification" in window && window.Notification) {
+      if (window.Notification.permission === "granted") {
+        const title = `🚕 NOVO SERVIÇO: ${callData.passengerName || callData.customerName || "Passageiro"}`;
+        const body = `De: ${callData.originName || "Localização Atual"}\nPara: ${callData.destinationName || "Não especificado"}\nAbra o SUPER Taxi Control para aceitar!`;
+        
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(registration => {
+            registration.showNotification(title, {
+              body,
+              icon: "/icon-192.png",
+              tag: `driver-service-${callData.id}`,
+              requireInteraction: true
+            });
+          }).catch(() => {
+            // Fallback: do not invoke direct new Notification to avoid Illegal constructor in iframe
+          });
+        }
+      } else if (window.Notification.permission === "default" && typeof window.Notification.requestPermission === 'function') {
+        try {
+          window.Notification.requestPermission();
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  };
+
+  const attendCall = async () => {
+    if (!currentService?.id) return;
+    try {
+      const callRef = doc(db, "calls", currentService.id);
+      await updateDoc(callRef, {
+        status: "connected",
+        responseHistory: arrayUnion({
+          driverId: user?.uid,
+          action: "attended",
+          timestamp: new Date().toISOString()
+        })
+      });
+      setCurrentService({ ...currentService, status: "connected" });
+      setProposedPrice(""); // reset any custom price when answering
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `calls/${currentService.id}`);
+    }
+  };
+
+  const sendPriceOffer = async (priceInputInput?: number) => {
+    const finalPrice = priceInputInput !== undefined ? priceInputInput : Number(proposedPrice);
+    
+    if (!finalPrice || finalPrice < 1000) {
+      alert("⚠️ O valor mínimo permitido para qualquer corrida no SUPER TÁXI é de 1.000 Kz!");
+      return;
+    }
+
+    if (!currentService?.id) return;
+
+    const isForwardedCall = Boolean(
+      currentService?.isForwarded || 
+      currentService?.type === "direct_referral" || 
+      currentService?.transferredBy || 
+      currentService?.forwardedBy
+    );
+
+    try {
+      const callRef = doc(db, "calls", currentService.id);
+
+      if (isForwardedCall) {
+        // Para chamadas reencaminhadas/diretas, o preço é acordado via GSM pelo motorista.
+        // Fica logo com status "confirmed" e valor fixado.
+        await updateDoc(callRef, {
+          status: "confirmed",
+          price: finalPrice,
+          agreedPrice: finalPrice,
+          responseHistory: arrayUnion({
+            action: "price_agreed_gsm",
+            price: finalPrice,
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
+
+        setCurrentService({ ...currentService, status: "confirmed", price: finalPrice });
+        setProposedPrice("");
+        setShowNotification(false);
+
+        setNotificationBanner({
+          title: "Preço Acordado Confirmado!",
+          message: `Preço de ${finalPrice.toLocaleString()} Kz registado. Siga para o ponto de recolha do passageiro.`,
+          type: "success",
+          visible: true
+        });
+      } else {
+        await updateDoc(callRef, {
+          status: "price_sent",
+          price: finalPrice,
+          responseHistory: arrayUnion({
+            action: "price_offered",
+            price: finalPrice,
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
+
+        setCurrentService({ ...currentService, status: "price_sent", price: finalPrice });
+        setProposedPrice("");
+        setShowNotification(false);
+
+        // Trigger automatic FCM Push notification to passenger
+        sendPassengerPushNotification({
+          fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
+          callId: currentService.id,
+          title: "💬 Proposta de Preço Recebida!",
+          body: `O motorista ${user?.name || "Oficial"} propôs o valor de ${finalPrice.toLocaleString()} Kz para a sua viagem.`,
+          notificationType: "price_proposed"
+        }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+
+        alert(`Proposta de preço de ${finalPrice.toLocaleString()} Kz enviada ao passageiro.`);
+      }
+    } catch (error: any) {
+      alert("Erro ao registar preço: " + error.message);
+    }
+  };
+
+  const setModalOpenLogged = (val: boolean) => {
+    if (val) console.trace("Modal transfer aberto");
+    setIsNewCallTransferModalOpen(val);
+  };
+
+  const [transferCustomerPhone, setTransferCustomerPhone] = useState("");
+  const [transferCustomerName, setTransferCustomerName] = useState("");
+  const [transferPickupAddress, setTransferPickupAddress] = useState("");
+  const [earnings, setEarnings] = useState(0);
+  const [approvedEarnings, setApprovedEarnings] = useState(0);
+  const [stars, setStars] = useState<number | string>("Novo");
+  const [totalRatingCount, setTotalRatingCount] = useState<number>(0);
+  const hiddenCallIdsRef = useRef<string[]>([]);
+  const forceDismissService = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
+    setActiveInternalTab("dashboard");
+    setShowNotification(false);
+  };
+  const [tripHistory, setTripHistory] = useState<any[]>([]);
+  const [showEndShiftModal, setShowEndShiftModal] = useState(false);
+
+  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [safetyChecklist, setSafetyChecklist] = useState<string | null>(null);
+  const [showSafetyCheck, setShowSafetyCheck] = useState(false);
+
+  const fetchAiAdvice = async () => {
+    if (!user || aiLoading) return;
+    setAiLoading(true);
+    try {
+      const context = {
+        targetRevenue: 25000, // Exemplo de meta diária
+        currentRevenue: earnings,
+        shiftHours: tripHistory.length > 0 ? 8 : 0, // Placeholder
+      };
+      const result = await geminiService.getDriverCoachingInsights(user, context);
+      setAiAdvice(result);
+    } catch (err) {
+      setAiAdvice("Foque na segurança e excelência no atendimento.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial fetch of advice after a short delay
+    const timer = setTimeout(() => {
+      fetchAiAdvice();
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [user?.uid]);
+
+  // Listen for accumulated earnings from approved revenue logs
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "revenue_logs"),
+      where("driverId", "==", user.uid),
+      where("status", "in", ["pending_approval", "approved_by_operator", "approved_by_accountant", "finalized"]),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const total = snapshot.docs.reduce(
+        (acc, doc) => {
+          const data = doc.data();
+          const isBonus = data.usedBonus === true || data.paidWithBonus === true || data.paymentMethod === 'bonus' || data.isBonus === true;
+          return acc + (isBonus ? 0 : (data.amount || 0));
+        },
+        0,
+      );
+      setEarnings(total);
+    }, (error) => console.warn("Revenue logs snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  // Listen for supervisor approved earnings (approved_by_accountant, finalized) to compute the total approved revenues accurately
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "revenue_logs"),
+      where("driverId", "==", user.uid),
+      where("status", "in", ["approved_by_accountant", "finalized"]),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const total = snapshot.docs.reduce(
+        (acc, doc) => {
+          const data = doc.data();
+          const isBonus = data.usedBonus === true || data.paidWithBonus === true || data.paymentMethod === 'bonus' || data.isBonus === true;
+          return acc + (isBonus ? 0 : (data.amount || 0));
+        },
+        0,
+      );
+      setApprovedEarnings(total);
+    }, (error) => console.warn("Error listening to approved revenue logs:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  // Listen for trip history (including pending, active, and completed)
+  useEffect(() => {
+    if (!user?.name && !user?.uid) return;
+    const q = query(
+      collection(db, "calls"),
+      and(
+        or(
+          where("driverName", "==", user.name || ""),
+          where("driverId", "==", user.uid || "")
+        ),
+        where("status", "in", ["completed", "pending", "connected", "price_sent", "price_negotiation_requested", "confirmed", "arrived", "active"])
+      ),
+      limit(100),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const sorted = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() } as any))
+        .filter((trip) => trip.approvedByOperator !== true) // Filter out approved trips so they disappear from history once approved
+        .sort((a: any, b: any) => parseDateSafely(b.timestamp).getTime() - parseDateSafely(a.timestamp).getTime());
+      setTripHistory(sorted);
+    }, (error) => console.warn("Calls snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.name, user?.uid]);
+
+  const [passengerRidesConfirmed, setPassengerRidesConfirmed] = useState<any[]>([]);
+  const [passengerRidesTotal, setPassengerRidesTotal] = useState(0);
+  const [passengerRidesAllTimeTotal, setPassengerRidesAllTimeTotal] = useState(0);
+  const [showThreeDotsMetrics, setShowThreeDotsMetrics] = useState(false);
+
+  // Sync passenger rides in real-time
+  useEffect(() => {
+    if (!user?.name && !user?.uid) return;
+    const q = query(
+      collection(db, "calls"),
+      and(
+        or(
+          where("driverName", "==", user.name || ""),
+          where("driverId", "==", user.uid || "")
+        ),
+        where("status", "==", "completed")
+      )
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const allCompletedTrips = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+
+      // Filter out approved trips ONLY for the active declaration list
+      const unapprovedList = allCompletedTrips.filter((trip) => trip.approvedByOperator !== true);
+      setPassengerRidesConfirmed(unapprovedList);
+      
+      // All-time historical total of completed app rides per driver
+      const allTimeTotal = allCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+      setPassengerRidesAllTimeTotal(allTimeTotal);
+
+      // Current automatic app billing (only undeclared calls)
+      const currentUndeclared = unapprovedList.filter((curr: any) => curr.declared !== true);
+      const currentTotal = currentUndeclared.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+      setPassengerRidesTotal(currentTotal);
+
+      // Dynamically calculate rating from ALL rated completed calls (including historical approved ones)
+      const ratedCalls = allCompletedTrips.filter((curr: any) => {
+        const val = curr.rating ?? curr.passengerRating ?? curr.stars ?? curr.evaluation;
+        return val !== undefined && val !== null && !isNaN(Number(val)) && Number(val) > 0;
+      });
+
+      if (ratedCalls.length > 0) {
+        const sum = ratedCalls.reduce((acc, curr: any) => {
+          const val = Number(curr.rating ?? curr.passengerRating ?? curr.stars ?? curr.evaluation);
+          return acc + val;
+        }, 0);
+        const avg = Number((sum / ratedCalls.length).toFixed(1));
+        setStars(avg);
+        setTotalRatingCount(ratedCalls.length);
+      } else {
+        setTotalRatingCount(0);
+      }
+    }, (error) => {
+      console.warn("Error listening to passenger rides:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user?.name, user?.uid]);
+
+  const todayCompletedTrips = passengerRidesConfirmed.filter((trip: any) => {
+    try {
+      const tripDate = parseDateSafely(trip.completedAt || trip.timestamp);
+      const year = tripDate.getFullYear();
+      const month = String(tripDate.getMonth() + 1).padStart(2, '0');
+      const day = String(tripDate.getDate()).padStart(2, '0');
+      const tripDateStr = `${year}-${month}-${day}`;
+      
+      const now = new Date();
+      const nowYear = now.getFullYear();
+      const nowMonth = String(now.getMonth() + 1).padStart(2, '0');
+      const nowDay = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${nowYear}-${nowMonth}-${nowDay}`;
+      
+      return tripDateStr === todayStr;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const todayTotalRevenue = todayCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+
+  const [showNotification, setShowNotification] = useState(false);
+  const [recentCalls, setRecentCalls] = useState<any[]>([]);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMessagesModalOpen, setIsMessagesModalOpen] = useState(false);
+  const [activeInternalTab, setActiveInternalTab] = useState<
+    "dashboard" | "history" | "wallet" | "contracts" | "settings" | "rendas"
+  >("dashboard");
+  const [selectedRingtone, setSelectedRingtone] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('driver_ringtone') || 'voice_supertaxi';
+    }
+    return 'voice_supertaxi';
+  });
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const ringtones = [
+    { id: 'classic', name: 'Clássico', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
+    { id: 'modern', name: 'Moderno', url: 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3' },
+    { id: 'alert', name: 'Alerta', url: 'https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3' },
+    { id: 'melodic', name: 'Melódico', url: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3' },
+    { id: 'voice_supertaxi', name: 'Voz: Pedido Super Táxi 🗣️', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
+  ];
+
+  const speakNotification = () => {
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window) {
+        window.speechSynthesis.cancel();
+        const UtteranceClass = (window as any).SpeechSynthesisUtterance;
+        if (typeof UtteranceClass === 'function') {
+          const utterance = new UtteranceClass("Atenção motorista: Pedido de Super Táxi em linha! Pedido de Super Táxi em linha!");
+          utterance.lang = "pt-PT";
+          utterance.rate = 1.0;
+          utterance.pitch = 1.15;
+          
+          const voices = window.speechSynthesis.getVoices();
+          const ptVoice = voices.find(v => v.lang.startsWith("pt"));
+          if (ptVoice) {
+            utterance.voice = ptVoice;
+          }
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    } catch (e) {
+      console.warn("SpeechSynthesis error:", e);
+    }
+  };
+
+  const playPreview = (url: string, ringId?: string) => {
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (ringId === 'voice_supertaxi') {
+        speakNotification();
+        return;
+      }
+      if (typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
+        const AudioClass = (window as any).Audio;
+        audioRef.current = new AudioClass(url);
+        audioRef.current.play().catch(e => console.warn(e));
+      }
+    } catch (e) {
+      console.warn("Audio preview error:", e);
+    }
+  };
+  const [showPanicModal, setShowPanicModal] = useState(false);
+  const [localPassengerOffline, setLocalPassengerOffline] = useState(false);
+  const [activePanicAlert, setActivePanicAlert] = useState<any | null>(null);
+  const [panicLoading, setPanicLoading] = useState(false);
+  const [driverAppConfig, setDriverAppConfig] = useState<any>({ webrtcEnabled: true });
+  const [passengerAppConfig, setPassengerAppConfig] = useState<any>({ webrtcEnabled: true });
+  const [driverCustomDiscountInput, setDriverCustomDiscountInput] = useState<string>('');
+
+  useEffect(() => {
+    const unsubDriver = onSnapshot(doc(db, 'settings', 'driver_app'), (snap) => {
+      if (snap.exists()) {
+        setDriverAppConfig(snap.data());
+      }
+    });
+    const unsubPassenger = onSnapshot(doc(db, 'settings', 'passenger_app'), (snap) => {
+      if (snap.exists()) {
+        setPassengerAppConfig(snap.data());
+      }
+    });
+    return () => {
+      unsubDriver();
+      unsubPassenger();
+    };
+  }, []);
+  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [contractLoading, setContractLoading] = useState(false);
+  const [contractFormData, setContractFormData] = useState({
+    clientName: "",
+    neighborhood: "",
+    destination: "Trabalho",
+    period: "Manhã",
+    phone: "",
+    notes: "",
+    location: null as { lat: number; lng: number } | null,
+  });
+  const [isCapturingGeo, setIsCapturingGeo] = useState(false);
+  const [showContractMap, setShowContractMap] = useState(false);
+  const [revenueAmount, setRevenueAmount] = useState("");
+  const [revenueLoading, setRevenueLoading] = useState(false);
+  const [revenueSuccess, setRevenueSuccess] = useState(false);
+  const [revenueDetails, setRevenueDetails] = useState({
+    tpa: "",
+    cash: "",
+    transfer: "",
+    expenses: "",
+    description: "",
+  });
+  const [assignedVehicle, setAssignedVehicle] = useState<any>(null);
+  const [vehicleContracts, setVehicleContracts] = useState<any[]>([]);
+  const [todayAttendance, setTodayAttendance] = useState<
+    Record<string, string>
+  >({});
+  const [todayRevenueSubmitted, setTodayRevenueSubmitted] = useState(false);
+  const [pendingRevenues, setPendingRevenues] = useState<any[]>([]);
+  const [rejectedRevenues, setRejectedRevenues] = useState<any[]>([]);
+  const [editingRevenueId, setEditingRevenueId] = useState<string | null>(null);
+  const [lastAssignedShift, setLastAssignedShift] = useState<{
+    date: string;
+    vehicleId: string;
+    prefix: string;
+  } | null>(null);
+  const [lastShiftRevenueSubmitted, setLastShiftRevenueSubmitted] =
+    useState(true);
+  const [lastShiftPendingContracts, setLastShiftPendingContracts] =
+    useState<number>(0);
+  const [loadingShiftCheck, setLoadingShiftCheck] = useState(true);
+  const [viewContractsDate, setViewContractsDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [viewContractsPrefix, setViewContractsPrefix] = useState<string | null>(
+    null,
+  );
+  const [capturingGpsId, setCapturingGpsId] = useState<string | null>(null);
+  const [unreadMessages, setUnreadMessages] = useState<any[]>([]);
+  const [isAiAdviceExpanded, setIsAiAdviceExpanded] = useState(false);
+  const [isAlertsCollapsed, setIsAlertsCollapsed] = useState(true);
+  const markMessageAsRead = async (messageId: string) => {
+    try {
+      await updateDoc(doc(db, "messages", messageId), {
+        status: "read",
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, "messages");
+    }
+  };
+
+  // Listen for unread messages
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "messages"),
+      where("targets", "array-contains", user.uid),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const unreadFiltered = messages
+        .filter((msg: any) => msg.status === "unread")
+        .sort((a: any, b: any) => {
+          const tA = a.timestamp ? (a.timestamp.seconds ? a.timestamp.seconds * 1000 : new Date(a.timestamp).getTime()) : 0;
+          const tB = b.timestamp ? (b.timestamp.seconds ? b.timestamp.seconds * 1000 : new Date(b.timestamp).getTime()) : 0;
+          return tB - tA;
+        });
+      setUnreadMessages(unreadFiltered);
+    }, (error) => console.warn("Messages snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  // Listen for any active panic S.O.S alert of this driver
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "panic_alerts"),
+      where("driverId", "==", user.uid),
+      where("status", "==", "active")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        // Take the latest active alert
+        const activeDoc = snapshot.docs[0];
+        setActivePanicAlert({ id: activeDoc.id, ...activeDoc.data() });
+        setShowPanicModal(true); // Automatically trigger overlay
+      } else {
+        setActivePanicAlert(null);
+        setShowPanicModal(false);
+      }
+    }, (error) => console.warn("Panic alerts snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  // Listen for the active vehicle assignment for this driver
+  useEffect(() => {
+    if (!user?.name) return;
+
+    // We listen to the entire active drivers collection to find a robust match.
+    // This allows the driver to match even if they have "(Admin)" or case & accent mismatches.
+    const unsubscribe = onSnapshot(collection(db, "drivers"), (snapshot) => {
+      // Clean names helper (removes accents, parenthesis like (Admin), simplifies spaces)
+      const cleanName = (n: string) => {
+        if (!n) return "";
+        return n
+          .toLowerCase()
+          .replace(/\s*\(.*?\)\s*/g, '')
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+
+      const loggedNameClean = cleanName(user.name);
+
+      const matchedDoc = snapshot.docs.find(docSnap => {
+        const d = docSnap.data();
+        const dNameClean = cleanName(d.name || "");
+        return (
+          (d.driverId && user.uid && d.driverId === user.uid) ||
+          (dNameClean !== "" && loggedNameClean !== "" && dNameClean === loggedNameClean) ||
+          (d.name && user.name && d.name.toLowerCase().trim() === user.name.toLowerCase().trim())
+        );
+      });
+
+      if (matchedDoc) {
+        const dData = matchedDoc.data();
+        const vehicle = { id: matchedDoc.id, ...dData };
+        setAssignedVehicle(vehicle);
+
+        if (dData.rating && Number(dData.rating) > 0) {
+          setStars(Number(dData.rating).toFixed(1));
+        } else if (dData.stars && Number(dData.stars) > 0) {
+          setStars(Number(dData.stars).toFixed(1));
+        } else {
+          setStars("Novo");
+        }
+
+        // Sync shifting state with database status
+        if (dData.status === "disponível" || dData.status === "ocupado") {
+          setIsOnline(true);
+          localStorage.setItem("driver_is_online", "true");
+        } else if (dData.status === "indisponível") {
+          setIsOnline(false);
+          localStorage.removeItem("driver_is_online");
+        }
+
+        if (viewContractsDate === new Date().toISOString().split("T")[0]) {
+          setViewContractsPrefix(vehicle.prefix);
+        }
+      } else {
+        setAssignedVehicle(null);
+        if (viewContractsDate === new Date().toISOString().split("T")[0]) {
+          setViewContractsPrefix(user?.prefix && user.prefix !== "N/A" ? user.prefix : null);
+        }
+      }
+    }, (error) => console.warn("Drivers snapshot error:", error));
+    return () => unsubscribe();
+  }, [user?.name, user?.uid, viewContractsDate, user?.prefix]);
+
+  // Synchronize state strictly with the linked vehicle prefix only (no fallbacks or selectors)
+  useEffect(() => {
+    const pf = assignedVehicle?.prefix || (user?.prefix && user.prefix !== "N/A" ? user.prefix : "");
+    setViewContractsPrefix(pf || null);
+  }, [assignedVehicle?.prefix, user?.prefix]);
+
+  // Listen for contracts associated with the SELECTED VEHICLE PREFIX
+  useEffect(() => {
+    const prefix = viewContractsPrefix;
+    if (!prefix) {
+      setVehicleContracts([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "internal_contracts"),
+      orderBy("createdAt", "desc"),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const allContracts = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      const filtered = allContracts.filter((c: any) => {
+        const isEntry = c.entryVehicleId?.includes(prefix);
+        const isExit = c.exitVehicleId?.includes(prefix);
+        // We filter by isActive status. PaymentStatus shouldn't prevent driver viewing
+        return (
+          (isEntry || isExit) &&
+          c.status === "Ativo"
+        );
+      });
+      setVehicleContracts(filtered);
+    }, (error) => console.warn("Internal contracts snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [viewContractsPrefix]);
+
+  // Listen for contract attendance for SELECTED DATE
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "contract_attendance"),
+      where("date", "==", viewContractsDate),
+      where("driverId", "==", user.uid),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const attendanceMap: Record<string, string> = {};
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        if (data.movementType) {
+          attendanceMap[`${data.contractId}_${data.movementType}`] =
+            data.status;
+        } else {
+          attendanceMap[data.contractId] = data.status; // Fallback
+        }
+      });
+      setTodayAttendance(attendanceMap);
+    }, (error) => console.warn("Contract attendance snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid, viewContractsDate]);
+
+  // Logic to check PREVIOUS assigned shift
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    // Find the last assignment before today in driver_scales (filtered and sorted in-memory to prevent requiring composite indexes)
+    const lastShiftQuery = query(
+      collection(db, "driver_scales"),
+      where("driverId", "==", user.uid),
+    );
+
+    const unsubscribe = onSnapshot(lastShiftQuery, async (snapshot) => {
+      if (snapshot.empty) {
+        setLastAssignedShift(null);
+        setLoadingShiftCheck(false);
+        return;
+      }
+
+      const allShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      const pastShifts = allShifts.filter(shift => shift.date && shift.date < todayStr);
+
+      if (pastShifts.length === 0) {
+        setLastAssignedShift(null);
+        setLoadingShiftCheck(false);
+        return;
+      }
+
+      // Sort past shifts by date descending
+      pastShifts.sort((a, b) => b.date.localeCompare(a.date));
+
+      const shiftData = pastShifts[0];
+      const shiftDate = shiftData.date;
+      const vehicleId = shiftData.vehicleId;
+      const vehiclePrefix = shiftData.vehiclePrefix || "Viatura";
+
+      setLastAssignedShift({
+        date: shiftDate,
+        vehicleId,
+        prefix: vehiclePrefix,
+      });
+
+      // 1. Check Revenue for that specific date
+      const revQuery = query(
+        collection(db, "revenue_logs"),
+        where("driverId", "==", user.uid),
+        where("date", "==", shiftDate),
+        limit(1),
+      );
+
+      const revSnaps = await getDocs(revQuery);
+      setLastShiftRevenueSubmitted(!revSnaps.empty);
+
+      // 2. Check Contracts for that vehicle/date
+      // Filter: Payment Status must be 'Pago' and vehicle must be assigned for entry or exit
+      const contractsQuery = query(
+        collection(db, "internal_contracts"),
+        where("status", "==", "Ativo"),
+        where("paymentStatus", "==", "Pago"),
+      );
+
+      const contractAll = await getDocs(contractsQuery);
+      const shiftVehicleContracts = contractAll.docs.filter((doc) => {
+        const data = doc.data();
+        const isEntry = data.entryVehicleId?.includes(vehiclePrefix);
+        const isExit = data.exitVehicleId?.includes(vehiclePrefix);
+        return isEntry || isExit;
+      });
+
+      const totalContracts = shiftVehicleContracts.length;
+
+      if (totalContracts > 0) {
+        const attendanceQuery = query(
+          collection(db, "contract_attendance"),
+          where("driverId", "==", user.uid),
+          where("date", "==", shiftDate),
+        );
+        const attendanceSnaps = await getDocs(attendanceQuery);
+        const attendedIds = attendanceSnaps.docs.map(
+          (d) => d.data().contractId,
+        );
+
+        // Count how many of the vehicle's active contracts were NOT marked
+        let pending = 0;
+        shiftVehicleContracts.forEach((c) => {
+          if (!attendedIds.includes(c.id)) pending++;
+        });
+        setLastShiftPendingContracts(pending);
+      } else {
+        setLastShiftPendingContracts(0);
+      }
+
+      setLoadingShiftCheck(false);
+    }, (error) => console.warn("Driver scales snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  // Listen for today's revenue submission
+  useEffect(() => {
+    if (!user?.uid) return;
+    const today = new Date().toISOString().split("T")[0];
+    const q = query(
+      collection(db, "revenue_logs"),
+      where("driverId", "==", user.uid),
+      where("date", "==", today),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setTodayRevenueSubmitted(!snapshot.empty);
+    }, (error) => console.warn("Today revenue snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  // Listen for pending / rejected revenues (filtered and sorted in-memory to prevent requiring composite indexes)
+  useEffect(() => {
+    if (!user?.uid) return;
+    const q = query(
+      collection(db, "revenue_logs"),
+      where("driverId", "==", user.uid),
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const all = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() as any }));
+      
+      // Sort in-memory by timestamp descending
+      all.sort((a, b) => {
+        const timeA = a.timestamp?.seconds || a.timestamp || 0;
+        const timeB = b.timestamp?.seconds || b.timestamp || 0;
+        return Number(timeB) - Number(timeA);
+      });
+
+      const filtered = all.filter(r => ["pending_approval", "rejected_by_operator", "rejected_by_accountant"].includes(r.status));
+      setPendingRevenues(filtered.filter(r => r.status === 'pending_approval'));
+      setRejectedRevenues(filtered.filter(r => r.status !== 'pending_approval'));
+    }, (error) => console.warn("Pending revenue snapshot error:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  const markContractAttendance = async (
+    contractId: string,
+    status: "attended" | "absent",
+    movementType: "entry" | "exit" = "entry",
+  ) => {
+    if (!user?.uid || !viewContractsPrefix) return;
+    try {
+      await addDoc(collection(db, "contract_attendance"), {
+        contractId,
+        driverId: user.uid,
+        vehicleId: viewContractsPrefix,
+        date: viewContractsDate,
+        status,
+        movementType,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, "contract_attendance");
+      alert("Erro ao marcar presença. Verifique a conexão.");
+    }
+  };
+
+  const captureContractGps = async (contractId: string) => {
+    if (!navigator.geolocation) {
+      alert("Geolocalização não suportada no seu dispositivo.");
+      return;
+    }
+    setCapturingGpsId(contractId);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          let { latitude, longitude } = pos.coords;
+          // Se a localização estiver fora da área operacional do Luena (e.g. Lubango), projetamos no Luena
+          if (Math.abs(latitude - (-11.7833)) > 0.8 || Math.abs(longitude - 19.9167) > 0.8) {
+            const driverHash = contractId.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            latitude = -11.7833 + (Math.sin(driverHash) * 0.015);
+            longitude = 19.9167 + (Math.cos(driverHash) * 0.015);
+            console.log(`[GPS Projection] Fora de Luena detetado. Projetando contrato para Luena: ${latitude}, ${longitude}`);
+          }
+          await updateDoc(doc(db, "internal_contracts", contractId), {
+            location: { lat: latitude, lng: longitude }
+          });
+          alert("Localização GPS gravada com sucesso neste ponto de recolha!");
+        } catch (err) {
+          console.error("Erro ao gravar localização de contrato:", err);
+          handleFirestoreError(err, OperationType.UPDATE, `internal_contracts/${contractId}`);
+          alert("Ocorreu um erro ao guardar os dados de GPS no servidor.");
+        } finally {
+          setCapturingGpsId(null);
+        }
+      },
+      (err) => {
+        console.error("Erro GPS:", err);
+        setCapturingGpsId(null);
+        alert("Não foi possível obter a sua localização atual. Verifique as permissões de GPS.");
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
+  const triggerPanic = async () => {
+    if (!user?.uid || panicLoading) return;
+    setPanicLoading(true);
+    try {
+      // Get current location from navigator if possible
+      let location = { lat: -11.7833, lng: 19.9167 }; // Default Luena
+
+      if ("geolocation" in navigator) {
+        try {
+          const pos = await new Promise<GeolocationPosition>((res, rej) =>
+            navigator.geolocation.getCurrentPosition(res, rej, {
+              timeout: 5000,
+            }),
+          );
+          let lat = pos.coords.latitude;
+          let lng = pos.coords.longitude;
+          if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+            const driverHash = (user.uid).split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            lat = -11.7833 + (Math.sin(driverHash) * 0.015);
+            lng = 19.9167 + (Math.cos(driverHash) * 0.015);
+            console.log(`[GPS Projection] Pânico fora de Luena. Projetando no Luena: ${lat}, ${lng}`);
+          }
+          location = { lat, lng };
+        } catch (e) {
+          console.warn("Geolocation failed, using default.");
+        }
+      }
+
+      await addDoc(collection(db, "panic_alerts"), {
+        driverId: user.uid,
+        driverName: user.name,
+        prefix: user.prefix || "N/A",
+        lat: location.lat,
+        lng: location.lng,
+        status: "active",
+        timestamp: new Date().toISOString(),
+      });
+      setShowPanicModal(true);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, "panic_alerts");
+    } finally {
+      setPanicLoading(false);
+    }
+  };
+
+  const acknowledgeRescue = async () => {
+    if (!activePanicAlert?.id) return;
+    try {
+      await updateDoc(doc(db, "panic_alerts", activePanicAlert.id), {
+        driverAcknowledge: true,
+        acknowledgedAt: new Date().toISOString()
+      });
+      alert("Recebimento de ajuda confirmado! Fique no local em segurança.");
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const resolvePanicFromDriver = async () => {
+    if (!activePanicAlert?.id) return;
+    if (!window.confirm("Deseja mesmo cancelar o S.O.S? Confirme que está em total segurança.")) return;
+    try {
+      await updateDoc(doc(db, "panic_alerts", activePanicAlert.id), {
+        status: "resolved",
+        resolvedAt: new Date(),
+        resolvedBy: "Motorista (Estou Seguro)",
+        notes: "O próprio motorista encerrou o S.O.S a partir da sua Cabine de Controlo."
+      });
+      setActivePanicAlert(null);
+      setShowPanicModal(false);
+      alert("S.O.S encerrado com sucesso.");
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const submitRevenue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const tpa = Number(revenueDetails.tpa) || 0;
+    const cash = Number(revenueDetails.cash) || 0;
+    const transfer = Number(revenueDetails.transfer) || 0;
+    const expenses = Number(revenueDetails.expenses) || 0;
+    const total = tpa + cash + transfer - expenses;
+
+    if (total <= 0 && expenses === 0) {
+      alert("Por favor, insira um valor de renda ou uma despesa.");
+      return;
+    }
+
+    // Constraint: Only allow revenue submission if driver is linked to a vehicle OR has a prefix
+    if (!assignedVehicle && !user.prefix) {
+      alert(
+        "ERRO: Você não está vinculado a nenhuma viatura. Entre em contacto com o Operador para configurar o seu prefixo.",
+      );
+      return;
+    }
+
+    setRevenueLoading(true);
+    try {
+      const revenueData = {
+        driverId: user.uid,
+        driverName: user.name,
+        prefix: user.prefix || "N/A",
+        amount: total,
+        breakdown: {
+          tpa,
+          cash,
+          transfer,
+          expenses,
+          appRides: passengerRidesTotal,
+        },
+        description: revenueDetails.description,
+        date: editingRevenueId 
+          ? rejectedRevenues.find(r => r.id === editingRevenueId)?.date || new Date().toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0],
+        status: "pending_approval",
+        timestamp: new Date().toISOString(),
+        rejectionReason: "" // Clear reason on resubmit
+      };
+
+      let revenueLogId = editingRevenueId;
+      if (editingRevenueId) {
+        await updateDoc(doc(db, "revenue_logs", editingRevenueId), revenueData);
+        setEditingRevenueId(null);
+      } else {
+        const docRef = await addDoc(collection(db, "revenue_logs"), revenueData);
+        revenueLogId = docRef.id;
+      }
+
+      // Mark all currently completed calls for this driver as declared
+      const undeclaredCalls = passengerRidesConfirmed.filter((c: any) => c.declared !== true);
+      for (const call of undeclaredCalls) {
+        try {
+          await updateDoc(doc(db, "calls", call.id), {
+            declared: true,
+            declaredAt: new Date().toISOString(),
+            revenueLogId: revenueLogId || "unknown"
+          });
+        } catch (err) {
+          console.warn("Error marking call as declared in Firestore:", err);
+        }
+      }
+      
+      setRevenueSuccess(true);
+      setRevenueDetails({
+        tpa: "",
+        cash: "",
+        transfer: "",
+        expenses: "",
+        description: "",
+      });
+      setTimeout(() => setRevenueSuccess(false), 3000);
+    } catch (error) {
+      handleFirestoreError(error, editingRevenueId ? OperationType.UPDATE : OperationType.CREATE, "revenue_logs");
+    } finally {
+      setRevenueLoading(false);
+    }
+  };
+
+  // Simulate real-time data sync for the driver
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    // Listen to active and terminal statuses to handle cancellations and completions in real-time
+    const q = query(
+      collection(db, "calls"),
+      where("status", "in", ["pending", "connected", "price_sent", "price_negotiation_requested", "confirmed", "arrived", "active", "completed", "cancelled", "rejected", "ignored"])
+    );
+
+    const handleSync = (snapshot: any) => {
+      const cleanName = (n: string) => {
+        if (!n) return "";
+        return n
+          .toLowerCase()
+          .replace(/\s*\(.*?\)\s*/g, '')
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+
+      const cleanPlate = (p: string) => {
+        if (!p) return "";
+        return p.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      };
+
+      // First check if our current active service in memory was updated in Firestore
+      const currentActiveId = currentServiceRef.current?.id;
+      let ourMatchedDoc: any = null;
+
+      if (currentActiveId) {
+        const activeDoc = snapshot.docs.find((doc: any) => doc.id === currentActiveId);
+        if (activeDoc) {
+          ourMatchedDoc = activeDoc;
+        }
+      }
+
+      // If no current active service doc found, search for new active service for this driver
+      if (!ourMatchedDoc) {
+        ourMatchedDoc = snapshot.docs.find((doc: any) => {
+          const d = doc.data();
+          if (["completed", "cancelled", "rejected", "ignored"].includes(d.status)) return false;
+          if (hiddenCallIdsRef.current.includes(doc.id)) return false;
+
+          const callDriverNameClean = cleanName(d.driverName || "");
+          const loggedDriverNameClean = cleanName(user?.name || "");
+          const vehicleDriverNameClean = cleanName(assignedVehicle?.driverName || "");
+
+          const isNameMatch = (
+            (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean === loggedDriverNameClean) ||
+            (callDriverNameClean !== "" && vehicleDriverNameClean !== "" && callDriverNameClean === vehicleDriverNameClean) ||
+            (callDriverNameClean !== "" && loggedDriverNameClean !== "" && (callDriverNameClean.includes(loggedDriverNameClean) || loggedDriverNameClean.includes(callDriverNameClean)))
+          );
+
+          const callPlateClean = cleanPlate(d.vehiclePlate || "");
+          const assignedPlateClean = cleanPlate(assignedVehicle?.plate || "");
+          const isPlateMatch = callPlateClean !== "" && assignedPlateClean !== "" && callPlateClean === assignedPlateClean;
+
+          const isDriverIdMatch = (
+            (d.driverId && user?.uid && d.driverId === user.uid) ||
+            (assignedVehicle?.id && d.driverId === assignedVehicle.id) ||
+            (assignedVehicle?.driverId && d.driverId === assignedVehicle.driverId)
+          );
+
+          // If call is explicitly reassigned/delegated to another driver, exclude it for current driver
+          const isAssignedToOther = (
+            (d.driverId && user?.uid && d.driverId !== user.uid && (!assignedVehicle?.id || d.driverId !== assignedVehicle.id) && (!assignedVehicle?.driverId || d.driverId !== assignedVehicle.driverId)) ||
+            (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean !== loggedDriverNameClean && (!vehicleDriverNameClean || callDriverNameClean !== vehicleDriverNameClean))
+          );
+
+          if (isAssignedToOther && !isNameMatch && !isDriverIdMatch) {
+            return false;
+          }
+
+          return (
+            isNameMatch ||
+            isPlateMatch ||
+            isDriverIdMatch
+          );
+        });
+      }
+
+      if (ourMatchedDoc) {
+        const callData = { id: ourMatchedDoc.id, ...ourMatchedDoc.data() };
+        
+        if (["completed", "cancelled", "rejected", "ignored"].includes(callData.status)) {
+          // Clean up state on cancellation or completion
+          if (callData.status === "cancelled") {
+            console.log("[DriverView] Passenger cancelled call, notifying driver and clearing ringing");
+            setLastCancelledService(callData);
+            setNotificationBanner({
+              title: "⚠️ CHAMADA CANCELADA",
+              message: `O passageiro ${callData.passengerName || 'de Luena'} cancelou a chamada.`,
+              type: "warning",
+              visible: true
+            });
+            if (assignedVehicle?.id) {
+              updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" }).catch(() => {});
+            }
+          }
+          setCurrentService(null);
+          setShowNotification(false);
+        } else {
+          // Sync current active service state
+          console.log("Serviço sincronizado:", callData);
+          
+          const prevService = currentServiceRef.current;
+
+          // Real-time interactive notifications from passenger to driver:
+          if (prevService && prevService.id === callData.id) {
+            // 1) Passenger accepted ETA
+            if (callData.passengerAcceptedEta && !prevService.passengerAcceptedEta) {
+              setNotificationBanner({
+                title: "✅ PREVISÃO ACEITE",
+                message: `O passageiro confirmou que aguarda os ${callData.driverEtaResponse || 'minutos informados'}!`,
+                type: "success",
+                visible: true
+              });
+            }
+            // 2) Passenger considers wait time too high
+            if (callData.passengerEtaFeedback === 'tempo_alto' && prevService.passengerEtaFeedback !== 'tempo_alto') {
+              setNotificationBanner({
+                title: "⚠️ ESPERA ALTA",
+                message: "O passageiro achou o tempo estimado muito alto. Se possível, agilize o percurso!",
+                type: "warning",
+                visible: true
+              });
+            }
+            // 3) Passenger asked for ETA
+            if (callData.passengerAskedEta && !prevService.passengerAskedEta) {
+              setNotificationBanner({
+                title: "💬 PERGUNTA DE ETA",
+                message: `O passageiro perguntou: "${callData.passengerEtaQuestion || 'Quanto tempo demora a chegar?'}"`,
+                type: "info",
+                visible: true
+              });
+            }
+            // 4) Passenger requested custom negotiation
+            if (callData.status === "price_negotiation_requested" && prevService.status !== "price_negotiation_requested") {
+              setNotificationBanner({
+                title: "🏷️ NEGOCIAÇÃO DE TARIFA",
+                message: "O passageiro solicitou uma renegociação ou desconto no valor da corrida!",
+                type: "warning",
+                visible: true
+              });
+            }
+          }
+          
+          // Trigger native driver notification if it is newly pending
+          const isNewlyPending = callData.status === "pending" && (!prevService || prevService.id !== callData.id || prevService.status !== "pending");
+          if (isNewlyPending) {
+            triggerNativeDriverNotification(callData);
+          }
+
+          setCurrentService(callData);
+          
+          if (["pending", "connected", "price_sent", "price_negotiation_requested", "confirmed"].includes(callData.status)) {
+            setShowNotification(true);
+          } else {
+            setShowNotification(false);
+          }
+        }
+      } else {
+        // Clear if not found and no active call
+        setCurrentService(null);
+        setShowNotification(false);
+      }
+    };
+
+    // 1) Real-time Stream Subscriber (Highly robust native channel)
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      handleSync(snapshot);
+    }, (error) => {
+      console.warn("Real-time stream error on driver:", error);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.uid, assignedVehicle?.id, assignedVehicle?.driverId, user?.name]);
+
+  // Listen for other active and available drivers in the fleet
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsubscribe = onSnapshot(collection(db, "drivers"), (snapshot) => {
+      const driversList = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter((d: any) => {
+          const cleanName = (n: string) => {
+            if (!n) return "";
+            return n
+              .toLowerCase()
+              .replace(/\s*\(.*?\)\s*/g, '')
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .replace(/\s+/g, ' ')
+              .trim();
+          };
+          const isMe = d.driverId === user?.uid || 
+                       (assignedVehicle?.id && d.id === assignedVehicle.id) ||
+                       (d.name && user?.name && cleanName(d.name) === cleanName(user.name));
+          if (isMe) return false;
+          
+          const status = (d.status || "").toLowerCase();
+          const activeStatuses = ["available", "ativo", "disponível", "disponivel", "busy", "ocupado", "em serviço", "em curso"];
+          return activeStatuses.includes(status);
+        });
+      setOtherDrivers(driversList);
+    }, (error) => console.warn("Error listening to other drivers:", error));
+
+    return () => unsubscribe();
+  }, [user?.uid, user?.name]);
+
+  // Background GPS Tracking & Offline Logger/Syncer Logic
+  useEffect(() => {
+    if (!isOnline) return;
+
+    // Helper to queue point offline if there is a network issue
+    const queueOfflineGPS = (point: any) => {
+      try {
+        const existing = localStorage.getItem("gps_offline_queue");
+        const queue = existing ? JSON.parse(existing) : [];
+        queue.push(point);
+        localStorage.setItem("gps_offline_queue", JSON.stringify(queue));
+        console.log(`[Offline GPS Tracker] Guardado offline. Total em fila: ${queue.length}`);
+      } catch (err) {
+        console.error("Erro ao enfileirar ponto de GPS offline:", err);
+      }
+    };
+
+    // 1. Core tracking interval: checks GPS and log it
+    const trackInterval = setInterval(() => {
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            let lat = position.coords.latitude;
+            let lng = position.coords.longitude;
+            
+            // Verificação de desvio geográfico: se estiver fora do Luena (e.g. Lubango),
+            // projetamos de forma relativa ou estável para dentro do Luena para visualização correcta na central.
+            if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+              const LUENA_CENTER_LAT = -11.7833;
+              const LUENA_CENTER_LNG = 19.9167;
+              
+              // Armazena a primeira posição "fora" para servir de âncora de simulação
+              let anchor = sessionStorage.getItem("gps_sim_anchor");
+              let anchorObj = anchor ? JSON.parse(anchor) : null;
+              if (!anchorObj) {
+                anchorObj = { lat, lng };
+                sessionStorage.setItem("gps_sim_anchor", JSON.stringify(anchorObj));
+              }
+              
+              const offsetLat = lat - anchorObj.lat;
+              const offsetLng = lng - anchorObj.lng;
+              
+              const driverHash = (user?.uid || "default").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+              // Pequena variação inicial baseada no hash do motorista para que as viaturas não fiquem sobrepostas
+              const startJitterLat = (Math.sin(driverHash) * 0.012);
+              const startJitterLng = (Math.cos(driverHash + 1) * 0.012);
+              
+              lat = LUENA_CENTER_LAT + startJitterLat + offsetLat;
+              lng = LUENA_CENTER_LNG + startJitterLng + offsetLng;
+              console.log(`[GPS Projection] Geolocalização real fora de Luena. Projetando veículo de forma dinâmica no Luena.`);
+            }
+
+            setDriverLiveCoords([lat, lng]);
+
+            const speed = position.coords.speed !== null && position.coords.speed !== undefined
+              ? Math.round(position.coords.speed * 3.6) // m/s to km/h
+              : Math.floor(Math.random() * 41) + 20; // Simulated realistic speed between 20-60 km/h
+
+            const newPoint = {
+              driverId: user?.uid || "N/A",
+              prefix: assignedVehicle?.prefix || user?.prefix || "N/A",
+              lat,
+              lng,
+              speed,
+              timestamp: new Date().toISOString()
+            };
+
+            try {
+              // Save to historical logs collection (gps_history)
+              await addDoc(collection(db, "gps_history"), newPoint);
+
+              // Update the current active vehicle's document in the 'drivers' collection
+              if (assignedVehicle?.id) {
+                const driverRef = doc(db, "drivers", assignedVehicle.id);
+                await updateDoc(driverRef, {
+                  lat,
+                  lng,
+                  speed,
+                  lastUpdated: new Date().toISOString()
+                });
+              }
+              console.log("[Background GPS Tracker] Ponto sincronizado online com sucesso:", newPoint);
+            } catch (err) {
+              console.warn("[Background GPS Tracker] Falha ao enviar online, guardando offline:", err);
+              queueOfflineGPS(newPoint);
+            }
+          },
+          (error) => {
+            console.error("[Background GPS Tracker] Erro do sensor de geolocalização:", error);
+          },
+          { enableHighAccuracy: true, timeout: 15000 }
+        );
+      }
+    }, 60000); // Poll GPS every 60 seconds when shift is started
+
+    // 2. Offline syncing interval
+    const syncInterval = setInterval(async () => {
+      if (!navigator.onLine) return;
+      const existing = localStorage.getItem("gps_offline_queue");
+      if (!existing) return;
+
+      try {
+        const queue = JSON.parse(existing);
+        if (queue.length === 0) return;
+
+        console.log(`[Offline GPS Tracker] Sincronizando ${queue.length} pontos salvos offline em segundo plano...`);
+        for (const point of queue) {
+          await addDoc(collection(db, "gps_history"), point);
+        }
+
+        localStorage.removeItem("gps_offline_queue");
+        console.log("[Background GPS Tracker] Todos os pontos offline foram sincronizados e a fila foi limpa!");
+      } catch (err) {
+        console.error("[Background GPS Tracker] Falha ao sincronizar pontos offline remotos:", err);
+      }
+    }, 30000); // Check and sync offline points every 30 seconds
+
+    return () => {
+      clearInterval(trackInterval);
+      clearInterval(syncInterval);
+    };
+  }, [isOnline, assignedVehicle, user]);
+
+  // Handle "No Response" timeout
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    let speechInterval: any = null;
+    const isForwardedCall = Boolean(
+      currentService?.isForwarded || 
+      currentService?.type === "direct_referral" || 
+      currentService?.transferredBy || 
+      currentService?.forwardedBy
+    );
+
+    if (showNotification && currentService?.status === "pending" && !isForwardedCall) {
+      // Play Ringtone
+      const ringtone = ringtones.find(r => r.id === selectedRingtone) || ringtones[0];
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (selectedRingtone !== 'voice_supertaxi' && typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
+        try {
+          const AudioClass = (window as any).Audio;
+          audioRef.current = new AudioClass(ringtone.url);
+          audioRef.current.loop = true;
+          audioRef.current.play().catch(e => console.warn("Audio play failed:", e));
+        } catch (e) {
+          console.warn("Audio instantiation error:", e);
+        }
+      }
+
+      if (selectedRingtone === 'voice_supertaxi') {
+        speakNotification();
+        speechInterval = setInterval(() => {
+          speakNotification();
+        }, 6000);
+      }
+
+      timeout = setTimeout(async () => {
+        try {
+          if (!currentService?.id) return;
+          const callRef = doc(db, "calls", currentService.id);
+          
+          // Marca chamada perdida no sistema
+          await updateDoc(callRef, {
+            status: "missed",
+            responseHistory: arrayUnion({
+              action: "ignored",
+              timestamp: new Date().toISOString(),
+              driverId: user?.uid || "unknown",
+              driverName: user?.name || "Driver",
+            }),
+          });
+
+          // Cria mensagem / notificação de chamada perdida no motorista
+          try {
+            await addDoc(collection(db, "messages"), {
+              title: "Chamada Perdida ⚠️",
+              subject: "Chamada Perdida ⚠️",
+              content: `Motorista ${user?.name || "Desconhecido"} perdeu uma chamada de passageiro (${currentService.passengerName || currentService.customerName || "Desconhecido"}) às ${new Date().toLocaleTimeString('pt-PT')}.`,
+              targets: [user?.uid].filter(Boolean),
+              status: "unread",
+              timestamp: new Date().toISOString()
+            });
+          } catch (msgErr) {
+            console.error("Erro ao criar documento de mensagem para chamada perdida:", msgErr);
+          }
+
+          setShowNotification(false);
+          setCurrentService(null);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.UPDATE, `calls/${currentService.id}`);
+        }
+      }, 60000); // 60 seconds timeout
+    } else {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    }
+    return () => {
+      clearTimeout(timeout);
+      if (speechInterval) {
+        clearInterval(speechInterval);
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [showNotification, currentService, user, selectedRingtone]);
+
+  const captureContractLocation = () => {
+    setIsCapturingGeo(true);
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          let lat = position.coords.latitude;
+          let lng = position.coords.longitude;
+          if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+            const driverHash = (user?.uid || "contract").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            lat = -11.7833 + (Math.sin(driverHash) * 0.015);
+            lng = 19.9167 + (Math.cos(driverHash) * 0.015);
+            console.log(`[GPS Projection] Local de contrato fora de Luena. Projetando no Luena: ${lat}, ${lng}`);
+          }
+          setContractFormData({
+            ...contractFormData,
+            location: {
+              lat,
+              lng,
+            },
+          });
+          setIsCapturingGeo(false);
+        },
+        (error) => {
+          console.error("Geolocation error:", error);
+          alert(
+            "Não foi possível obter a localização. Verifique as permissões do GPS.",
+          );
+          setIsCapturingGeo(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000 },
+      );
+    } else {
+      alert("Geolocalização não suportada no seu dispositivo.");
+      setIsCapturingGeo(false);
+    }
+  };
+
+  const submitContract = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (contractLoading) return;
+    setContractLoading(true);
+    try {
+      await addDoc(collection(db, "internal_contracts"), {
+        ...contractFormData,
+        driverId: user.uid,
+        driverName: user.name,
+        vehicleId: assignedVehicle
+          ? `${assignedVehicle.prefix} (${assignedVehicle.plate})`
+          : "N/A",
+        createdAt: serverTimestamp(),
+        status: "Pendente Ativação",
+        paymentStatus: "Pendente",
+        weeklyDays: ["Seg", "Ter", "Qua", "Qui", "Sex"], // Default
+        monthlyValue: 0,
+      });
+      setIsContractModalOpen(false);
+      setContractFormData({
+        clientName: "",
+        neighborhood: "",
+        destination: "Trabalho",
+        period: "Manhã",
+        phone: "",
+        notes: "",
+        location: null,
+      });
+      alert("Contrato registado! Aguarde ativação da administração.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, "internal_contracts");
+    } finally {
+      setContractLoading(false);
+    }
+  };
+
+  const confirmEndShift = () => {
+    setIsOnline(false);
+    localStorage.removeItem("driver_is_online");
+    setCurrentService(null);
+    setShowNotification(false);
+    const nowIso = new Date().toISOString();
+    if (assignedVehicle?.id) {
+      updateDoc(doc(db, "drivers", assignedVehicle.id), { 
+        status: "indisponível",
+        shiftActive: false,
+        lastShiftEndedAt: nowIso,
+        lastShiftEndedBy: user?.name || "Motorista"
+      }).catch(e => console.warn(e));
+
+      addDoc(collection(db, "driver_shift_logs"), {
+        driverId: assignedVehicle.id,
+        driverName: user?.name || assignedVehicle.name || "Motorista",
+        prefix: assignedVehicle.prefix || user?.prefix || "N/A",
+        action: "END_SHIFT",
+        timestamp: nowIso,
+        operator: user?.name || user?.email || "Motorista App"
+      }).catch(e => console.warn(e));
+    }
+    setShowEndShiftModal(false);
+  };
+
+  const handleStartShift = async () => {
+    if (!isOnline) {
+      setAiLoading(true);
+      try {
+        const checklist = await geminiService.getSafetyChecklist(assignedVehicle || { prefix: user.prefix });
+        setSafetyChecklist(checklist);
+        setShowSafetyCheck(true);
+      } catch (err) {
+        setIsOnline(true);
+        localStorage.setItem("driver_is_online", "true");
+        const nowIso = new Date().toISOString();
+        if (assignedVehicle?.id) {
+          updateDoc(doc(db, "drivers", assignedVehicle.id), { 
+            status: "disponível",
+            shiftActive: true,
+            lastShiftStartedAt: nowIso,
+            lastShiftStartedBy: user?.name || "Motorista"
+          }).catch(e => console.warn(e));
+
+          addDoc(collection(db, "driver_shift_logs"), {
+            driverId: assignedVehicle.id,
+            driverName: user?.name || assignedVehicle.name || "Motorista",
+            prefix: assignedVehicle.prefix || user?.prefix || "N/A",
+            action: "START_SHIFT",
+            timestamp: nowIso,
+            operator: user?.name || user?.email || "Motorista App"
+          }).catch(e => console.warn(e));
+        }
+      } finally {
+        setAiLoading(false);
+      }
+    } else {
+      setShowEndShiftModal(true);
+    }
+  };
+
+  const confirmSafetyAndStart = () => {
+    setIsOnline(true);
+    localStorage.setItem("driver_is_online", "true");
+    setShowSafetyCheck(false);
+    const nowIso = new Date().toISOString();
+    if (assignedVehicle?.id) {
+      updateDoc(doc(db, "drivers", assignedVehicle.id), { 
+        status: "disponível",
+        shiftActive: true,
+        lastShiftStartedAt: nowIso,
+        lastShiftStartedBy: user?.name || "Motorista"
+      }).catch(e => console.warn(e));
+
+      addDoc(collection(db, "driver_shift_logs"), {
+        driverId: assignedVehicle.id,
+        driverName: user?.name || assignedVehicle.name || "Motorista",
+        prefix: assignedVehicle.prefix || user?.prefix || "N/A",
+        action: "START_SHIFT",
+        timestamp: nowIso,
+        operator: user?.name || user?.email || "Motorista App"
+      }).catch(e => console.warn(e));
+    }
+  };
+
+  const acceptService = async () => {
+    if (!currentService) return;
+
+    try {
+      // Unblock UI immediately
+      setShowNotification(false);
+      setCurrentService({ ...currentService, status: "active", acceptedAt: new Date().toISOString() });
+      
+      if (currentService.id) {
+        const callRef = doc(db, "calls", currentService.id);
+        await updateDoc(callRef, {
+          status: "active",
+          acceptedAt: serverTimestamp(),
+          responseHistory: arrayUnion({
+            action: "accepted",
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
+
+        // Trigger automatic FCM Push notification to passenger
+        sendPassengerPushNotification({
+          fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
+          callId: currentService.id,
+          title: "🚗 Corrida Aceite pelo Motorista!",
+          body: `O motorista ${user?.name || "Oficial"} aceitou o seu pedido de corrida no SUPER TÁXI!`,
+          notificationType: "ride_accepted"
+        }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+      }
+
+      if (assignedVehicle?.id) {
+        await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "ocupado" });
+      }
+    } catch (error: any) {
+      setNotificationBanner({
+        title: "⚠️ ERRO DE ACEITAÇÃO",
+        message: "Erro ao aceitar chamada no sistema: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
+      console.error(error);
+    }
+  };
+
+  const rejectService = async () => {
+    if (!currentService) return;
+
+    try {
+      // Unblock UI immediately
+      setShowNotification(false);
+      const serviceId = currentService.id;
+      if (serviceId) {
+        hiddenCallIdsRef.current.push(serviceId);
+      }
+      setCurrentService(null);
+
+      if (serviceId) {
+        const callRef = doc(db, "calls", serviceId);
+        await updateDoc(callRef, {
+          status: "cancelled",
+          cancelledAt: serverTimestamp(),
+          responseHistory: arrayUnion({
+            action: "rejected",
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
+      }
+
+      if (assignedVehicle?.id) {
+        await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
+      }
+    } catch (error: any) {
+      setNotificationBanner({
+        title: "⚠️ ERRO DE REJEIÇÃO",
+        message: "Erro ao recusar chamada no sistema: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
+      console.error(error);
+    }
+  };
+
+  const cancelService = async () => {
+    if (!currentService) return;
+    if (!window.confirm("Deseja mesmo cancelar esta corrida? O passageiro será notificado e a corrida será cancelada no sistema.")) return;
+
+    try {
+      // Unblock UI immediately
+      setShowNotification(false);
+      const serviceId = currentService.id;
+      if (serviceId) {
+        hiddenCallIdsRef.current.push(serviceId);
+      }
+      setCurrentService(null);
+
+      if (serviceId) {
+        const callRef = doc(db, "calls", serviceId);
+        await updateDoc(callRef, {
+          status: "cancelled",
+          cancelledAt: serverTimestamp(),
+          responseHistory: arrayUnion({
+            action: "cancelled_by_driver",
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
+      }
+
+      if (assignedVehicle?.id) {
+        await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
+      }
+      setNotificationBanner({
+        title: "❌ CORRIDA CANCELADA",
+        message: "A corrida foi cancelada com sucesso no sistema.",
+        type: "info",
+        visible: true
+      });
+    } catch (error: any) {
+      setNotificationBanner({
+        title: "⚠️ ERRO DE CANCELAMENTO",
+        message: "Erro ao cancelar corrida: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
+      console.error(error);
+    }
+  };
+
+  const forceUnlockScreen = async () => {
+    if (!window.confirm("Deseja forçar a saída desta tela de interação? O serviço atual será fechado no seu visor local de motorista, mas continuará arquivado no servidor.")) return;
+    try {
+      if (assignedVehicle?.id) {
+        await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
+      }
+    } catch (e) {
+      console.warn("Could not set driver back to disponível:", e);
+    }
+    setCurrentService(null);
+  };
+
+  const handleDriverArrived = async () => {
+    if (!currentService?.id) return;
+    try {
+      const callRef = doc(db, "calls", currentService.id);
+      await updateDoc(callRef, { status: "arrived" });
+
+      // Trigger automatic FCM Push notification to passenger
+      sendPassengerPushNotification({
+        fcmToken: currentService.fcmToken || currentService.passengerFcmToken,
+        callId: currentService.id,
+        title: "🚕 Motorista Chegou ao Local!",
+        body: `O motorista ${user?.name || "Oficial"} já está no ponto de recolha esperando por si.`,
+        notificationType: "driver_arrived"
+      }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+
+      const isForwardedCall = Boolean(
+        currentService?.isForwarded || 
+        currentService?.type === "direct_referral" || 
+        currentService?.transferredBy || 
+        currentService?.forwardedBy
+      );
+
+      const passengerPhoneNum = currentService.customerPhone || currentService.passengerPhone;
+      if (isForwardedCall && passengerPhoneNum) {
+        window.open(`tel:${passengerPhoneNum}`, '_self');
+      }
+
+      setNotificationBanner({
+        title: "✨ MOTORISTA CHEGOU",
+        message: isForwardedCall
+          ? "Status atualizado! Ligação GSM iniciada para avisar o passageiro que chegou ao local."
+          : "O passageiro foi notificado da sua chegada ao ponto de recolha!",
+        type: "success",
+        visible: true
+      });
+    } catch (err) {
+      console.error(err);
+      setNotificationBanner({
+        title: "⚠️ ERRO AO NOTIFICAR",
+        message: "Ocorreu um erro ao notificar o passageiro. Verifique a sua conexão.",
+        type: "warning",
+        visible: true
+      });
+    }
+  };
+
+  const finishService = async () => {
+    if (!currentService) return;
+
+    try {
+      // Unblock UI immediately
+      const serviceId = currentService.id;
+      if (serviceId) {
+        hiddenCallIdsRef.current.push(serviceId);
+      }
+      setEarnings((prev) => prev + (currentService?.price || 0));
+      setCurrentService(null);
+
+      if (serviceId) {
+        const callRef = doc(db, "calls", serviceId);
+        await updateDoc(callRef, {
+          status: "completed",
+          completedAt: serverTimestamp(),
+          responseHistory: arrayUnion({
+            action: "completed",
+            timestamp: new Date().toISOString(),
+            driverId: user?.uid || "unknown",
+            driverName: user?.name || "Driver",
+          }),
+        });
+      }
+
+      if (assignedVehicle?.id) {
+        await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
+      }
+    } catch (error: any) {
+      setNotificationBanner({
+        title: "⚠️ ERRO DE SISTEMA",
+        message: "Erro ao finalizar chamada no sistema: " + (error?.message || String(error)),
+        type: "warning",
+        visible: true
+      });
+      console.error(error);
+    }
+  };
+
+  const transferService = async (targetDriver: any) => {
+    if (!currentService || !targetDriver) return;
+    setTransferLoading(true);
+    try {
+      const expiresAt = Date.now() + 3 * 60 * 1000;
+      const callRef = doc(db, "calls", currentService.id);
+      const updatePayload = {
+        driverId: targetDriver.driverId || targetDriver.id,
+        driverName: targetDriver.name,
+        driverPhone: targetDriver.phone || targetDriver.phoneNumber || '',
+        vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || targetDriver.plate || '',
+        vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
+        driverInfo: {
+          name: targetDriver.name,
+          phone: targetDriver.phone || targetDriver.phoneNumber || '',
+          vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
+          vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || targetDriver.plate || ''
+        },
+        status: "pending",
+        isForwarded: true,
+        forwardedAt: new Date().toISOString(),
+        forwardExpiresAt: expiresAt,
+        forwardedBy: {
+          id: user?.uid,
+          name: user?.name,
+        },
+        responseHistory: arrayUnion({
+          action: "transferred",
+          timestamp: new Date().toISOString(),
+          fromId: user?.uid,
+          fromName: user?.name,
+          toId: targetDriver.driverId || targetDriver.id,
+          toName: targetDriver.name,
+        }),
+      };
+      await updateDoc(callRef, updatePayload);
+
+      // Sync to 'reencaminhamentos' collection
+      await setDoc(doc(db, "reencaminhamentos", currentService.id), {
+        callId: currentService.id,
+        ...currentService,
+        ...updatePayload,
+        syncedAt: new Date().toISOString(),
+      }, { merge: true }).catch(err => console.warn("Sync to reencaminhamentos failed:", err));
+
+      setIsTransferModalOpen(false);
+      setCurrentService(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `calls/${currentService.id}`);
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
+  const sendDirectCallTransfer = async (targetDriver: any) => {
+    if (!transferCustomerPhone || !targetDriver) return;
+    setTransferLoading(true);
+    console.log("DEBUG: Forwarding call to target driver:", targetDriver);
+    try {
+      const expiresAt = Date.now() + 3 * 60 * 1000;
+      const trimmedPhone = transferCustomerPhone.trim();
+      const phoneWithPrefix = trimmedPhone.startsWith('+244') 
+        ? trimmedPhone 
+        : trimmedPhone.startsWith('244')
+          ? `+${trimmedPhone}`
+          : `+244 ${trimmedPhone}`;
+      
+      // Resolve the target colleague's Firebase Auth UID if possible by querying the 'users' collection using their registered name
+      // ONLY resolve if we don't already have a valid driverId
+      let resolvedDriverId = targetDriver.driverId || targetDriver.id;
+      console.log("DEBUG: Initial resolvedDriverId:", resolvedDriverId);
+      
+      if (!resolvedDriverId) {
+        try {
+          const usersRef = collection(db, "users");
+          const userQuery = query(usersRef, where("name", "==", targetDriver.name));
+          const userDocs = await getDocs(userQuery);
+          if (!userDocs.empty) {
+            resolvedDriverId = userDocs.docs[0].id;
+            console.log("DEBUG: Resolved Driver UID via users collection:", resolvedDriverId);
+          } else {
+              console.log("DEBUG: Could not resolve Driver UID via users collection by name:", targetDriver.name);
+          }
+        } catch (err) {
+          console.warn("Failed to resolve target driver's user UID, falling back to driver document ID", err);
+        }
+      } else {
+          console.log("DEBUG: Using existing driverId:", resolvedDriverId);
+      }
+      
+      console.log("DEBUG: Final resolvedDriverId being used for call:", resolvedDriverId);
+
+      if (currentService?.id) {
+        // Re-routing/transferring an already active call
+        const callRef = doc(db, "calls", currentService.id);
+        const forwardPayload = {
+          driverId: resolvedDriverId,
+          driverName: targetDriver.name,
+          driverPhone: targetDriver.phone || targetDriver.phoneNumber || '',
+          vehiclePlate: targetDriver.vehiclePlate || targetDriver.plate || '',
+          vehicleModel: targetDriver.vehicleModel || targetDriver.model || 'Táxi PSM',
+          status: "pending", // Reset status back to pending so that it pops up for the new target driver!
+          price: null, // Reset previous suggested price
+          isForwarded: true,
+          forwardedAt: new Date().toISOString(),
+          forwardExpiresAt: expiresAt,
+          forwardedBy: {
+            id: user?.uid,
+            name: user?.name,
+          }
+        };
+        await setDoc(callRef, forwardPayload, { merge: true });
+
+        // Sync to 'reencaminhamentos' collection
+        await setDoc(doc(db, "reencaminhamentos", currentService.id), {
+          callId: currentService.id,
+          ...currentService,
+          ...forwardPayload,
+          syncedAt: new Date().toISOString(),
+        }, { merge: true }).catch(err => console.warn("Sync to reencaminhamentos failed:", err));
+
+        setCurrentService(null);
+        setShowNotification(false);
+        setTransferCustomerPhone("");
+        setTransferCustomerName("");
+        setTransferPickupAddress("");
+        setIsNewCallTransferModalOpen(false);
+        alert("Chamada reencaminhada com sucesso para o colega " + targetDriver.name + "! O colega tem 3 minutos para aceitar.");
+      } else {
+        // Direct call creation
+        const directPayload = {
+          customerPhone: phoneWithPrefix,
+          customerName: transferCustomerName || "Cliente Particular",
+          pickupAddress: transferPickupAddress || "Chamada Direta Recebida por Telemóvel",
+          destinationAddress: "A definir com o cliente",
+          price: 0,
+          timestamp: serverTimestamp(),
+          driverId: resolvedDriverId,
+          driverName: targetDriver.name,
+          driverInfo: {
+            name: targetDriver.name,
+            phone: targetDriver.phone || targetDriver.phoneNumber || '',
+            vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
+            vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || ''
+          },
+          status: "pending",
+          type: "direct_referral",
+          isForwarded: true,
+          forwardedAt: new Date().toISOString(),
+          forwardExpiresAt: expiresAt,
+          transferredBy: {
+            id: user?.uid,
+            name: user?.name,
+          }
+        };
+        const newDocRef = await addDoc(collection(db, "calls"), directPayload);
+        
+        // Sync to 'reencaminhamentos' collection
+        await setDoc(doc(db, "reencaminhamentos", newDocRef.id), {
+          callId: newDocRef.id,
+          ...directPayload,
+          timestamp: new Date().toISOString(),
+          syncedAt: new Date().toISOString(),
+        }, { merge: true }).catch(err => console.warn("Sync to reencaminhamentos failed:", err));
+
+        setTransferCustomerPhone("");
+        setTransferCustomerName("");
+        setTransferPickupAddress("");
+        setIsNewCallTransferModalOpen(false);
+        alert("Contacto de cliente reencaminhado com sucesso para " + targetDriver.name + "! O colega tem 3 minutos para aceitar.");
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.ADD, "calls");
+      alert("Erro ao reencaminhar contacto de cliente.");
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
+  const isDirectForwarded = Boolean(
+    currentService?.isForwarded || 
+    currentService?.type === "direct_referral" || 
+    currentService?.transferredBy || 
+    currentService?.forwardedBy
+  );
+
+  return (
+    <div className="flex flex-col w-full h-screen h-[100dvh] bg-slate-50 relative overflow-hidden font-sans">
+      {/* TOAST NOTIFICATION BANNER SINCRO SUPER TAXI (JIS) - FLUTUANTE COM Z-INDEX IMPEDIDOR DE OVERLAY COVERING */}
+      <AnimatePresence>
+        {notificationBanner.visible && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className={`absolute top-4 left-4 right-4 p-4 rounded-2xl shadow-2xl z-[100] flex items-start gap-3.5 backdrop-blur-md border-2 transition-all ${
+              notificationBanner.type === 'warning'
+                ? 'bg-slate-950/95 border-rose-500 shadow-rose-500/25'
+                : 'bg-slate-900/95 border-brand-primary shadow-brand-primary/20'
+            }`}
+          >
+            <div className={`p-2.5 rounded-xl shrink-0 shadow-inner ${
+              notificationBanner.type === 'warning'
+                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                : 'bg-brand-primary/20 text-brand-primary border border-brand-primary/30'
+            }`}>
+              <Bell size={20} className={notificationBanner.type === 'warning' ? "animate-bounce" : "animate-pulse"} />
+            </div>
+            <div className="text-left leading-tight min-w-0 flex-1">
+              <h5 className={`text-xs sm:text-sm font-black uppercase tracking-widest ${
+                notificationBanner.type === 'warning' ? 'text-rose-400' : 'text-brand-primary'
+              }`}>
+                {notificationBanner.title}
+              </h5>
+              <p className="text-xs sm:text-sm text-slate-100 mt-1 leading-snug font-bold">
+                {notificationBanner.message}
+              </p>
+            </div>
+            <button 
+              onClick={() => setNotificationBanner(prev => ({ ...prev, visible: false }))}
+              className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors shrink-0 active:scale-95"
+            >
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Non-scrollable header and status bar zone */}
+      <div className="bg-slate-50 shrink-0 z-40 border-b border-slate-100">
+
+
+        <header className="px-4 py-4 flex items-center justify-between bg-white">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center border border-brand-primary/20">
+                <Shield size={20} className="text-brand-primary" />
+              </div>
+              <div>
+                <h4 className="text-[13px] font-black text-slate-800 leading-none">
+                  PSM COMERCIAL
+                </h4>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Luena, Moxico
+                  </span>
+                  {stars !== "Novo" && Number(stars) >= 4.7 && (
+                    <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter border border-amber-200">
+                      Top Rated
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 relative">
+              <button 
+                onClick={() => setIsMessagesModalOpen(true)}
+                className="p-2 text-slate-400 hover:text-slate-600 transition-colors relative">
+                <Bell size={20} />
+                {unreadMessages.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white animate-pulse" />
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  markAsRead();
+                  setIsTeamChatOpen(true);
+                }}
+                className="p-2 text-slate-400 hover:text-brand-primary transition-colors relative"
+                title="Chat Interno"
+              >
+                <MessageSquare size={20} />
+                {hasUnread && (
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-ping" />
+                )}
+              </button>
+
+              <button
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <MoreVertical size={20} />
+              </button>
+
+              <AnimatePresence>
+                {isMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsMenuOpen(false)}
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                      className="absolute top-full right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 py-2 z-50"
+                    >
+                      <div className="px-4 py-2 border-b border-slate-50 mb-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          Utilizador
+                        </p>
+                        <p className="text-xs font-bold text-slate-800 truncate">
+                          {user?.name}
+                        </p>
+                      </div>
+
+                      {/* Navegação Principal */}
+                      <div className="px-4 py-1.5">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                          Navegação
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("dashboard"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "dashboard" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <Layout size={14} className={activeInternalTab === "dashboard" ? "text-brand-primary" : "text-slate-400"} />
+                        Painel
+                      </button>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("history"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "history" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <History size={14} className={activeInternalTab === "history" ? "text-brand-primary" : "text-slate-400"} />
+                        Viagens
+                      </button>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("contracts"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "contracts" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <FileSignature size={14} className={activeInternalTab === "contracts" ? "text-brand-primary" : "text-slate-400"} />
+                        Contrato
+                      </button>
+
+                      <button
+                        onClick={() => { setActiveInternalTab("rendas"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "rendas" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <Wallet size={14} className={activeInternalTab === "rendas" ? "text-brand-primary" : "text-slate-400"} />
+                        Rendas
+                      </button>
+
+                      <button
+                        onClick={() => { markAsRead(); setIsTeamChatOpen(true); setIsMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <MessageSquare size={14} className="text-brand-primary" />
+                        <span>Chat Interno</span>
+                        {hasUnread && (
+                          <span className="ml-auto w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+                        )}
+                      </button>
+
+                      <div className="h-px bg-slate-100 my-1.5" />
+
+                      <button
+                        onClick={() => { setActiveInternalTab("settings"); setIsMenuOpen(false); }}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
+                          activeInternalTab === "settings" ? "bg-brand-primary/10 text-brand-primary" : "text-slate-700 hover:bg-slate-50"
+                        )}
+                      >
+                        <Settings size={14} className={activeInternalTab === "settings" ? "text-brand-primary" : "text-slate-400"} />
+                        Configurar Toque
+                      </button>
+
+                      <button
+                        onClick={() => signOut(auth)}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50 transition-colors text-left"
+                      >
+                        <Power size={14} className="text-red-400" />
+                        Terminar Sessão
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          </header>
+        </div>
+
+      <AnimatePresence>
+        {isMessagesModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+              onClick={() => setIsMessagesModalOpen(false)}
+            />
+            <motion.div
+              initial={{ y: 300, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 300, opacity: 0 }}
+              className="relative w-full bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-2xl z-20 flex flex-col h-[90%] max-h-[90vh] sm:max-w-full overflow-hidden"
+            >
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h2 className="text-xl font-black uppercase tracking-tighter">Mensagens ({unreadMessages.length})</h2>
+                <button onClick={() => setIsMessagesModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                {unreadMessages.length === 0 && <p className="text-center text-slate-400 py-10">Nenhuma mensagem nova.</p>}
+                {unreadMessages.map((msg) => (
+                  <div key={msg.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100 relative">
+                    <p className="text-xs font-black text-slate-800 uppercase mb-1">{msg.subject || msg.title || "Notificação"}</p>
+                    <p className="text-[11px] text-slate-600 leading-relaxed mb-2">{msg.content}</p>
+                    <span className="block text-[9px] text-slate-400 font-bold uppercase">
+                      {new Date(msg.timestamp?.seconds ? msg.timestamp.seconds * 1000 : msg.timestamp).toLocaleString()}
+                    </span>
+                    <button
+                      onClick={() => markMessageAsRead(msg.id)}
+                      className="absolute top-4 right-4 p-1.5 bg-white border border-slate-200 rounded-full hover:bg-slate-100 text-slate-400 hover:text-brand-primary transition-colors"
+                      title="Marcar como lida"
+                    >
+                      <CheckCircle2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        markMessageAsRead(msg.id);
+                        setIsMessagesModalOpen(false);
+                      }}
+                      className="mt-3 w-full bg-slate-900 text-white rounded-xl py-2 text-[10px] uppercase font-black tracking-widest hover:bg-slate-800 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle2 size={12} className="text-emerald-400" />
+                      Entendido & Fechar
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button 
+                onClick={() => setIsMessagesModalOpen(false)}
+                className="w-full bg-brand-primary text-white py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
+              >
+                Fechar
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isWhatsAppOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+              onClick={() => setIsWhatsAppOpen(false)}
+            />
+            <motion.div
+              initial={{ y: 300, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 300, opacity: 0 }}
+              className="relative w-full bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-2xl z-20 flex flex-col h-[98%] max-h-[98vh] sm:max-w-full"
+            >
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h2 className="text-xl font-black uppercase tracking-tighter">Central WhatsApp</h2>
+                <button onClick={() => setIsWhatsAppOpen(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X size={20} />
+                </button>
+              </div>
+              <WhatsAppMonitor isDriverView={true} isMechanicView={false} />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <main className="flex-1 overflow-y-auto custom-scrollbar px-4 sm:px-6 py-6 pb-28 space-y-6 w-full bg-slate-50">
+            <AnimatePresence>
+              {showSafetyCheck && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  className="fixed inset-x-6 top-24 z-50 bg-white rounded-[2.5rem] border-4 border-slate-900 p-8 shadow-2xl"
+                >
+                  <div className="w-16 h-16 bg-brand-primary text-white rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-brand-primary/20">
+                    <Wrench size={32} />
+                  </div>
+                  <h3 className="text-lg font-black text-slate-900 text-center uppercase tracking-tighter italic mb-4">
+                    Inspeção de Segurança IA
+                  </h3>
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 mb-8">
+                     <p className="text-[12px] text-slate-600 font-bold leading-relaxed whitespace-pre-wrap italic">
+                        {safetyChecklist || "Verifique os pneus, luzes e níveis de óleo antes de iniciar."}
+                     </p>
+                  </div>
+                  <button 
+                    onClick={confirmSafetyAndStart}
+                    className="w-full bg-brand-primary text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
+                  >
+                    Confirmar e Iniciar Turno
+                  </button>
+                  <button 
+                    onClick={() => setShowSafetyCheck(false)}
+                    className="w-full mt-4 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600"
+                  >
+                    Cancelar
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {showEndShiftModal && (
+                <div className="fixed inset-0 z-55 flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setShowEndShiftModal(false)}
+                    className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+                  />
+                  
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                    className="relative w-full max-w-md bg-white rounded-[2rem] border border-slate-100 p-6 shadow-2xl z-[60] text-center"
+                  >
+                    <div className="w-14 h-14 bg-red-50 text-red-650 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-sm">
+                      <Power size={24} />
+                    </div>
+                    
+                    <h3 className="text-base font-black text-slate-900 uppercase tracking-tight italic mb-1">
+                      Encerramento de Turno
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">
+                      {user?.name || "Motorista"} • SUPER TÁXI
+                    </p>
+
+                    <p className="text-[11px] text-slate-500 leading-relaxed mb-5">
+                      Confirme o resumo das suas operações de hoje antes de terminar a sua atividade na plataforma.
+                    </p>
+
+                    {/* Resumo da Renda */}
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                      <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-left">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Viagens Realizadas</span>
+                        <span className="text-lg font-black text-slate-800">{todayCompletedTrips.length}</span>
+                        <span className="text-[8px] text-emerald-650 font-bold block mt-0.5">Completadas hoje</span>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-left">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Renda do Dia</span>
+                        <span className="text-lg font-black text-emerald-650 italic">
+                          {todayTotalRevenue.toLocaleString()} <span className="text-xs">Kz</span>
+                        </span>
+                        <span className="text-[8px] text-slate-400 font-bold block mt-0.5">Faturação total</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-50 border border-amber-200/50 p-3 rounded-xl mb-6 text-left">
+                      <p className="text-[9.5px] text-amber-800 leading-normal font-medium">
+                        Ao pressionar o encerramento, o seu estado passará para <b className="text-rose-600">INDISPONÍVEL</b> na rota ativa do Luena e o seu veículo será libertado na central de escalas.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      <button 
+                        onClick={confirmEndShift}
+                        className="w-full bg-rose-600 hover:bg-rose-700 text-white py-3.5 rounded-2xl font-black text-[11px] uppercase tracking-widest shadow-lg shadow-rose-650/10 active:scale-95 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Power size={12} /> Confirmar & Terminar Turno
+                      </button>
+                      
+                      <button 
+                        onClick={() => setShowEndShiftModal(false)}
+                        className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all"
+                      >
+                        Voltar para o Turno
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {currentService ? (
+              // INTERFACE ÚNICA DE INTERAÇÃO DO SERVIÇO (DEDICATED FULL SCREEN CALL UI)
+              <div className="space-y-6 max-w-2xl mx-auto py-2">
+                <div className="bg-slate-900 text-white rounded-[2.5rem] border-4 border-slate-950 p-6 sm:p-8 space-y-6 shadow-2xl overflow-hidden relative">
+                  
+                  {/* Decorative ambient GPS grid */}
+                  <div className="absolute inset-0 opacity-5 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
+
+                  {/* Clean Service Call Header */}
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 relative z-10">
+                    <div className="flex items-center gap-2">
+                      <div className={cn(
+                        "w-2.5 h-2.5 rounded-full shrink-0",
+                        currentService.status === "pending" ? "bg-amber-400 animate-ping" : "bg-emerald-400 animate-pulse"
+                      )} />
+                      <span className="text-xs font-black text-white uppercase tracking-wider">
+                        {currentService.status === "pending" && (isDirectForwarded ? "Chamada Reencaminhada" : "Novo Pedido de Viagem")}
+                        {currentService.status === "connected" && "Atendimento de Voz"}
+                        {currentService.status === "price_sent" && "Proposta Enviada"}
+                        {currentService.status === "price_negotiation_requested" && "Pedido de Desconto do Passageiro"}
+                        {currentService.status === "confirmed" && "Corrida Confirmada"}
+                        {currentService.status === "active" && "Viagem em Curso"}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={forceUnlockScreen}
+                      className="p-1.5 bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-xl transition-all cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-700/50"
+                      title="Voltar ao Painel Principal"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  {/* Operational Status Display indicator */}
+                  <div className="text-center space-y-2 relative z-10 py-2">
+                    <div className="w-16 h-16 rounded-full bg-slate-950 border-2 border-brand-primary/20 text-brand-primary flex items-center justify-center mx-auto mb-2 relative">
+                      <Phone size={24} className={cn(
+                        currentService.status === "pending" && "animate-bounce text-amber-500",
+                        currentService.status === "connected" && "animate-pulse text-emerald-400",
+                        currentService.status === "price_sent" && "text-blue-400",
+                        currentService.status === "confirmed" && "scale-110 text-emerald-400 animate-bounce",
+                        currentService.status === "active" && "text-emerald-400 animate-pulse"
+                      )} />
+                    </div>
+                    <h3 className="text-xl font-black tracking-tight uppercase leading-none text-white">
+                      {currentService.status === "pending" && "Recebendo Pedido..."}
+                      {currentService.status === "connected" && "Conversando em Tempo Real"}
+                      {currentService.status === "price_sent" && "Aguardando Confirmação"}
+                      {currentService.status === "price_negotiation_requested" && "Passageiro Solicita Desconto"}
+                      {currentService.status === "confirmed" && "Embarque Autorizado"}
+                      {currentService.status === "active" && "Viagem Selecionada"}
+                    </h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {currentService.status === "active" ? "Viatura em Movimento no Luena" : "Negociação de Super Táxi"}
+                    </p>
+                  </div>
+
+                  {/* Barra de Perfil do Passageiro - Sempre visível até ao fim da corrida */}
+                  <div className="space-y-3 bg-white/5 p-4 rounded-3xl border border-white/5 relative z-10">
+                    {(currentService.isForwarded || currentService.transferredBy || currentService.forwardedBy) && (
+                      <div className="space-y-2 mb-2">
+                        <div className="bg-indigo-500/15 border border-indigo-500/30 p-2.5 rounded-2xl flex items-center justify-between text-left">
+                          <div className="flex items-center gap-2">
+                            <Users size={14} className="text-indigo-400 shrink-0 animate-pulse" />
+                            <div>
+                              <p className="text-[8.5px] font-black text-indigo-300 uppercase tracking-widest leading-none">
+                                Chamada Reencaminhada
+                              </p>
+                              <p className="text-[10px] font-extrabold text-white uppercase mt-0.5">
+                                Por: {currentService.forwardedBy?.name || currentService.transferredBy?.name || "Colega da Frota"}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[8px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
+                            3 Min Limit
+                          </span>
+                        </div>
+
+                        {currentService.status === 'pending' && (
+                          <ForwardedCallCountdown 
+                            call={currentService} 
+                            onExpire={async () => {
+                              try {
+                                const callRef = doc(db, 'calls', currentService.id);
+                                await updateDoc(callRef, {
+                                  status: 'forward_expired',
+                                  forwardExpiredAt: new Date().toISOString(),
+                                  expiredDriverName: user?.name || assignedVehicle?.name || 'Colega',
+                                });
+                                setNotificationBanner({
+                                  title: '⏰ TEMPO EXPIRADO (3 MIN)',
+                                  message: 'O tempo limite de 3 minutos para aceitar esta chamada reencaminhada expirou. A chamada foi devolvida.',
+                                  type: 'warning',
+                                  visible: true,
+                                });
+                                setShowNotification(false);
+                                setCurrentService(null);
+                              } catch (e) {
+                                console.warn('Error expiring forwarded call:', e);
+                              }
+                            }} 
+                          />
+                        )}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <PassengerAvatar 
+                          src={currentService?.passengerPhoto} 
+                          name={currentService?.customerName || currentService?.passengerName || "Cliente Particular"} 
+                          size="md" 
+                        />
+                        <div className="text-left">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Passageiro Oficial</p>
+                          <span className="text-sm font-black text-white uppercase italic leading-none block">
+                            {currentService?.customerName || currentService?.passengerName || "Cliente Particular"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Botão Ver Detalhes apenas para Chamadas de Passageiro Diretas/Públicas */}
+                      {!isDirectForwarded && (
+                        <button
+                          type="button"
+                          onClick={() => setShowTripDetailsInConsole(!showTripDetailsInConsole)}
+                          className={cn(
+                            "px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-xl border transition-all active:scale-95 flex items-center gap-1.5",
+                            showTripDetailsInConsole
+                              ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                              : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
+                          )}
+                        >
+                          {showTripDetailsInConsole ? "Ocultar Detalhes 🗺️" : "Ver Detalhes 🗺️"}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Collapsible Trip Details Grid (Aberto automaticamente se for reencaminhada ou se showTripDetailsInConsole for true) */}
+                    {(showTripDetailsInConsole || isDirectForwarded) && (
+                      <div className="space-y-3 pt-3 border-t border-white/5 animate-fadeIn">
+                        <div className="grid grid-cols-2 gap-3 text-left">
+                          <div>
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">PONTO DE RECOLHA</p>
+                            <p className="text-xs font-semibold text-slate-200 leading-tight">
+                              {currentService?.pickupAddress || currentService?.pickup || "Luena Central"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">PONTO DE DESTINO</p>
+                            <p className="text-xs font-semibold text-slate-200 leading-tight">
+                              {currentService?.destinationAddress || currentService?.destination || "Bairro Kamanongue"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                            👥 QUANTIDADE DE PASSAGEIROS
+                          </span>
+                          <span className="text-xs font-black text-amber-400 font-mono bg-amber-500/10 px-2.5 py-0.5 rounded border border-amber-500/20">
+                            {currentService?.passengerCount || currentService?.passengersCount || currentService?.numPassengers || 1} { (Number(currentService?.passengerCount || currentService?.passengersCount || currentService?.numPassengers || 1) === 1 ? 'Passageiro' : 'Passageiros') }
+                          </span>
+                        </div>
+
+                        {currentService.price && (
+                          <div className="flex justify-between items-center pt-2 border-t border-white/5">
+                            <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Preço Definido</span>
+                            <span className="text-xs font-black text-emerald-400 font-mono">
+                              {Number(currentService.price).toLocaleString()} Kz
+                            </span>
+                          </div>
+                        )}
+
+                        {currentService.boardingToken && (
+                          <div className="flex justify-between items-center pt-2 border-t border-white/5 bg-emerald-950/20 px-2.5 py-1.5 rounded-lg border border-emerald-500/10">
+                            <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">TOKEN DE EMBARQUE:</span>
+                            <span className="text-xs font-mono font-black text-emerald-400 tracking-wider">
+                              {currentService.boardingToken}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Live Real-Time Passenger Waiting Time - Hidden when ride is active */}
+                  {currentService.status !== 'active' && (
+                    <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 flex justify-between items-center relative z-10 animate-fadeIn">
+                      <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Clock size={12} className="animate-spin text-amber-400" /> TEMPO DE ESPERA DO PASSAGEIRO:
+                      </span>
+                      <WaitingTimer timestamp={currentService?.timestamp || currentService?.createdAt || currentService?.acceptedAt} className="text-xs font-mono font-black text-amber-400" />
+                    </div>
+                  )}
+
+                  {/* Driver ETA Response Bar - Shown when passenger asks, driver responded or ride is active, BUT hidden when ride is active or for direct forwarded calls */}
+                  {Boolean(!isDirectForwarded && !currentService.isForwarded && currentService.status !== 'active' && (currentService.status === 'confirmed' || currentService.status === 'arrived' || currentService.passengerAskedEta || currentService.driverEtaResponse)) && (
+                    <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-3xl space-y-3 text-left relative z-10 animate-fadeIn">
+                      <div className="flex items-center justify-between text-[10px] text-blue-400 font-black uppercase">
+                        <span className="flex items-center gap-1.5">
+                          <Clock size={13} />
+                          Previsão de Chegada (ETA):
+                          <span className="text-[8px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-extrabold uppercase ml-1">
+                            OPCIONAL
+                          </span>
+                        </span>
+                        {currentService.driverEtaResponse && (
+                          <span className="text-emerald-400 bg-emerald-500/20 px-2.5 py-0.5 rounded-lg border border-emerald-500/30 text-[9px] font-bold">
+                            Tempo: {currentService.driverEtaResponse}
+                          </span>
+                        )}
+                      </div>
+
+                      {currentService.passengerAcceptedEta ? (
+                        /* Hide all questions, warnings and buttons when passenger accepts ETA */
+                        <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-xl text-center space-y-1 animate-fadeIn">
+                          <p className="text-[11px] font-black uppercase text-emerald-300 flex items-center justify-center gap-1.5">
+                            ✅ O Passageiro Confirmou o Tempo ({currentService.driverEtaResponse || currentService.driverEta || 'Acordado'})!
+                          </p>
+                          <p className="text-[9px] text-emerald-200/80 font-medium">
+                            O tempo de espera foi aceite pelo passageiro.
+                          </p>
+                        </div>
+                      ) : (
+                        /* Normal flow before passenger accepts */
+                        <>
+                          {currentService.passengerAskedEta && (
+                            <p className="text-xs text-white font-bold bg-black/40 p-2.5 rounded-xl border border-white/10">
+                              💬 Pergunta do Passageiro: "{currentService.passengerEtaQuestion || 'Quanto tempo demora a chegar?'}"
+                            </p>
+                          )}
+
+                          {currentService.passengerEtaFeedback === 'tempo_alto' && (
+                            <div className="p-2 bg-amber-500/20 border border-amber-500/40 rounded-xl text-center my-1 animate-pulse">
+                              <p className="text-[10px] font-black uppercase text-amber-300">
+                                ⚠️ O passageiro considerou o tempo de espera muito alto! Tente chegar o mais rápido possível.
+                              </p>
+                            </div>
+                          )}
+
+                          <p className="text-[9px] text-slate-300 uppercase font-black">
+                            Clique para enviar o tempo estimado ao passageiro (Opcional):
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 font-sans">
+                            {["3 min", "5 min", "10 min", "15 min", "20 min", "Já estou no local!"].map((resp) => (
+                              <button
+                                key={resp}
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const rideRef = doc(db, 'calls', currentService.id);
+                                    await setDoc(rideRef, { 
+                                      driverEtaResponse: resp,
+                                      driverEta: resp,
+                                      eta: resp,
+                                      passengerEtaFeedback: null,
+                                      driverEtaResponseAt: new Date().toISOString(),
+                                      passengerAcceptedEta: false
+                                    }, { merge: true });
+                                    setCurrentService((prev: any) => ({ 
+                                      ...prev, 
+                                      driverEtaResponse: resp, 
+                                      driverEta: resp, 
+                                      eta: resp, 
+                                      passengerEtaFeedback: null,
+                                      driverEtaResponseAt: new Date().toISOString(),
+                                      passengerAcceptedEta: false
+                                    }));
+                                    setNotificationBanner({
+                                      title: "⚡ PREVISÃO ENVIADA",
+                                      message: `Previsão de ${resp} enviada ao passageiro com sucesso!`,
+                                      type: "success",
+                                      visible: true
+                                    });
+                                  } catch (err) {
+                                    console.error("Erro ao enviar ETA:", err);
+                                  }
+                                }}
+                                className="px-3 py-2 bg-blue-500/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-[9.5px] font-black uppercase transition-all active:scale-95"
+                              >
+                                ⚡ {resp}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Collapsed / Toggle Button for VISUALIZADOR OPERACIONAL (Apenas para chamadas públicas de passageiro) */}
+                  {!isDirectForwarded && (
+                    !showOperationalMap ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowOperationalMap(true)}
+                        className="w-full flex items-center justify-between bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10"
+                      >
+                        <div className="flex items-center gap-2">
+                          <MapPin size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
+                          <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest">
+                            VISUALIZADOR OPERACIONAL
+                          </span>
+                        </div>
+                        <span className="text-[9.5px] font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all flex items-center gap-1.5">
+                          🗺️ Abrir Mapa <ChevronDown size={12} />
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="space-y-2 animate-fadeIn relative z-10">
+                        {/* Toggle Map Mode buttons & VISUALIZADOR OPERACIONAL Header */}
+                        <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-2xl border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setShowOperationalMap(false)}
+                            className="flex items-center gap-2 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-widest pl-2"
+                          >
+                            <MapPin size={14} className="text-amber-400" />
+                            VISUALIZADOR OPERACIONAL
+                            <ChevronUp size={12} className="text-amber-400" />
+                          </button>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setMapMode("real")}
+                              className={cn(
+                                "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                                mapMode === "real" 
+                                  ? "bg-brand-primary text-slate-950 shadow" 
+                                  : "bg-transparent text-slate-400 hover:text-white"
+                              )}
+                            >
+                              🗺️ Mapa Real
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMapMode("radar")}
+                              className={cn(
+                                "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                                mapMode === "radar" 
+                                  ? "bg-brand-primary text-slate-950 shadow" 
+                                  : "bg-transparent text-slate-400 hover:text-white"
+                              )}
+                            >
+                              📡 Radar HUD
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Interactive Map Container or Cinematic Radar SVG */}
+                        {mapMode === "real" ? (
+                          <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative h-72 w-full z-20">
+                            <MapErrorBoundary>
+                              {/* @ts-ignore */}
+                              <MapContainer
+                                center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
+                                zoom={14}
+                                style={{ height: '100%', width: '100%' }}
+                                zoomControl={false}
+                              >
+                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                
+                                {/* Driver Marker */}
+                                {driverLiveCoords && (
+                                  <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
+                                    <Popup>
+                                      <div className="text-slate-900 font-sans p-1">
+                                        <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
+                                        <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
+                                      </div>
+                                    </Popup>
+                                  </Marker>
+                                )}
+
+                                {/* Passenger Marker */}
+                                <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
+                                  <Popup>
+                                    <div className="text-slate-900 font-sans p-1">
+                                      <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
+                                      <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
+                                    </div>
+                                  </Popup>
+                                </Marker>
+
+                                <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
+                              </MapContainer>
+                            </MapErrorBoundary>
+                            
+                            {/* Float controls top left inside the map */}
+                            <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1 pointer-events-none">
+                              <div className="bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                                GPS Sincro Passageiro
+                              </div>
+                            </div>
+
+                            {/* Float buttons INSIDE the map container at the bottom */}
+                            <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[400] flex gap-2 font-sans">
+                              <a
+                                href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xl transition-all border border-amber-400/40"
+                              >
+                                <Navigation size={12} /> Abrir Rota no Google Maps
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (currentService.pickupLat && currentService.pickupLng) {
+                                    setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
+                                  }
+                                }}
+                                className="bg-slate-950/90 hover:bg-slate-900 text-white font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-white/20 shadow-xl backdrop-blur-md"
+                              >
+                                <MapPin size={12} /> Focar Cliente
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                      <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
+                        <div className="absolute inset-x-0 bottom-2 text-center z-10">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                            Rota de Viagem em Direto
+                          </p>
+                        </div>
+
+                        {/* High Density Grid pattern */}
+                        <div className="absolute inset-0 opacity-10 pointer-events-none">
+                          <svg width="100%" height="100%">
+                            <pattern id="driver-grid-pat" width="15" height="15" patternUnits="userSpaceOnUse">
+                              <path d="M 15 0 L 0 0 0 15" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
+                            </pattern>
+                            <rect width="100%" height="100%" fill="url(#driver-grid-pat)" />
+                          </svg>
+                        </div>
+
+                        {/* Satellite tracking active status indicator (JIS) */}
+                        <div className="absolute top-2.5 left-2.5 bg-black/85 px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
+                          <div className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
+                          Live GPS Sincro
+                        </div>
+
+                        {/* Match Passenger Bezier Path and animated car positioner */}
+                        <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
+                          <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray="5" />
+                          <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current animate-pulse" />
+                          <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
+                          
+                          <motion.g
+                            initial={{ x: 50, y: 150 }}
+                            animate={{
+                              x: [50, 110, 150, 200, 250],
+                              y: [150, 90, 75, 95, 120]
+                            }}
+                            transition={{
+                              duration: 12,
+                              repeat: Infinity,
+                              ease: "easeInOut"
+                            }}
+                          >
+                            <circle r="6" className="text-blue-400 fill-current shadow-lg animate-pulse" />
+                            <polygon points="-2,-2 3,0 -2,2" fill="white" />
+                          </motion.g>
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+
+                  {/* Operational Controls by Status */}
+                  <div className="space-y-4 pt-2 relative z-10 border-t border-dashed border-white/10">
+                    {currentService.status === "pending" && (
+                      isDirectForwarded ? (
+                        /* Flow: Reencaminhar Chamada Direta entre Motoristas */
+                        <div className="space-y-3">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (currentService.status === "pending") {
+                                await attendCall();
+                              }
+                              if (currentService.customerPhone || currentService.passengerPhone) {
+                                window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
+                              } else {
+                                alert("Contacto do cliente indisponível.");
+                              }
+                            }}
+                            className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-500/30 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95"
+                          >
+                            <Phone size={14} />
+                            Ligar GSM ao Passageiro
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition-all active:scale-95"
+                          >
+                            <Users size={15} />
+                            Encaminhar a Outro Colega
+                          </button>
+                        </div>
+                      ) : (
+                        /* Flow: Pedir Táxi Público (App Passageiro) */
+                        <div className="space-y-3">
+                          <div className="flex gap-3">
+                            <button
+                              onClick={rejectService}
+                              className="flex-1 py-4 bg-white/10 hover:bg-white/20 transition-all text-white border border-white/10 rounded-2xl font-black text-xs uppercase tracking-wider"
+                            >
+                              Rejeitar (15s)
+                            </button>
+                            <button
+                              onClick={attendCall}
+                              className="flex-[2] py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-emerald-500/10 flex items-center justify-center gap-2 animate-bounce"
+                            >
+                              <PhoneCall size={14} className="animate-bounce" />
+                              Atender Chamada
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition-all active:scale-95"
+                          >
+                            <Users size={15} />
+                            Encaminhar a Outro Colega
+                          </button>
+                        </div>
+                      )
+                    )}
+
+                    {currentService.status === "connected" && (
+                      <div className="space-y-4">
+                        {currentService.usedBonus === true ? (
+                          <div className="bg-amber-500/10 border border-amber-500/35 p-4 rounded-2xl text-center space-y-3">
+                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest animate-pulse">🌟 VIAGEM DE BÓNUS SOLICITADA 🌟</p>
+                            <p className="text-[9.5px] text-slate-300 leading-relaxed">
+                              Este passageiro solicitou pagar a viagem utilizando os seus bónus acumulados. O valor proposto por si será integralmente debitado do saldo de bónus do passageiro.
+                            </p>
+                            <div className="border-t border-white/5 pt-3">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Propor Preço da Viagem (AKZ):</p>
+                              <div className="flex gap-2 font-sans">
+                                <input
+                                  type="number"
+                                  placeholder="Ex: 2500"
+                                  value={proposedPrice}
+                                  onChange={(e) => setProposedPrice(e.target.value)}
+                                  className="flex-1 bg-black text-white border border-white/10 rounded-xl px-4 py-3 text-sm font-black focus:outline-none focus:border-brand-primary"
+                                />
+                                <button
+                                  onClick={() => sendPriceOffer()}
+                                  className="px-6 py-3 bg-[#10b981] text-slate-950 font-black text-xs uppercase rounded-xl transition-all hover:bg-emerald-600 shadow-md font-sans"
+                                >
+                                  PROPOR
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="bg-emerald-500/5 border border-emerald-500/20 p-4 rounded-2xl text-center">
+                              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                                {isDirectForwarded ? "Chamada Reencaminhada / Direta (Acordo GSM)" : "Chamada Atendida (Conversão Estável)"}
+                              </p>
+                              <p className="text-[9px] text-slate-400 mt-0.5 uppercase font-bold">
+                                {isDirectForwarded ? "Especifique o valor combinado com o passageiro via GSM para confirmar." : "Defina o valor da corrida ou recuse se necessário."}
+                              </p>
+                            </div>
+                            <div className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                                {isDirectForwarded ? "Preço Acordado via GSM (AKZ)" : "Propor Preço da Viagem (AKZ)"}
+                              </p>
+                              <div className="flex gap-2 font-sans">
+                                <input
+                                  type="number"
+                                  placeholder="Ex: 2500"
+                                  value={proposedPrice}
+                                  onChange={(e) => setProposedPrice(e.target.value)}
+                                  className="flex-1 bg-black text-white border border-white/10 rounded-xl px-4 py-3 text-sm font-black focus:outline-none focus:border-brand-primary"
+                                />
+                                <button
+                                  onClick={() => sendPriceOffer()}
+                                  className="px-5 py-3 bg-[#10b981] hover:bg-emerald-500 text-slate-950 font-black text-xs uppercase rounded-xl transition-all shadow-md font-sans"
+                                >
+                                  {isDirectForwarded ? "CONFIRMAR PREÇO" : "PROPOR"}
+                                </button>
+                              </div>
+                              <div className="flex gap-2 justify-between">
+                                {[1500, 2000, 2500, 3000].map((val) => (
+                                  <button
+                                    key={val}
+                                    onClick={() => sendPriceOffer(val)}
+                                    className="flex-1 bg-white/5 hover:bg-white/10 border border-white/5 py-2 rounded-xl text-xs text-white font-black transition-all"
+                                  >
+                                    {val.toLocaleString()}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (currentService.customerPhone || currentService.passengerPhone) {
+                                window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
+                              } else {
+                                alert("Contacto do cliente indisponível.");
+                              }
+                            }}
+                            className="py-3 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                          >
+                            <Phone size={13} />
+                            Ligar GSM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="py-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                          >
+                            <Users size={13} />
+                            Reencaminhar
+                          </button>
+                        </div>
+                        <button
+                          onClick={rejectService}
+                          className="w-full py-3 bg-red-650/15 hover:bg-red-600 text-white hover:text-white border border-red-500/20 rounded-2xl text-xs uppercase font-black tracking-widest transition-colors"
+                        >
+                          Cancelar Serviço
+                        </button>
+                      </div>
+                    )}
+
+                    {currentService.status === "price_sent" && (
+                      <div className="space-y-4">
+                        <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl flex items-center justify-center gap-3">
+                          <RefreshCw size={18} className="text-blue-400 animate-spin shrink-0" />
+                          <div className="text-left leading-tight">
+                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-wider">
+                              PROPOSTA ENVIADA COM SUCESSO
+                            </p>
+                            <p className="text-[9px] text-slate-400 uppercase mt-0.5 font-bold">
+                              Aguardando aprovação de {currentService.price?.toLocaleString()} Kz pelo passageiro...
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={rejectService}
+                          className="w-full bg-slate-950 hover:bg-slate-900 border border-white/5 text-slate-400 py-3 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all"
+                        >
+                          Cancelar Serviço
+                        </button>
+                      </div>
+                    )}
+
+                    {currentService.status === "price_negotiation_requested" && (
+                      <div className="space-y-3 bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl text-left">
+                        <div className="flex items-center gap-2 text-amber-400 font-black text-xs uppercase tracking-wider">
+                          <AlertCircle size={16} />
+                          O Passageiro Solicitou um Desconto!
+                        </div>
+                        <p className="text-[10px] text-slate-300 leading-normal">
+                          O passageiro considerou o valor inicial de <strong className="text-amber-400 font-mono">{(currentService.price || 2000).toLocaleString()} Kz</strong> elevado. Escolha ou defina um desconto para oferecer ao passageiro:
+                        </p>
+
+                        <div className="space-y-2 pt-1">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">
+                            Aplicar Desconto ao Passageiro:
+                          </span>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { pct: 10, label: '-10%' },
+                              { pct: 15, label: '-15%' },
+                              { pct: 20, label: '-20%' },
+                            ].map((d) => {
+                              const basePrice = currentService.originalPrice || currentService.price || 2000;
+                              const discounted = Math.max(1000, Math.round(basePrice * (1 - d.pct / 100)));
+                              return (
+                                <button
+                                  key={d.pct}
+                                  onClick={async () => {
+                                    try {
+                                      const rideRef = doc(db, 'calls', currentService.id);
+                                      await setDoc(rideRef, { 
+                                        status: 'price_sent', 
+                                        price: discounted,
+                                        originalPrice: basePrice,
+                                        discountPercent: `${d.pct}%`,
+                                        discountAppliedAt: new Date().toISOString()
+                                      }, { merge: true });
+                                      setCurrentService((prev: any) => ({
+                                        ...prev,
+                                        status: 'price_sent',
+                                        price: discounted,
+                                        originalPrice: basePrice,
+                                        discountPercent: `${d.pct}%`
+                                      }));
+                                      setShowNotification(false);
+                                      alert(`Proposta de ${discounted.toLocaleString()} Kz (-${d.pct}%) enviada ao passageiro!`);
+                                    } catch (e) {
+                                      console.error(e);
+                                    }
+                                  }}
+                                  className="py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[10.5px] rounded-xl shadow uppercase flex flex-col items-center justify-center transition-transform active:scale-95"
+                                >
+                                  <span>{d.label}</span>
+                                  <span className="text-[8.5px] font-mono font-bold opacity-80">{discounted.toLocaleString()} Kz</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex gap-2 items-center pt-1">
+                            <input
+                              type="number"
+                              placeholder="Outro valor em Kz..."
+                              value={driverCustomDiscountInput}
+                              onChange={(e) => setDriverCustomDiscountInput(e.target.value)}
+                              className="flex-1 p-2 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-white outline-none focus:border-amber-400"
+                            />
+                            <button
+                              disabled={!driverCustomDiscountInput}
+                              onClick={async () => {
+                                try {
+                                  const val = Number(driverCustomDiscountInput);
+                                  if (!val || val < 1000) {
+                                    alert("⚠️ O preço mínimo para uma corrida é de 1.000 Kz!");
+                                    return;
+                                  }
+                                  const basePrice = currentService.originalPrice || currentService.price || 2000;
+                                  const rideRef = doc(db, 'calls', currentService.id);
+                                  await setDoc(rideRef, { 
+                                    status: 'price_sent', 
+                                    price: val,
+                                    originalPrice: basePrice,
+                                    discountPercent: 'Personalizado',
+                                    discountAppliedAt: new Date().toISOString()
+                                  }, { merge: true });
+                                  setCurrentService((prev: any) => ({
+                                    ...prev,
+                                    status: 'price_sent',
+                                    price: val,
+                                    originalPrice: basePrice,
+                                    discountPercent: 'Personalizado'
+                                  }));
+                                  setDriverCustomDiscountInput('');
+                                  setShowNotification(false);
+                                  alert(`Proposta de ${val.toLocaleString()} Kz enviada ao passageiro!`);
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                              className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl uppercase disabled:opacity-50"
+                            >
+                              Enviar
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={rejectService}
+                          className="w-full py-2.5 bg-slate-950 hover:bg-slate-900 text-slate-400 hover:text-white border border-white/5 rounded-xl text-[9px] uppercase font-bold tracking-wider transition-colors mt-2"
+                        >
+                          Cancelar Serviço
+                        </button>
+                      </div>
+                    )}
+
+                    {currentService.status === "confirmed" && (
+                      <div className="space-y-4">
+                        <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl text-center space-y-1">
+                          <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                            A CAMINHO DO PASSAGEIRO
+                          </p>
+                          <p className="text-[9px] text-slate-400 uppercase font-bold">
+                            Desloque-se ao ponto de encontro acordado. Ao chegar, marque "Cheguei ao Ponto de Recolha".
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={handleDriverArrived}
+                          className="w-full py-4 bg-amber-500 hover:bg-amber-600 transition-all text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-amber-500/20 active:scale-95 animate-pulse"
+                        >
+                          {isDirectForwarded ? <PhoneCall size={16} /> : <MapPin size={16} />}
+                          {isDirectForwarded ? "📍 CHEGUEI & LIGAR GSM AO PASSAGEIRO" : "📍 Cheguei ao Ponto de Recolha"}
+                        </button>
+
+                        <button
+                          disabled={true}
+                          onClick={() => alert("Por favor, clique primeiro em 'Cheguei ao Ponto de Recolha' quando estiver no local para ativar a corrida!")}
+                          className="w-full bg-slate-800/80 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest border border-white/10 opacity-60 cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          <PhoneCall size={14} />
+                          INICIAR CORRIDA ACORDADA ({currentService.price ? Number(currentService.price).toLocaleString() : 0} Kz)
+                          <span className="text-[8px] block font-mono font-normal lowercase">(inativo até chegar)</span>
+                        </button>
+                        
+                        <div className="p-2.5 bg-slate-950 border border-white/5 rounded-xl text-center">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider flex items-center justify-center gap-1.5">
+                            <Lock size={12} className="text-amber-400" />
+                            Corrida Confirmada (Cancelamento Bloqueado)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowNotification(false);
+                            setIsTransferModalOpen(true);
+                          }}
+                          className="w-full py-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                        >
+                          <Users size={14} />
+                          Encaminhar a Outro Colega
+                        </button>
+                      </div>
+                    )}
+
+                    {currentService.status === "arrived" && (
+                      <div className="space-y-4">
+                        <div className="bg-emerald-500/10 border border-[#10b981]/30 p-4 rounded-2xl text-center space-y-1">
+                          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                            MOTORISTA NO LOCAL
+                          </p>
+                          <p className="text-[9px] text-slate-400 uppercase font-bold">
+                            Passageiro notificado! Inicie a viagem quando ele embarcar.
+                          </p>
+                        </div>
+                        <button
+                          onClick={acceptService}
+                          className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-2 animate-bounce"
+                        >
+                          <PhoneCall size={14} />
+                          INICIAR CORRIDA ACORDADA ({currentService.price?.toLocaleString()} Kz)
+                        </button>
+                        {(currentService.customerPhone || currentService.passengerPhone) && isDirectForwarded && (
+                          <a
+                            href={`tel:${currentService.customerPhone || currentService.passengerPhone}`}
+                            className="w-full py-3 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                          >
+                            <PhoneCall size={14} />
+                            Ligar ao Passageiro via GSM (+244)
+                          </a>
+                        )}
+                        <button
+                          onClick={() => {
+                            setShowNotification(false);
+                            setIsTransferModalOpen(true);
+                          }}
+                          className="w-full py-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                        >
+                          <Users size={14} />
+                          Encaminhar a Outro Colega
+                        </button>
+                      </div>
+                    )}
+
+                    {currentService.status === "active" && (
+                      <div className="space-y-4">
+                        <div className="bg-[#10b981]/15 p-4 rounded-2xl border border-emerald-500/30 text-center">
+                          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest animate-pulse">VIAGEM DE SUPER TÁXI ATIVA</p>
+                          <p className="text-[9px] text-slate-400 uppercase mt-0.5 font-bold">Conduza com segurança pelas estradas do Luena-Moxico.</p>
+                        </div>
+                        <button
+                          onClick={finishService}
+                          className="w-full py-4 bg-emerald-500 hover:bg-[#059669] transition-all text-slate-950 font-black text-xs uppercase tracking-widest rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/30 active:scale-95 animate-pulse"
+                        >
+                          <CheckCircle2 size={14} />
+                          Encerrar Viagem & Carregar Renda ({currentService.price?.toLocaleString()} Kz)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* COMMUNICATIVE INTERACTION ACCORDING TO USER REQUIREMENT:
+                      "e remove os botoes (Ligar Cliente Chat (APP)) esses botoes so aparece se o cliente sair da linha/offline." */}
+                  <div className="pt-4 border-t border-dashed border-white/10 space-y-3 relative z-10">
+                    
+                    {(currentService.status === "active" || localPassengerOffline || currentService.passengerOffline) ? (
+                      <div className="space-y-2.5 animate-fade-in">
+                        <div className="bg-rose-500/10 border border-rose-500/20 p-3.5 rounded-2xl text-center">
+                          <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest block mb-0.5">⚠️ Passageiro Desconectado / Offline</span>
+                          <span className="text-[8.5px] text-slate-300 uppercase tracking-wider block font-bold">O passageiro saiu da linha ou está sem internet. Use os botões abaixo para ligar normal ou enviar chat tradicional.</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 font-sans">
+                          <button 
+                            onClick={() => {
+                              if (currentService.customerPhone || currentService.passengerPhone) {
+                                window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
+                              } else {
+                                alert("Cliente não tem número de telemóvel associado.");
+                              }
+                            }}
+                            className="flex items-center justify-center gap-2 bg-white text-slate-800 p-3.5 rounded-2xl transition-all hover:bg-slate-100 font-extrabold text-[10.5px] uppercase tracking-wider"
+                          >
+                            <Phone size={14} className="text-blue-600 animate-pulse" />
+                            Ligar Cliente
+                          </button>
+                          <button 
+                            onClick={async () => {
+                              setIsMessagesModalOpen(true);
+                            }}
+                            className="flex items-center justify-center gap-2 bg-white text-slate-800 p-3.5 rounded-2xl transition-all hover:bg-slate-100 font-extrabold text-[10.5px] uppercase tracking-wider"
+                          >
+                            <MessageSquare size={14} className="text-emerald-500 animate-pulse" />
+                            Chat (APP)
+                          </button>
+                        </div>
+                      </div>
+                    ) : (driverAppConfig?.webrtcEnabled !== false && passengerAppConfig?.webrtcEnabled !== false) ? (
+                      <WebRTCAudioCall
+                        callId={currentService.id}
+                        role="driver"
+                        callStatus={currentService.status}
+                        partnerName={currentService.customerName || currentService.passengerName || "Passageiro"}
+                        partnerPhone={currentService.customerPhone || currentService.passengerPhone || currentService.phone}
+                      />
+                    ) : null}
+                  </div>
+
+                </div>
+              </div>
+            ) : activeInternalTab === "dashboard" ? (
+              <div className="space-y-4">
+
+                {/* Warning Cards for Pending Items (Previous Shift Focus) - Consolidated Collapsible Alert Center */}
+                {((!loadingShiftCheck && lastAssignedShift && (!lastShiftRevenueSubmitted || lastShiftPendingContracts > 0)) || rejectedRevenues.length > 0) ? (
+                  <div className="bg-rose-50 border border-rose-200/60 rounded-2xl p-4 shadow-sm">
+                    <div 
+                      onClick={() => setIsAlertsCollapsed(!isAlertsCollapsed)}
+                      className="flex items-center justify-between cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center animate-pulse">
+                          <AlertTriangle size={16} />
+                        </div>
+                        <div className="text-left">
+                          <span className="text-xs font-black text-rose-800 uppercase tracking-tight">
+                            Pendências ({(!lastShiftRevenueSubmitted ? 1 : 0) + (lastShiftPendingContracts > 0 ? 1 : 0) + rejectedRevenues.length})
+                          </span>
+                          <p className="text-[9px] text-rose-600/75 uppercase tracking-wide">Toque para ver e regularizar</p>
+                        </div>
+                      </div>
+                      <div className="text-rose-500">
+                        {isAlertsCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                      </div>
+                    </div>
+
+                    {!isAlertsCollapsed && (
+                      <div className="mt-4 space-y-3 pt-3 border-t border-rose-100">
+                        {/* Revenue Warning for past shift */}
+                        {!lastShiftRevenueSubmitted && lastAssignedShift && (
+                          <div className="bg-white p-3 border border-red-100 rounded-xl flex items-center justify-between shadow-sm">
+                            <div className="flex items-center gap-2">
+                              <Wallet size={16} className="text-red-500" />
+                              <div className="text-left">
+                                <p className="text-[10px] font-black text-red-700 uppercase">Falta Declarar Renda</p>
+                                <p className="text-[8px] text-red-600 font-bold uppercase">
+                                  Dia {format(new Date(lastAssignedShift.date + "T12:00:00"), "dd/MM")}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => { setActiveInternalTab("rendas"); setIsAlertsCollapsed(true); }}
+                              className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest shadow-md shadow-red-200"
+                            >
+                              Declarar
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Contract Warning for past shift */}
+                        {lastShiftPendingContracts > 0 && lastAssignedShift && (
+                          <div className="bg-white p-3 border border-amber-100 rounded-xl flex items-center justify-between shadow-sm">
+                            <div className="flex items-center gap-2">
+                              <Users size={16} className="text-amber-500" />
+                              <div className="text-left">
+                                <p className="text-[10px] font-black text-slate-700 uppercase">Pendente de Roteiro</p>
+                                <p className="text-[8px] text-slate-500 font-bold uppercase">
+                                  Faltou {lastShiftPendingContracts} passageiros no dia {format(new Date(lastAssignedShift.date + "T12:00:00"), "dd/MM")}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setActiveInternalTab("contracts");
+                                setViewContractsDate(lastAssignedShift.date);
+                                setViewContractsPrefix(lastAssignedShift.prefix);
+                                setIsAlertsCollapsed(true);
+                              }}
+                              className="text-[9px] font-black text-brand-primary uppercase underline"
+                            >
+                              Verificar
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Rejected Revenues Warning */}
+                        {rejectedRevenues.map((rev) => (
+                          <div
+                            key={`rejected-${rev.id}`}
+                            className="bg-white p-3 border-2 border-rose-200 rounded-xl flex flex-col gap-2 shadow-sm text-left"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle size={16} className="text-rose-500" />
+                                <span className="text-[10px] font-black text-rose-700 uppercase tracking-tight">Renda Recusada ({rev.date})</span>
+                              </div>
+                              <button 
+                                onClick={() => {
+                                  setEditingRevenueId(rev.id);
+                                  setRevenueDetails({
+                                    tpa: rev.breakdown?.tpa?.toString() || "",
+                                    cash: rev.breakdown?.cash?.toString() || "",
+                                    transfer: rev.breakdown?.transfer?.toString() || "",
+                                    expenses: rev.breakdown?.expenses?.toString() || "",
+                                    description: rev.description || "",
+                                  });
+                                  setActiveInternalTab("rendas");
+                                  setIsAlertsCollapsed(true);
+                                }}
+                                className="px-2.5 py-1 bg-rose-600 text-white rounded text-[8px] font-black uppercase tracking-wider"
+                              >
+                                Corrigir
+                              </button>
+                            </div>
+                            {rev.rejectionReason && (
+                              <p className="text-[9px] text-slate-600 italic bg-rose-50 p-2 rounded border border-rose-100/50">
+                                "{rev.rejectionReason}"
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {/* Unified Cabine de Controlo Card (Shift Control, Rating, Earnings & SOS) */}
+                <div className="bg-slate-950 border border-slate-800 text-white rounded-[2rem] p-5 shadow-xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-brand-primary/10 blur-3xl rounded-full" />
+                  
+                  {/* Title & Status indicator */}
+                  <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+                    <div className="text-left">
+                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em]">Cabine de Comando</span>
+                      <h3 className="text-sm font-black tracking-tight text-white leading-none mt-1 uppercase">
+                        {user?.name || "Mestre PSM"}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        "w-2 h-2 rounded-full",
+                        isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
+                      )} />
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-300">
+                        {isOnline ? "Em Serviço" : "Fora de Serviço"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Rating & Ganhos high density row */}
+                  <div className="grid grid-cols-2 gap-3.5 my-1">
+                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-2xl flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center flex-shrink-0">
+                        <Star size={16} fill="currentColor" />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Avaliação</p>
+                        <p className="text-[13px] font-black text-white mt-0.5">
+                          {typeof stars === 'number' || (typeof stars === 'string' && !isNaN(Number(stars)))
+                            ? `${Number(stars).toFixed(1)} ★${totalRatingCount > 0 ? ` (${totalRatingCount})` : ''}`
+                            : (stars === "Novo" || !stars ? "Novo (Sem avaliações)" : `${stars}`)}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-2xl flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                        <DollarSign size={16} />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Rendas Aprovadas</p>
+                        <p className="text-[13px] font-black text-emerald-400 mt-0.5">{approvedEarnings.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Shift Action Toggle / Service Control and Emergency Button */}
+                  <div className="flex items-center gap-3 mt-4 pt-3 border-t border-slate-800">
+                    {currentService && currentService.status === "pending" ? (
+                      isDirectForwarded ? (
+                        <>
+                          <button
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95 animate-pulse"
+                          >
+                            <Users size={13} />
+                            ENCAMINHAR A OUTRO COLEGA
+                          </button>
+
+                          <button
+                            onClick={triggerPanic}
+                            disabled={panicLoading}
+                            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-red-650 hover:bg-red-700 text-white shadow-lg active:scale-90 flex-shrink-0 animate-pulse border border-red-500/30"
+                            title="S.O.S de Emergência"
+                          >
+                            <AlertTriangle size={18} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={attendCall}
+                            className="flex-[2] py-3 px-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-1.5 shadow-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20 active:scale-95 animate-pulse"
+                          >
+                            <PhoneCall size={13} className="animate-bounce" />
+                            ATENDER CHAMADA
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setShowNotification(false);
+                              setIsTransferModalOpen(true);
+                            }}
+                            className="flex-1 py-3 px-2 rounded-xl font-black text-[9.5px] uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-1 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95"
+                            title="Encaminhar a Outro Colega"
+                          >
+                            <Users size={13} />
+                            ENCAMINHAR
+                          </button>
+
+                          <button
+                            onClick={rejectService}
+                            className="w-11 h-11 rounded-xl flex items-center justify-center transition-all bg-rose-600 hover:bg-rose-700 text-white shadow-lg active:scale-95 flex-shrink-0 border border-rose-500/30 animate-pulse"
+                            title="Recusar Chamada"
+                          >
+                            <XCircle size={18} />
+                          </button>
+                        </>
+                      )
+                    ) : (
+                      <>
+                        <button
+                          onClick={handleStartShift}
+                          className={cn(
+                            "flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg",
+                            isOnline 
+                              ? "bg-emerald-600 text-white shadow-emerald-950/20 active:bg-emerald-700" 
+                              : "bg-white text-slate-950 shadow-black/20 active:bg-slate-100"
+                          )}
+                        >
+                          <Power size={13} />
+                          {isOnline ? "Terminar Turno" : "Iniciar Turno"}
+                        </button>
+
+                        <button
+                          onClick={triggerPanic}
+                          disabled={panicLoading}
+                          className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-red-650 hover:bg-red-700 text-white shadow-lg active:scale-90 flex-shrink-0 animate-pulse border border-red-500/30"
+                          title="S.O.S de Emergência"
+                        >
+                          <AlertTriangle size={18} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reencaminhar Chamada de cliente direta */}
+                {isOnline && (
+                  <motion.button
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => {
+                      setTransferCustomerPhone("");
+                      setTransferCustomerName("");
+                      setTransferPickupAddress("");
+                      setIsNewCallTransferModalOpen(true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black py-3.5 px-4 rounded-2xl text-[10px] uppercase tracking-wider transition-all shadow-md active:scale-95"
+                  >
+                    <PhoneIncoming size={14} className="animate-pulse" />
+                    Reencaminhar Chamada Direta
+                  </motion.button>
+                )}
+
+                {/* Collapsible Mentor IA Coaching Card */}
+                <div className="bg-white border border-slate-200/60 rounded-2xl p-4 shadow-sm transition-all hover:border-brand-primary/30">
+                  <div 
+                    onClick={() => setIsAiAdviceExpanded(!isAiAdviceExpanded)}
+                    className="flex items-center justify-between cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 bg-brand-primary/10 rounded-xl flex items-center justify-center text-brand-primary flex-shrink-0">
+                        <Zap size={15} fill="currentColor" />
+                      </div>
+                      <div className="text-left">
+                        <span className="text-xs font-black text-slate-800 uppercase tracking-tight">Dicas do Mentor IA</span>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Análise de Rendimento Gemini</p>
+                      </div>
+                    </div>
+                    <div className="text-slate-400">
+                      {isAiAdviceExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </div>
+                  </div>
+
+                  {isAiAdviceExpanded && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-left">
+                        {aiLoading ? (
+                          <div className="space-y-2 animate-pulse py-1">
+                            <div className="h-2 w-3/4 bg-slate-200 rounded" />
+                            <div className="h-2 w-full bg-slate-200 rounded" />
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-slate-600 font-medium italic leading-relaxed whitespace-pre-line">
+                            {aiAdvice || "A calcular melhor estratégia para o seu roteiro hoje no Luena..."}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">
+                        <span>AUDITORIA CONTÍNUA • GEMINI 1.5</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fetchAiAdvice();
+                          }}
+                          disabled={aiLoading}
+                          className="text-brand-primary font-black uppercase tracking-widest flex items-center gap-1 bg-brand-primary/5 hover:bg-brand-primary/10 px-2 py-1 rounded transition-colors"
+                        >
+                          {aiLoading ? <Loader2 size={8} className="animate-spin" /> : <RefreshCw size={8} />}
+                          Atualizar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                  {/* Current Ride / Map Placeholder */}
+                  {!currentService && isOnline && (
+                    <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
+                      <div className="h-48 bg-slate-100 relative group overflow-hidden">
+                        {/* Fake Map */}
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-100 to-indigo-50" />
+                        <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/map/400/400')] bg-cover" />
+
+                        <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
+                          <div>
+                            <MapPin
+                              size={32}
+                              className="text-slate-300 mx-auto mb-2"
+                            />
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-normal">
+                              A aguardar por
+                              <br />
+                              serviços da central...
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quick Actions (Call/Chat) */}
+                  {currentService && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={() => {
+                          if (currentService.customerPhone) {
+                            window.open(`tel:${currentService.customerPhone}`, '_self');
+                          } else {
+                            alert("Cliente não tem número de telemóvel associado.");
+                          }
+                        }}
+                        className="flex items-center justify-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl text-slate-700 transition-all hover:bg-slate-50 group"
+                      >
+                        <div className="p-2 bg-blue-50 text-blue-600 rounded-lg group-hover:bg-blue-100">
+                          <Phone size={18} />
+                        </div>
+                        <span className="text-[11px] font-black uppercase">
+                          Ligar Cliente
+                        </span>
+                      </button>
+                      <button 
+                        onClick={() => setIsMessagesModalOpen(true)}
+                        className="flex items-center justify-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl text-slate-700 transition-all hover:bg-slate-50 group"
+                      >
+                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg group-hover:bg-emerald-100">
+                          <MessageCircle size={18} />
+                        </div>
+                        <span className="text-[11px] font-black uppercase">
+                          Chat (APP)
+                        </span>
+                      </button>
+                    </div>
+                  )}
+              </div>
+            ) : activeInternalTab === "history" ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">
+                    Histórico de Corridas
+                  </h3>
+                  <span className="text-[10px] font-black bg-slate-100 px-2 py-0.5 rounded text-slate-500 uppercase">
+                    {tripHistory.length} Total
+                  </span>
+                </div>
+                <div className="space-y-3 pb-20">
+                  {tripHistory.length > 0 ? (
+                    tripHistory.map((trip) => {
+                      const isCompleted = trip.status === "completed" || !trip.status;
+                      const isActive = trip.status === "active";
+                      const isPending = ["pending", "connected", "price_sent"].includes(trip.status);
+                      const isWaitingApproval = ["confirmed", "arrived"].includes(trip.status);
+
+                      return (
+                        <div
+                          key={trip.id}
+                          onClick={async () => {
+                            if (!isCompleted) {
+                              try {
+                                // Remove from hiddenCallIds if any
+                                hiddenCallIdsRef.current = hiddenCallIdsRef.current.filter(id => id !== trip.id);
+                                
+                                // Update driver status in Firestore to ocupado so they are in duty
+                                if (assignedVehicle?.id) {
+                                  await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "ocupado" });
+                                }
+                                
+                                // Restore the active call view
+                                setCurrentService(trip);
+                              } catch (err) {
+                                console.error("Error resuming active trip:", err);
+                                // Fallback
+                                setCurrentService(trip);
+                              }
+                            }
+                          }}
+                          className={cn(
+                            "bg-white p-4 rounded-2xl border flex items-center justify-between shadow-sm transition-all group text-left",
+                            isCompleted 
+                              ? "border-slate-100 hover:border-brand-primary/20" 
+                              : "border-amber-500 bg-amber-500/5 shadow-md shadow-amber-500/10 cursor-pointer hover:bg-amber-500/10 active:scale-[0.98]"
+                          )}
+                          title={!isCompleted ? "Clique para reatar/abrir esta viagem em curso" : undefined}
+                        >
+                          <div className="flex-1 min-w-0 pr-4">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-[11px] font-black text-slate-800 uppercase truncate">
+                                {(trip.pickupAddress || trip.pickup || "Origem").split(",")[0]} →{" "}
+                                {(trip.destinationAddress || trip.destination || "Destino").split(",")[0]}
+                              </p>
+                              {!isCompleted && (
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "text-[7px] font-extrabold px-1.5 py-0.2 rounded uppercase tracking-widest",
+                                    isActive && "bg-amber-500 text-slate-950",
+                                    isPending && "bg-blue-500 text-white",
+                                    isWaitingApproval && "bg-emerald-500 text-white"
+                                  )}>
+                                    {isActive && "Em Curso"}
+                                    {isPending && "Pendente / Chamando"}
+                                    {isWaitingApproval && "Confirmado / Chegou"}
+                                  </span>
+                                  <span className="text-[7.5px] font-black text-amber-600 uppercase tracking-wider animate-pulse">
+                                    ⚡ CLIQUE PARA RETOMAR
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                                {trip.completedAt || trip.timestamp
+                                  ? format(parseDateSafely(trip.completedAt || trip.timestamp), "HH:mm")
+                                  : "Hoje"}
+                              </span>
+                              <span className="w-1 h-1 bg-slate-200 rounded-full" />
+                              <p className="text-[10px] text-emerald-600 font-black italic">
+                                {(trip.price || 0).toLocaleString()} Kz
+                              </p>
+                            </div>
+                          </div>
+                          <div className={cn(
+                            "p-1.5 rounded-lg transition-all",
+                            isCompleted && "bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white",
+                            isActive && "bg-amber-500 text-slate-950 font-black",
+                            isPending && "bg-blue-100 text-blue-600",
+                            isWaitingApproval && "bg-emerald-100 text-emerald-600"
+                          )}>
+                            {isCompleted ? <CheckCircle2 size={16} /> : (isActive ? <Zap size={14} className="animate-bounce" /> : <Clock size={14} />)}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="py-12 text-center opacity-40">
+                      <History
+                        size={32}
+                        className="mx-auto mb-2 text-slate-300"
+                      />
+                      <p className="text-[10px] font-bold uppercase">
+                        Nenhuma viagem registada.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : activeInternalTab === "contracts" ? (
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">
+                        Clientes de Passagem
+                      </h3>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                          Viatura:
+                        </span>
+                        <span className="text-brand-primary font-black text-[10px] uppercase">
+                          {viewContractsPrefix || "N/A"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setIsContractModalOpen(true)}
+                        className="flex items-center gap-2 px-3 py-2 bg-brand-primary text-white rounded-xl shadow-lg shadow-brand-primary/20 transition-all active:scale-95"
+                        title="Novo Contrato"
+                      >
+                        <Plus size={18} />
+                        <span className="text-[10px] font-black uppercase tracking-widest">
+                          Novo Contrato
+                        </span>
+                      </button>
+                      {vehicleContracts.length > 0 && (
+                        <button
+                          onClick={() => setShowContractMap(!showContractMap)}
+                          className={cn(
+                            "p-2 rounded-xl transition-all shadow-lg",
+                            showContractMap
+                              ? "bg-slate-900 text-white"
+                              : "bg-white text-slate-600 border border-slate-100",
+                          )}
+                        >
+                          <MapPin size={18} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Date Badge / Selector */}
+                  <div
+                    className={cn(
+                      "flex items-center justify-between p-3 rounded-2xl border",
+                      viewContractsDate ===
+                        new Date().toISOString().split("T")[0]
+                        ? "bg-white border-slate-100"
+                        : "bg-amber-50 border-amber-100 shadow-sm",
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Clock
+                        size={14}
+                        className={
+                          viewContractsDate ===
+                          new Date().toISOString().split("T")[0]
+                            ? "text-slate-400"
+                            : "text-amber-500"
+                        }
+                      />
+                      <span className="text-[10px] font-black text-slate-700 uppercase">
+                        {viewContractsDate ===
+                        new Date().toISOString().split("T")[0]
+                          ? "Roteiro de Hoje"
+                          : `Pendência de ${format(new Date(viewContractsDate + "T12:00:00"), "dd/MM")}`}
+                      </span>
+                    </div>
+                    {viewContractsDate !==
+                      new Date().toISOString().split("T")[0] && (
+                      <button
+                        onClick={() => {
+                          setViewContractsDate(
+                            new Date().toISOString().split("T")[0],
+                          );
+                          setViewContractsPrefix(assignedVehicle?.prefix);
+                        }}
+                        className="bg-amber-500 text-white px-2 py-1 rounded-lg text-[9px] font-black uppercase shadow-lg shadow-amber-200"
+                      >
+                        Voltar Hoje
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {showContractMap && vehicleContracts.length > 0 && (
+                  <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-inner h-64 relative">
+                    {/* Simplified Route Map Visualization */}
+                    <div className="absolute inset-0 bg-slate-50 flex items-center justify-center p-8">
+                      <div className="w-full h-full relative border-2 border-slate-100 rounded-2xl flex flex-col items-center justify-center text-center space-y-2">
+                        <Navigation
+                          size={24}
+                          className="text-brand-primary animate-pulse"
+                        />
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          Roteiro dos Contratos
+                        </p>
+                        <div className="flex gap-1">
+                          {vehicleContracts
+                            .filter((c) => c.location)
+                            .map((_, i) => (
+                              <div
+                                key={i}
+                                className="w-2 h-2 rounded-full bg-brand-primary"
+                              />
+                            ))}
+                        </div>
+                        <p className="text-[8px] text-slate-300 font-bold max-w-[150px]">
+                          {vehicleContracts.filter((c) => c.location).length}{" "}
+                          locais georeferenciados neste roteiro.
+                        </p>
+                        <a
+                          href={
+                            vehicleContracts.filter((c) => c.location)
+                              .length === 1
+                              ? `https://www.google.com/maps/search/?api=1&query=${vehicleContracts.find((c) => c.location).location.lat},${vehicleContracts.find((c) => c.location).location.lng}`
+                              : `https://www.google.com/maps/dir/${vehicleContracts
+                                  .filter((c) => c.location)
+                                  .map(
+                                    (c) =>
+                                      `${c.location.lat},${c.location.lng}`,
+                                  )
+                                  .join("/")}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-brand-primary text-white px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest mt-2 flex items-center gap-1"
+                        >
+                          Abrir no Google Maps
+                          <ExternalLink size={10} />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Contratos desta Unidade
+                  </p>
+
+                  {vehicleContracts.length === 0 ? (
+                    <div className="bg-white p-6 rounded-2xl border border-slate-100 text-center opacity-40">
+                      <Users
+                        size={24}
+                        className="mx-auto mb-2 text-slate-300"
+                      />
+                      <p className="text-[10px] font-bold uppercase">
+                        Nenhum contrato ativo para esta viatura.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {vehicleContracts.map((contract) => {
+                        const pxV = viewContractsPrefix || assignedVehicle?.prefix || user.prefix || "";
+                        const isE = contract.entryVehicleId && pxV ? contract.entryVehicleId.includes(pxV) : false;
+                        const isX = contract.exitVehicleId && pxV ? contract.exitVehicleId.includes(pxV) : false;
+                        const mType = isE ? "entry" : "exit";
+                        const attStatus =
+                          todayAttendance[`${contract.id}_${mType}`] ||
+                          todayAttendance[contract.id];
+                        return (
+                          <div
+                            key={contract.id}
+                            className={cn(
+                              "bg-white p-3 rounded-xl border transition-all shadow-sm flex flex-col gap-2.5",
+                              attStatus === "attended"
+                                ? "border-emerald-250 bg-emerald-50/20"
+                                : "border-slate-100 hover:border-slate-200",
+                            )}
+                          >
+                            {/* Linha Principal: Cliente, Ocupantes, Status e Localizacao */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="text-[11px] font-black text-slate-800 uppercase truncate">
+                                    {contract.clientName}
+                                  </h4>
+                                  <div className="flex items-center gap-0.5 bg-slate-100 px-1 py-0.2 rounded text-[8px] font-semibold text-slate-500">
+                                    <Users size={8} />
+                                    <span>{contract.occupants || 1}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 text-[9px] text-slate-500 mt-1 flex-wrap">
+                                  <span className="font-semibold text-slate-400 uppercase truncate max-w-[100px]">
+                                    {contract.neighborhood}
+                                  </span>
+                                  <span className="text-slate-300">→</span>
+                                  <span className="font-extrabold text-brand-primary uppercase truncate max-w-[140px]">
+                                    {contract.destination}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {contract.location && (
+                                  <div className="w-4.5 h-4.5 bg-emerald-50 text-emerald-600 rounded flex items-center justify-center">
+                                    <MapPin size={9} />
+                                  </div>
+                                )}
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
+                                    contract.status === "Ativo"
+                                      ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                      : "bg-slate-100 text-slate-400 border border-slate-200"
+                                  }`}
+                                >
+                                  {contract.status}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Detalhes de Horários Levar/Buscar */}
+                            <div className="flex items-center gap-1.5">
+                              {isE && (
+                                <span className="px-1.5 py-0.5 bg-emerald-50/50 text-emerald-700 border border-emerald-100/40 rounded text-[8px] font-black uppercase tracking-tighter">
+                                  LEVAR • {contract.entryTime}
+                                </span>
+                              )}
+                              {isX && (
+                                <span className="px-1.5 py-0.5 bg-rose-50/50 text-rose-700 border border-rose-100/40 rounded text-[8px] font-black uppercase tracking-tighter">
+                                  BUSCAR • {contract.exitTime}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Linha de Ações */}
+                            <div className="flex items-center gap-2 pt-2 border-t border-slate-100/50">
+                              {contract.location ? (
+                                <a
+                                  href={`https://www.google.com/maps/search/?api=1&query=${contract.location.lat},${contract.location.lng}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 border border-blue-100/50 transition-colors"
+                                >
+                                  <Navigation size={10} />
+                                  GPS
+                                </a>
+                              ) : (
+                                <button
+                                  onClick={() => captureContractGps(contract.id)}
+                                  disabled={capturingGpsId === contract.id}
+                                  className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 disabled:bg-slate-50 text-amber-600 disabled:text-slate-400 rounded-lg text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 border border-amber-200/50 disabled:border-slate-200 transition-colors shrink-0"
+                                  title="Capturar localização atual para registar ponto de recolha"
+                                >
+                                  {capturingGpsId === contract.id ? (
+                                    <>
+                                      <Loader2 size={10} className="animate-spin" />
+                                      A Captar...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <MapPin size={10} />
+                                      Registar GPS
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                              {attStatus === "attended" ? (
+                                <div className="flex-1 bg-emerald-500 text-white py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm">
+                                  <CheckCircle2 size={10} />
+                                  Confirmado
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() =>
+                                    markContractAttendance(
+                                      contract.id,
+                                      "attended",
+                                      mType,
+                                    )
+                                  }
+                                  className="flex-1 bg-slate-900 border border-slate-950 text-white hover:bg-slate-800 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 animate-all transition-all shadow-sm"
+                                >
+                                  Confirmar {isE ? "Saída" : "Recolha"}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : activeInternalTab === "rendas" ? (
+              <div className="space-y-6 font-sans">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">
+                      Declaração de Renda Diária
+                    </h3>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1 font-sans">
+                      Declare o faturamento do dia para validação.
+                    </p>
+                  </div>
+                  {/* Three Dots Button for Advanced Metrics */}
+                  <button
+                    type="button"
+                    onClick={() => setShowThreeDotsMetrics(!showThreeDotsMetrics)}
+                    className={`p-2.5 rounded-full border transition-all flex items-center justify-center ${
+                      showThreeDotsMetrics
+                        ? "bg-emerald-500 text-white border-emerald-500 shadow-md shadow-emerald-500/20"
+                        : "bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-800 border-slate-200"
+                    }`}
+                    title="Métricas de Faturamento (App)"
+                  >
+                    <MoreVertical size={16} />
+                  </button>
+                </div>
+
+                {/* Animated Collapsible Metrics Section */}
+                <AnimatePresence>
+                  {showThreeDotsMetrics && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="bg-slate-50 border border-slate-200/60 rounded-[2rem] p-5 space-y-4 shadow-inner relative overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between border-b border-slate-200/50 pb-2 mb-1">
+                        <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                          <Activity size={12} className="text-emerald-500 animate-pulse" /> Métricas e Faturação Automática
+                        </h4>
+                        <span className="text-[8px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase">
+                          Consola Driver
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Faturamento Bruto Total (Aprovado) Card */}
+                        <div className="bg-slate-900 rounded-2xl p-4 text-white relative overflow-hidden shadow-sm">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 blur-2xl rounded-full -mr-12 -mt-12" />
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
+                            Faturamento Bruto Total (Aprovado)
+                          </p>
+                          <h2 className="text-xl font-black mt-1.5 relative z-10 tracking-tight">
+                            {(approvedEarnings || 0).toLocaleString()} <span className="text-xs text-slate-400 font-medium font-mono">Kz</span>
+                          </h2>
+                          <p className="text-[8px] text-slate-400 mt-1 font-bold uppercase relative z-10">Renda Aprovada pela Central</p>
+                        </div>
+
+                        {/* Faturação Automática (App) Card */}
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm relative overflow-hidden flex flex-col justify-between">
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 blur-2xl rounded-full -mr-10 -mt-10" />
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
+                              Faturação Automática Concluídas (App)
+                            </p>
+                            <h2 className="text-xl font-black mt-1.5 text-emerald-600 tracking-tight relative z-10">
+                              {(passengerRidesTotal || 0).toLocaleString()} <span className="text-xs text-emerald-550 font-medium font-mono">Kz</span>
+                            </h2>
+                          </div>
+                          <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 relative z-10 flex items-center gap-1">
+                            <span className={`w-1.5 h-1.5 rounded-full ${passengerRidesTotal > 0 ? "bg-amber-400 animate-ping" : "bg-emerald-400"}`} />
+                            {passengerRidesTotal > 0 ? "Acumulado Pendente de Declaração" : "Reiniciado / Em Dia"}
+                          </p>
+                        </div>
+                      </div>
+
+
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Form Entrega de Renda */}
+                <div className="bg-white rounded-[2rem] p-6 border border-slate-100 space-y-4 shadow-sm">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2.5 bg-brand-primary/10 text-brand-primary rounded-2xl">
+                      <Wallet size={18} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">
+                        Entrega de Renda
+                      </h4>
+                      <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase tracking-wider">
+                        Declare o faturamento do dia para validação.
+                      </p>
+                    </div>
+                  </div>
+
+
+
+                  {pendingRevenues.length > 0 && !editingRevenueId ? (
+                    <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl flex flex-col items-center text-center space-y-3">
+                      <div className="p-3 bg-amber-100 text-amber-600 rounded-full animate-pulse">
+                        <Clock size={24} />
+                      </div>
+                      <h4 className="text-xs font-black text-amber-800 uppercase tracking-widest leading-none">
+                        Aguardando Validação do Operador
+                      </h4>
+                      <p className="text-[10px] text-amber-700 font-bold leading-relaxed px-2">
+                        {user?.name || "Motorista"}, deves aguardar que o Operador ou Administrador valide a sua renda actual antes de submeter uma nova declaração.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {editingRevenueId && (
+                        <div className="bg-rose-50 border border-rose-100 p-3 rounded-2xl flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2">
+                            <AlertTriangle size={14} className="text-rose-500" />
+                            <p className="text-[10px] text-rose-700 font-bold uppercase tracking-wide">
+                              A corrigir renda rejeitada...
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingRevenueId(null);
+                              setRevenueDetails({ tpa: "", cash: "", transfer: "", expenses: "", description: "" });
+                            }}
+                            className="text-[9px] font-black uppercase text-rose-600 hover:text-rose-800"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      )}
+                      <form onSubmit={submitRevenue} className="space-y-4">
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                              TPA (Cartão)
+                            </label>
+                            <input
+                              type="number"
+                              placeholder="0"
+                              value={revenueDetails.tpa}
+                              onChange={(e) =>
+                                setRevenueDetails({
+                                  ...revenueDetails,
+                                  tpa: e.target.value,
+                                })
+                              }
+                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-emerald-500 text-slate-800 font-mono"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                              Numerário (Cache)
+                            </label>
+                            <input
+                              type="number"
+                              placeholder="0"
+                              value={revenueDetails.cash}
+                              onChange={(e) =>
+                                setRevenueDetails({
+                                  ...revenueDetails,
+                                  cash: e.target.value,
+                                })
+                              }
+                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-emerald-500 text-slate-800 font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                              Transferências
+                            </label>
+                            <input
+                              type="number"
+                              placeholder="0"
+                              value={revenueDetails.transfer}
+                              onChange={(e) =>
+                                setRevenueDetails({
+                                  ...revenueDetails,
+                                  transfer: e.target.value,
+                                })
+                              }
+                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-emerald-500 text-slate-800 font-mono"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-red-500 uppercase tracking-widest ml-1">
+                              Saídas / Gastos
+                            </label>
+                            <input
+                              type="number"
+                              placeholder="0"
+                              value={revenueDetails.expenses}
+                              onChange={(e) =>
+                                setRevenueDetails({
+                                  ...revenueDetails,
+                                  expenses: e.target.value,
+                                })
+                              }
+                              className="w-full px-4 py-2.5 bg-red-50 border border-red-100 rounded-xl text-xs font-bold outline-none focus:border-red-400 text-red-600 font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                            Notas da Saída
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Ex: Combustível, Refeição..."
+                            value={revenueDetails.description}
+                            onChange={(e) =>
+                                setRevenueDetails({
+                                  ...revenueDetails,
+                                  description: e.target.value,
+                                })
+                            }
+                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-slate-400"
+                          />
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-100 pt-4 font-sans">
+                          <div className="flex items-center justify-between mb-4 px-1">
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                              Líquido a Entregar:
+                            </span>
+                            <span className="text-lg font-black text-emerald-600 font-mono">
+                              {(
+                                (Number(revenueDetails?.tpa) || 0) +
+                                (Number(revenueDetails?.cash) || 0) +
+                                (Number(revenueDetails?.transfer) || 0) -
+                                (Number(revenueDetails?.expenses) || 0)
+                              ).toLocaleString()}{" "}
+                              Kz
+                            </span>
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={revenueLoading}
+                            className={cn(
+                              "w-full py-4 rounded-2xl text-[10.5px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-95",
+                              revenueSuccess
+                                ? "bg-emerald-500 text-white shadow-emerald-200"
+                                : "bg-slate-900 text-white shadow-slate-200 disabled:opacity-50",
+                            )}
+                          >
+                            {revenueLoading ? (
+                              <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto" />
+                            ) : revenueSuccess ? (
+                              "Declarado com Sucesso!"
+                            ) : (
+                              "Declarar Renda Detalhada"
+                            )}
+                          </button>
+                        </div>
+                      </form>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : activeInternalTab === "settings" ? (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">
+                    Ajustes de Notificação
+                  </h3>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+                    Configure o som para novas chamadas
+                  </p>
+                </div>
+
+                <div className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4 font-sans">
+                  <div className="space-y-3">
+                    {ringtones.map((ring) => (
+                      <button
+                        key={ring.id}
+                        onClick={() => {
+                          setSelectedRingtone(ring.id);
+                          localStorage.setItem('driver_ringtone', ring.id);
+                          playPreview(ring.url, ring.id);
+                        }}
+                        className={cn(
+                          "w-full p-4 rounded-2xl border flex items-center justify-between transition-all active:scale-95",
+                          selectedRingtone === ring.id
+                            ? "bg-brand-primary/5 border-brand-primary shadow-sm"
+                            : "bg-slate-50 border-slate-100 hover:border-slate-200"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center",
+                            selectedRingtone === ring.id ? "bg-brand-primary text-white" : "bg-slate-200 text-slate-400"
+                          )}>
+                            <PhoneIncoming size={14} />
+                          </div>
+                          <span className={cn(
+                            "text-xs font-black uppercase",
+                            selectedRingtone === ring.id ? "text-brand-primary" : "text-slate-600"
+                          )}>
+                            {ring.name}
+                          </span>
+                        </div>
+                        {selectedRingtone === ring.id && (
+                          <div className="flex items-center gap-1.5 bg-brand-primary text-white px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest">
+                            <CheckCircle2 size={10} />
+                            Ativo
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-start gap-3">
+                    <Bell size={16} className="text-amber-500 shrink-0" />
+                    <p className="text-[9px] text-amber-700 font-bold uppercase leading-relaxed">
+                      O toque escolhido tocará continuamente no seu telemóvel sempre que houver uma nova chamada pendente para aceitar.
+                    </p>
+                  </div>
+
+                  {/* SEÇÃO DE PERMISSÕES OPERACIONAIS, GESTÃO DE CHAMADAS/SMS NATIVAS E VOZ */}
+                  <div className="border-t border-dashed border-slate-200 pt-6">
+                    <PermissionManager 
+                      driverId={user?.uid || "anon-driver"} 
+                      driverName={user?.name || "Motorista Luena"} 
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => setActiveInternalTab("dashboard")}
+                    className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
+                  >
+                    Guardar e Voltar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              null
+            )}
+          </main>
+
+        {/* Panic Modal */}
+        <AnimatePresence>
+          {showPanicModal && (
+            <div className="absolute inset-0 z-[100] flex items-center justify-center p-6 text-center">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-slate-950/95 backdrop-blur-2xl"
+              />
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.8, opacity: 0 }}
+                className="relative space-y-6 max-w-md w-full"
+              >
+                <div className="w-24 h-24 bg-red-650/40 rounded-full flex items-center justify-center mx-auto border-4 border-red-500 animate-pulse">
+                  <AlertTriangle size={48} className="text-red-500" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-black text-red-500 tracking-tighter italic animate-bounce">
+                    S.O.S ATIVO!
+                  </h2>
+                  <p className="text-white font-bold text-sm uppercase tracking-widest px-4">
+                    Sinal de emergência emitido para a Central Geral no Luena-Moxico!
+                  </p>
+                </div>
+
+                {/* Real-Time Live Status Feedback */}
+                <div className="bg-slate-900/80 border border-slate-800 p-6 rounded-3xl mx-auto text-left space-y-4 shadow-3xl">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-550 block mb-1">Canais Operacionais</span>
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                      <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">Servidor Firebase Live (Ativo)</span>
+                    </div>
+                  </div>
+
+                  {activePanicAlert?.dispatchMessage ? (
+                    <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl space-y-2">
+                      <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest leading-none">🚑 MENSAGEM DO DESPACHADOR CENTRAL:</p>
+                      <p className="text-xs font-black text-white leading-relaxed">
+                        "{activePanicAlert.dispatchMessage}"
+                      </p>
+                      <p className="text-[9px] text-slate-400">Enviada às: {activePanicAlert.dispatchedAt ? format(parseDateSafely(activePanicAlert.dispatchedAt), 'HH:mm') : 'Agora'}</p>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-950/50 p-4 rounded-2xl border border-slate-850 text-center">
+                      <p className="text-xs text-slate-400 font-bold uppercase tracking-wide animate-pulse">
+                        ⌛ Central Operativa a analisar localização...
+                      </p>
+                      <p className="text-[9px] text-slate-600 mt-1 uppercase">A ajuda será despachada e as ordens aparecerão aqui.</p>
+                    </div>
+                  )}
+
+                  {activePanicAlert?.driverAcknowledge && (
+                    <div className="flex items-center gap-2 text-emerald-400 text-[10px] font-black uppercase tracking-widest justify-center bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/10">
+                      ✓ Confirmou o recebimento da ajuda!
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2.5 px-4 w-full">
+                  {activePanicAlert?.dispatchMessage && !activePanicAlert?.driverAcknowledge && (
+                    <button
+                      onClick={acknowledgeRescue}
+                      className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
+                    >
+                      ✓ Confirmar Recebimento do Socorro
+                    </button>
+                  )}
+
+                  <button
+                    onClick={resolvePanicFromDriver}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
+                  >
+                    Estou Seguro / Cancelar Emergência
+                  </button>
+
+                  <button
+                    onClick={() => setShowPanicModal(false)}
+                    className="w-full bg-slate-900 border border-slate-800 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
+                  >
+                    Minimizar Janela SOS
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Driver Contract Registration Modal */}
+        <AnimatePresence>
+          {isContractModalOpen && (
+            <div className="absolute inset-0 z-[70] flex items-end p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsContractModalOpen(false)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ y: 500, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 500, opacity: 0 }}
+                className="relative w-full bg-white rounded-t-[2.5rem] rounded-b-xl p-8 space-y-6 shadow-2xl h-[90%] overflow-y-auto custom-scrollbar"
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter">
+                    Novo Contrato
+                  </h3>
+                  <button
+                    onClick={() => setIsContractModalOpen(false)}
+                    className="p-1 bg-slate-100 rounded-full text-slate-400"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <form onSubmit={submitContract} className="space-y-4 pb-8">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      Nome do Cliente
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      value={contractFormData.clientName}
+                      onChange={(e) =>
+                        setContractFormData({
+                          ...contractFormData,
+                          clientName: e.target.value,
+                        })
+                      }
+                      placeholder="Ex: Dra. Maria Antónia"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-brand-primary"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      Bairro / Local de Recolha
+                    </label>
+                    <input
+                      required
+                      type="text"
+                      value={contractFormData.neighborhood}
+                      onChange={(e) =>
+                        setContractFormData({
+                          ...contractFormData,
+                          neighborhood: e.target.value,
+                        })
+                      }
+                      placeholder="Ex: Benfica, Rua do Comércio"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-brand-primary"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                        Destino
+                      </label>
+                      <select
+                        required
+                        value={contractFormData.destination}
+                        onChange={(e) =>
+                          setContractFormData({
+                            ...contractFormData,
+                            destination: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-brand-primary"
+                      >
+                        <option value="Trabalho">Trabalho</option>
+                        <option value="Escola">Escola</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                        Período
+                      </label>
+                      <select
+                        required
+                        value={contractFormData.period}
+                        onChange={(e) =>
+                          setContractFormData({
+                            ...contractFormData,
+                            period: e.target.value,
+                          })
+                        }
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-brand-primary"
+                      >
+                        <option value="Manhã">Manhã</option>
+                        <option value="Tarde">Tarde</option>
+                        <option value="Noite">Noite</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      Telefone
+                    </label>
+                    <div className="flex">
+                      <span className="inline-flex items-center px-3 rounded-l-2xl border border-r-0 border-slate-200 bg-slate-100 text-slate-500 text-xs font-bold">
+                        +244
+                      </span>
+                      <input
+                        required
+                        type="tel"
+                        value={contractFormData.phone}
+                        onChange={(e) =>
+                          setContractFormData({
+                            ...contractFormData,
+                            phone: e.target.value,
+                          })
+                        }
+                        placeholder="9XX XXX XXX"
+                        className="flex-1 w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-r-2xl text-xs font-bold outline-none focus:border-brand-primary"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      Certificação de Localização (GEO)
+                    </label>
+                    <div className="flex items-center justify-between mb-2 px-1">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] italic flex items-center gap-2">
+                        <Activity size={10} className="text-brand-primary animate-pulse" />
+                        Sinal GPS Live
+                      </span>
+                      <div className="flex gap-0.5 items-end h-3">
+                        <div className="w-1 h-[20%] bg-brand-primary opacity-30 rounded-full" />
+                        <div className="w-1 h-[40%] bg-brand-primary opacity-40 rounded-full" />
+                        <div className="w-1 h-[60%] bg-brand-primary rounded-full animate-bounce" />
+                        <div className="w-1 h-[80%] bg-brand-primary rounded-full" />
+                        <div className="w-1 h-[100%] bg-brand-primary rounded-full" />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={captureContractLocation}
+                      disabled={isCapturingGeo}
+                      className={cn(
+                        "w-full flex items-center justify-center gap-3 py-4 rounded-2xl border-2 transition-all",
+                        contractFormData.location
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                          : "bg-slate-50 border-slate-200 text-slate-500",
+                      )}
+                    >
+                      {isCapturingGeo ? (
+                        <>
+                          <Loader2 className="animate-spin" size={18} />
+                          <span className="text-[10px] font-black uppercase tracking-widest">
+                            A Sincronizar GPS...
+                          </span>
+                        </>
+                      ) : contractFormData.location ? (
+                        <>
+                          <Navigation size={18} />
+                          <div className="text-left">
+                             <p className="text-[10px] font-black uppercase tracking-widest leading-none">GPS Sincronizado</p>
+                             <p className="text-[8px] font-bold opacity-70">Gerar Coordenadas Contratuais</p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <MapPin size={18} />
+                          <div className="text-left">
+                             <p className="text-[10px] font-black uppercase tracking-widest leading-none">Captar Localização</p>
+                             <p className="text-[8px] font-bold opacity-70 italic">Gerar no ponto de recolha</p>
+                          </div>
+                        </>
+                      )}
+                    </button>
+
+                    {contractFormData.location && (
+                      <div className="mt-4 rounded-2xl overflow-hidden border border-slate-200 h-[450px] sm:h-[500px] md:h-[550px] relative group w-full">
+                        {/* @ts-ignore */}
+                        <MapContainer 
+                          center={[contractFormData.location.lat, contractFormData.location.lng]} 
+                          zoom={16} 
+                          style={{ height: '100%', width: '100%' }}
+                          zoomControl={false}
+                        >
+                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                          <Marker position={[contractFormData.location.lat, contractFormData.location.lng]} />
+                          <MapUpdater center={[contractFormData.location.lat, contractFormData.location.lng]} />
+                        </MapContainer>
+                        <div className="absolute top-2 right-2 z-[400] bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg border border-slate-200 text-[8px] font-black uppercase text-slate-500 shadow-sm">
+                           {contractFormData.location.lat.toFixed(6)}, {contractFormData.location.lng.toFixed(6)}
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-[8px] text-slate-400 mt-1 px-1 font-medium leading-relaxed italic">
+                      * Clique quando estiver exatamente na porta/casa do
+                      cliente para registar o ponto no mapa.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                      Observações
+                    </label>
+                    <textarea
+                      value={contractFormData.notes}
+                      onChange={(e) =>
+                        setContractFormData({
+                          ...contractFormData,
+                          notes: e.target.value,
+                        })
+                      }
+                      placeholder="Algum detalhe importante?"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-brand-primary h-24 resize-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={contractLoading}
+                    className="w-full py-5 bg-brand-primary text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl shadow-brand-primary/20 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    {contractLoading ? "A REGISTAR..." : "SOLICITAR CONTRATO"}
+                  </button>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Direct Call Referral/Transfer Modal Overlay */}
+        <AnimatePresence>
+          {isNewCallTransferModalOpen && (
+            <div className="absolute inset-0 z-[60] flex items-end p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsNewCallTransferModalOpen(false)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ y: 300, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 300, opacity: 0 }}
+                className="relative w-full bg-white rounded-[2.5rem] p-6 space-y-4 shadow-2xl z-20 flex flex-col max-h-[90%]"
+              >
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">
+                      Encaminhar Chamada
+                    </h3>
+                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
+                      Enviar contacto de cliente para colega
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setIsNewCallTransferModalOpen(false)}
+                    className="p-1.5 hover:bg-slate-100 rounded-full transition-all"
+                  >
+                    <X size={16} className="text-slate-500" />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block">
+                      Número do Cliente
+                    </label>
+                    <div className="relative flex items-center bg-slate-100 rounded-xl px-3 border border-slate-200">
+                      <span className="text-[11px] font-black text-slate-400 mr-1">+244</span>
+                      <input
+                        type="tel"
+                        maxLength={9}
+                        placeholder="9XX XXX XXX"
+                        value={transferCustomerPhone}
+                        onChange={(e) => {
+                          const digitsOnly = e.target.value.replace(/\D/g, "");
+                          setTransferCustomerPhone(digitsOnly);
+                        }}
+                        className="w-full bg-transparent border-none py-2.5 text-xs font-black text-slate-800 outline-none uppercase"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block">
+                      Nome do Cliente (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Sr. Ze Suana"
+                      value={transferCustomerName}
+                      onChange={(e) => setTransferCustomerName(e.target.value)}
+                      className="w-full bg-slate-100 rounded-xl px-3 py-2 text-xs font-black text-slate-800 outline-none border border-slate-200 uppercase"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block">
+                      Ponto de Recolha / Descrição (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Definitivos Próximo da Unitel"
+                      value={transferPickupAddress}
+                      onChange={(e) => setTransferPickupAddress(e.target.value)}
+                      className="w-full bg-slate-100 rounded-xl px-3 py-2 text-xs font-black text-slate-800 outline-none border border-slate-200 uppercase"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-100 pt-3 flex-1 flex flex-col min-h-0">
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-2">
+                    Selecionar Motorista Coop / Moxico
+                  </span>
+                  
+                  <div className="overflow-y-auto pr-1 space-y-2 flex-1 max-h-[160px] no-scrollbar">
+                    {otherDrivers.length > 0 ? (
+                      otherDrivers.map((driver) => (
+                        <button
+                          key={driver.id}
+                          disabled={transferLoading || !transferCustomerPhone}
+                          onClick={() => sendDirectCallTransfer(driver)}
+                          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-orange-500 hover:text-white disabled:opacity-50 disabled:hover:bg-slate-50 disabled:hover:text-inherit rounded-xl border border-slate-100 transition-all text-left group"
+                        >
+                          <div>
+                            <p className="text-xs font-black text-slate-800 uppercase group-hover:text-white leading-tight">
+                              {driver.name}
+                            </p>
+                            <p className="text-[9px] text-slate-400 uppercase font-bold group-hover:text-white/80 mt-1">
+                              Viatura: {driver.prefix || "N/A"} • {driver.status || "Ativo"}
+                            </p>
+                          </div>
+                          <div className="p-2 bg-white/80 text-orange-500 rounded-lg group-hover:bg-white group-hover:text-orange-500 shadow-sm transition-all">
+                            <PhoneIncoming size={12} />
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="py-6 text-center">
+                        <Users size={20} className="text-slate-300 mx-auto mb-1.5" />
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-relaxed">
+                          Nenhum colega de turno<br />disponível de momento
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {transferLoading && (
+                  <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-orange-500 uppercase tracking-wider py-2 bg-orange-500/5 rounded-xl flex-shrink-0 animate-pulse">
+                    <Loader2 size={12} className="animate-spin" />
+                    A enviar contacto ao colega...
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {isWhatsAppOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsWhatsAppOpen(false)}
+              className="fixed inset-0 bg-slate-950/70 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 30 }}
+              className="relative w-full max-w-lg bg-white rounded-[2.5rem] p-6 space-y-6 shadow-2xl z-20 flex flex-col max-h-[90vh]"
+            >
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h2 className="text-xl font-black uppercase tracking-tighter">Central WhatsApp</h2>
+                <button onClick={() => setIsWhatsAppOpen(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <X size={20} />
+                </button>
+              </div>
+              <WhatsAppMonitor isDriverView={true} isMechanicView={false} />
+            </motion.div>
+          </div>
+        )}
+
+        {/* Delegate / Transfer Customer Modal Overlay */}
+        <AnimatePresence>
+          {isTransferModalOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsTransferModalOpen(false)}
+                className="fixed inset-0 bg-slate-950/70 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 30 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 30 }}
+                className="relative w-full max-w-lg bg-white rounded-[2.5rem] p-6 space-y-6 shadow-2xl z-20 flex flex-col max-h-[90vh]"
+              >
+                <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">
+                      Delegar Cliente
+                    </h3>
+                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
+                      Frota SUPER Táxi / Luena
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setIsTransferModalOpen(false)}
+                    className="p-1.5 hover:bg-slate-100 rounded-full transition-all"
+                  >
+                    <X size={16} className="text-slate-500" />
+                  </button>
+                </div>
+
+                <div className="overflow-y-auto pr-1 space-y-2 flex-1 max-h-[220px] no-scrollbar">
+                  {otherDrivers.length > 0 ? (
+                    otherDrivers.map((driver) => (
+                      <button
+                        key={driver.id}
+                        disabled={transferLoading}
+                        onClick={() => transferService(driver)}
+                        className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-brand-primary hover:text-white rounded-xl border border-slate-100 transition-all text-left group"
+                      >
+                        <div>
+                          <p className="text-xs font-black text-slate-800 uppercase group-hover:text-white leading-tight">
+                            {driver.name}
+                          </p>
+                          <p className="text-[9px] text-slate-400 uppercase font-bold group-hover:text-white/80 mt-1">
+                            Viatura: {driver.prefix || "N/A"} • {driver.status || "Ativo"}
+                          </p>
+                        </div>
+                        <div className="p-2 bg-white/80 text-brand-primary rounded-lg group-hover:bg-white group-hover:text-brand-primary shadow-sm transition-all">
+                          <Navigation size={12} className="rotate-45" />
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="py-8 text-center animate-pulse">
+                      <Users size={24} className="text-slate-300 mx-auto mb-2" />
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-relaxed">
+                        Nenhum motorista<br />disponível de momento
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {transferLoading && (
+                  <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-brand-primary uppercase tracking-wider py-2 bg-brand-primary/5 rounded-xl">
+                    <Loader2 size={12} className="animate-spin" />
+                    A reencaminhar serviço...
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* O modal flutuante foi completamente removido a pedido do administrador José Iweza Suana para evitar ecrãs duplicados; apenas a consola de controlo dedicada/painel inferior é utilizado */}
+
+
+
+      {/* Driver Notification Permission Denied Activation Modal */}
+      <AnimatePresence>
+        {showDeniedNotifModal && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeniedNotifModal(false)}
+              className="fixed inset-0 bg-slate-950/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg bg-slate-900 border border-amber-500/30 rounded-[2.5rem] p-6 text-white shadow-2xl z-10 space-y-5 overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-amber-500/20 border border-amber-500/40 rounded-2xl flex items-center justify-center text-amber-400 shrink-0">
+                    <Bell size={22} className="animate-bounce" />
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      GUIA DE ATIVAÇÃO DE NOTIFICAÇÕES
+                    </span>
+                    <h3 className="text-base font-black tracking-tight text-white mt-1">
+                      Notificações Desativadas no Navegador
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDeniedNotifModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-all cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && 'Notification' in window && typeof window.Notification?.requestPermission === 'function') {
+                      try {
+                        window.Notification.requestPermission().then((res) => {
+                          setNotifPermissionStatus(res);
+                          if (res === 'granted') {
+                            setShowDeniedNotifModal(false);
+                            alert("✓ Notificações Ativadas com Sucesso! Agora receberá todos os alertas de chamadas de táxi.");
+                          } else {
+                            alert("Ainda não foi possível ativar automaticamente. Siga o guia passo a passo acima nas definições do navegador.");
+                          }
+                        }).catch(() => {});
+                      } catch {
+                        alert("Notificações não suportadas neste ambiente.");
+                      }
+                    }
+                  }}
+                  className="flex-1 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <RefreshCw size={14} />
+                  Verificar / Tentar Ativar Novamente
+                </button>
+                <button
+                  onClick={() => setShowDeniedNotifModal(false)}
+                  className="px-4 py-3.5 bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                >
+                  Entendi / Ignorar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Passenger Cancellation Alert Popup for Driver */}
+      <AnimatePresence>
+        {lastCancelledService && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setLastCancelledService(null)}
+              className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-white border border-rose-100 rounded-[2rem] p-6 text-slate-900 shadow-2xl z-10 space-y-5"
+            >
+              <div className="flex items-center gap-3 border-b border-rose-100 pb-3">
+                <div className="w-10 h-10 bg-rose-50 rounded-full flex items-center justify-center text-rose-500 shrink-0">
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-rose-600 uppercase tracking-wider leading-none">Chamada Cancelada</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">O passageiro encerrou a ligação</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 bg-rose-50/30 p-4 rounded-2xl border border-rose-100/40 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold uppercase text-[10px]">Passageiro:</span>
+                  <span className="text-slate-900 font-black">{lastCancelledService.passengerName || "Passageiro de Luena"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400 font-bold uppercase text-[10px]">Contacto:</span>
+                  <span className="text-slate-900 font-black">{lastCancelledService.passengerPhone || "N/A"}</span>
+                </div>
+                <div className="flex justify-between items-center bg-white/50 p-2 rounded-xl border border-rose-100/40">
+                  <span className="text-slate-400 font-bold uppercase text-[9px]">Origem:</span>
+                  <span className="text-slate-900 font-black max-w-[200px] truncate">{lastCancelledService.pickup || "Centro de Luena"}</span>
+                </div>
+                <div className="flex justify-between items-center bg-white/50 p-2 rounded-xl border border-rose-100/40">
+                  <span className="text-slate-400 font-bold uppercase text-[9px]">Destino:</span>
+                  <span className="text-slate-900 font-black max-w-[200px] truncate">{lastCancelledService.destination || "Destino solicitado"}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setLastCancelledService(null)}
+                className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-xs uppercase tracking-widest rounded-2xl shadow-lg transition-all active:scale-95 text-center block"
+              >
+                Confirmar e Fechar
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Team Collaborative Chat Modal */}
+      <TeamCollaborativeChat
+        currentUser={user}
+        isOpen={isTeamChatOpen}
+        onClose={() => setIsTeamChatOpen(false)}
+      />
+    </div>
+  );
+}

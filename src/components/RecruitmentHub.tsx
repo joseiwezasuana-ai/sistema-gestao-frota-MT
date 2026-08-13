@@ -1,0 +1,1297 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  ArrowLeft,
+  ChevronRight,
+  UserPlus, 
+  ShieldCheck, 
+  Loader2, 
+  User, 
+  Key, 
+  Briefcase, 
+  CheckCircle2, 
+  AlertCircle,
+  Copy,
+  Plus,
+  Ticket,
+  Trash2,
+  ExternalLink,
+  XCircle,
+  Lock,
+  X,
+  TrendingUp
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
+import { formatSafe } from '../lib/dateUtils';
+import { cn } from '../lib/utils';
+import DriversMaster from './DriversMaster';
+import RentACar from './RentACar';
+import InternalClients from './InternalClients';
+import VehicleRegistry from './VehicleRegistry';
+import DriverAppConfig from './DriverAppConfig';
+import DriverDashboard from './DriverDashboard';
+import { 
+  Car,
+  CarFront,
+  Users as UsersIcon,
+  Smartphone,
+  Package
+} from 'lucide-react';
+import CompanyPhones from './CompanyPhones';
+import WarehouseManager from './WarehouseManager';
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  onSnapshot, 
+  deleteDoc, 
+  doc, 
+  serverTimestamp,
+  orderBy,
+  getDocs,
+  writeBatch
+} from '@/src/lib/firebase';
+
+const ROLES = [
+  { id: 'gerente', label: 'Gerente', icon: ShieldCheck, color: 'text-rose-500', bg: 'bg-rose-50' },
+  { id: 'operator', label: 'Operador', icon: ShieldCheck, color: 'text-blue-500', bg: 'bg-blue-50' },
+  { id: 'contabilista', label: 'Contabilista', icon: Briefcase, color: 'text-purple-500', bg: 'bg-purple-50' },
+  { id: 'mecanico', label: 'Mecânico', icon: ShieldCheck, color: 'text-orange-500', bg: 'bg-orange-50' },
+  { id: 'driver', label: 'Motorista', icon: User, color: 'text-teal-500', bg: 'bg-teal-50' },
+];
+
+type SubTab = 'access' | 'drivers_master' | 'admin_staff' | 'rent_a_car' | 'internal_clients' | 'vehicles' | 'psm_phones' | 'warehouse' | 'driver_config' | 'driver_dashboard';
+
+const subTabsList = [
+  { id: 'access', label: 'Gestão de Acessos', icon: Key, roles: ['admin'], desc: 'Gerar chaves e convites de acesso' },
+  { id: 'drivers_master', label: 'Banco de Motoristas', icon: User, roles: ['admin'], desc: 'Registo master e processos de motoristas' },
+  { id: 'driver_dashboard', label: 'Estatísticas de Motoristas', icon: TrendingUp, roles: ['admin', 'operator', 'contabilista'], desc: 'Métricas e relatórios de frota' },
+  { id: 'admin_staff', label: 'Staff Administrativo', icon: Briefcase, roles: ['admin'], desc: 'Quadro e colaboradores administrativos' },
+  { id: 'driver_config', label: 'Configurar App Motorista', icon: Smartphone, roles: ['admin'], desc: 'Parâmetros da app mobile' },
+  { id: 'vehicles', label: 'Master de Viaturas', icon: Car, roles: ['admin'], desc: 'Registo e estado dos táxis' },
+  { id: 'rent_a_car', label: 'Rent-a-Car', icon: CarFront, roles: ['admin'], desc: 'Aluguer e frota de rent-a-car' },
+  { id: 'internal_clients', label: 'Clientes de Contrato', icon: UsersIcon, roles: ['admin'], desc: 'Contratos corporativos' },
+  { id: 'psm_phones', label: 'Canais de Rádio/GSM', icon: Smartphone, roles: ['admin', 'operator'], desc: 'Linhas operacionais e GSM' },
+  { id: 'warehouse', label: 'Stocks & Logística', icon: Package, roles: ['admin', 'operator', 'mecanico'], desc: 'Inventário e almoxarifado' },
+];
+
+export default function RecruitmentHub({ user }: { user?: any }) {
+  const isAdmin = user?.role === 'admin' || user?.role === 'gerente' || user?.email === 'joseiwezasuana@gmail.com';
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('access');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successCode, setSuccessCode] = useState<string | null>(null);
+  const [activeCodes, setActiveCodes] = useState<any[]>([]);
+  const [activeUsers, setActiveUsers] = useState<any[]>([]);
+  const [allCodesHistory, setAllCodesHistory] = useState<any[]>([]);
+  const [adminStaff, setAdminStaff] = useState<any[]>([]);
+  const [driversMasterCount, setDriversMasterCount] = useState(0);
+  const [driversMaster, setDriversMaster] = useState<any[]>([]);
+
+  const [isSubTabModalOpen, setIsSubTabModalOpen] = useState(false);
+  const [isAdminStaffModalOpen, setIsAdminStaffModalOpen] = useState(false);
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [selectedUserForReset, setSelectedUserForReset] = useState<any | null>(null);
+  const [resetPasswordInput, setResetPasswordInput] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+
+  const [formData, setFormData] = useState({
+    name: '',
+    role: 'operator',
+    assignedId: ''
+  });
+  
+  const [newStaff, setNewStaff] = useState({
+    name: '',
+    role: 'gerente',
+    phone: '',
+    email: ''
+  });
+
+  // Listen for data
+  useEffect(() => {
+    const qCodes = collection(db, 'access_codes');
+    const unsubCodes = onSnapshot(qCodes, (snapshot) => {
+      const allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setActiveCodes(allDocs.filter((c: any) => !c.used));
+      setAllCodesHistory(allDocs);
+    });
+
+    const qUsers = collection(db, 'users');
+    const unsubUsers = onSnapshot(qUsers, (snapshot) => {
+      const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      usersList.sort((a: any, b: any) => {
+        const dateA = a.syncedAt || a.createdAt || "";
+        const dateB = b.syncedAt || b.createdAt || "";
+        const timeA = typeof dateA === "object" && dateA?.toDate ? dateA.toDate().getTime() : new Date(dateA || 0).getTime();
+        const timeB = typeof dateB === "object" && dateB?.toDate ? dateB.toDate().getTime() : new Date(dateB || 0).getTime();
+        return timeB - timeA;
+      });
+      setActiveUsers(usersList);
+    });
+
+    const qAdmin = query(collection(db, 'administrative_staff'), orderBy('name', 'asc'));
+    const unsubAdmin = onSnapshot(qAdmin, (snapshot) => {
+      setAdminStaff(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const qDrivers = query(collection(db, 'drivers_master'), orderBy('name', 'asc'));
+    const unsubDrivers = onSnapshot(qDrivers, (snapshot) => {
+      setDriversMaster(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setDriversMasterCount(snapshot.size);
+    });
+
+    const subTabsList = [
+    { id: 'access', label: 'Gestão de Acessos', icon: Key, roles: ['admin'], desc: 'Gerar chaves e convites de acesso' },
+    { id: 'drivers_master', label: 'Banco de Motoristas', icon: User, roles: ['admin'], desc: 'Registo master e processos de motoristas' },
+    { id: 'driver_dashboard', label: 'Estatísticas de Motoristas', icon: TrendingUp, roles: ['admin', 'operator', 'contabilista'], desc: 'Métricas e relatórios de frota' },
+    { id: 'admin_staff', label: 'Staff Administrativo', icon: Briefcase, roles: ['admin'], desc: 'Quadro e colaboradores administrativos' },
+    { id: 'driver_config', label: 'Configurar App Motorista', icon: Smartphone, roles: ['admin'], desc: 'Parâmetros da app mobile' },
+    { id: 'vehicles', label: 'Master de Viaturas', icon: Car, roles: ['admin'], desc: 'Registo e estado dos táxis' },
+    { id: 'rent_a_car', label: 'Rent-a-Car', icon: CarFront, roles: ['admin'], desc: 'Aluguer e frota de rent-a-car' },
+    { id: 'internal_clients', label: 'Clientes de Contrato', icon: UsersIcon, roles: ['admin'], desc: 'Contratos corporativos' },
+    { id: 'psm_phones', label: 'Canais de Rádio/GSM', icon: Smartphone, roles: ['admin', 'operator'], desc: 'Linhas operacionais e GSM' },
+    { id: 'warehouse', label: 'Stocks & Logística', icon: Package, roles: ['admin', 'operator', 'mecanico'], desc: 'Inventário e almoxarifado' },
+  ];
+
+  return () => {
+      unsubCodes();
+      unsubUsers();
+      unsubAdmin();
+      unsubDrivers();
+    };
+  }, []);
+
+  // Set first permissible subtab based on user's role
+  useEffect(() => {
+    if (!user) return;
+    const subTabsList = [
+      { id: 'access', roles: ['admin'] },
+      { id: 'drivers_master', roles: ['admin'] },
+      { id: 'admin_staff', roles: ['admin'] },
+      { id: 'driver_dashboard', roles: ['admin', 'operator', 'contabilista'] },
+      { id: 'vehicles', roles: ['admin'] },
+      { id: 'rent_a_car', roles: ['admin'] },
+      { id: 'internal_clients', roles: ['admin'] },
+      { id: 'psm_phones', roles: ['admin', 'operator'] },
+      { id: 'warehouse', roles: ['admin', 'operator', 'mecanico'] },
+    ];
+    const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
+    const isFullAdmin = isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente';
+    const hasPermission = isFullAdmin || subTabsList.find(t => t.id === activeSubTab)?.roles.includes(user?.role);
+    if (!hasPermission) {
+      const allowed = subTabsList.filter(tab => {
+        if (isFullAdmin) return true;
+        return tab.roles.includes(user?.role);
+      });
+      if (allowed.length > 0) {
+        setActiveSubTab(allowed[0].id as any);
+      }
+    }
+  }, [user, activeSubTab]);
+
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'administrative_staff'), {
+        ...newStaff,
+        createdAt: new Date().toISOString(),
+        status: 'Ativo'
+      });
+      setIsAdminStaffModalOpen(false);
+      setNewStaff({ name: '', role: 'gerente', phone: '', email: '' });
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'administrative_staff');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteStaff = async (id: string) => {
+    const staff = adminStaff.find(s => s.id === id);
+    if (!staff) return;
+
+    if (confirm(`ELIMINAR PERMANENTEMENTE ${staff.name}? Esta acção irá remover o staff e registros operacionais (Extratos, Rendimentos e Acessos).`)) {
+      setLoading(true);
+      try {
+        // 1. Operational Records
+        const batch = writeBatch(db);
+        batch.delete(doc(db, 'administrative_staff', id));
+
+        // Delete Invitations
+        const codeQ = query(collection(db, 'access_codes'), where('targetName', '==', staff.name));
+        const codeSnap = await getDocs(codeQ);
+        codeSnap.docs.forEach(d => batch.delete(d.ref));
+
+        // Delete Revenue Logs (if any associated by name)
+        const revQ = query(collection(db, 'revenue_logs'), where('driverName', '==', staff.name));
+        const revSnap = await getDocs(revQ);
+        revSnap.docs.forEach(d => batch.delete(d.ref));
+
+        // Delete Individual Reports
+        const repQ = query(collection(db, 'individual_reports'), where('driverName', '==', staff.name));
+        const repSnap = await getDocs(repQ);
+        repSnap.docs.forEach(d => batch.delete(d.ref));
+
+        // Update Salary Sheets (Remove from staff list)
+        const sheetSnap = await getDocs(collection(db, 'salary_sheets'));
+        sheetSnap.docs.forEach(d => {
+          const sheetData = d.data();
+          if (sheetData.staff && Array.isArray(sheetData.staff)) {
+            const updatedStaff = sheetData.staff.filter((s: any) => s.name !== staff.name);
+            if (updatedStaff.length !== sheetData.staff.length) {
+              batch.update(d.ref, { staff: updatedStaff });
+            }
+          }
+        });
+
+        await batch.commit();
+
+        // 2. Profile (Admin Required)
+        try {
+          const userQ = query(collection(db, 'users'), where('name', '==', staff.name));
+          const userSnap = await getDocs(userQ);
+          if (!userSnap.empty) {
+            const userBatch = writeBatch(db);
+            userSnap.docs.forEach(d => userBatch.delete(d.ref));
+            await userBatch.commit();
+          }
+        } catch (uErr) {
+          console.warn("User profile deletion skipped (insufficient permissions).");
+        }
+
+        alert(`Staff ${staff.name} e todos os seus registros foram removidos com sucesso.`);
+      } catch (err: any) {
+        handleFirestoreError(err, OperationType.DELETE, `administrative_staff/${id}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const generateCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccessCode(null);
+
+    try {
+      if (formData.name.trim().length < 3) throw new Error("Insira o nome do colaborador.");
+      if (formData.assignedId.trim().length < 2) throw new Error("Atribua um ID ao convite (Ex: MOT-01).");
+      
+      const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const newCode = `PSM-${randomPart}`;
+      await addDoc(collection(db, 'access_codes'), {
+        code: newCode,
+        role: formData.role,
+        targetName: formData.name,
+        assignedId: formData.assignedId.trim().toUpperCase(),
+        used: false,
+        createdAt: serverTimestamp()
+      });
+      setSuccessCode(newCode);
+      setFormData({ name: '', role: 'operator', assignedId: '' });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteCode = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'access_codes', id));
+    } catch (err: any) {
+      console.error("Error deleting code:", err);
+    }
+  };
+
+  const deleteUser = async (id: string, name: string) => {
+    if (confirm(`Tem certeza que deseja remover o acesso e TODOS os registros de ${name}? Esta ação irá apagar perfis, rendimentos e folhas de pagamento associadas.`)) {
+      setLoading(true);
+      try {
+        // 1. Try deleting user profiles first (Might require Admin)
+        try {
+          const userBatch = writeBatch(db);
+          userBatch.delete(doc(db, 'users', id));
+          await userBatch.commit();
+        } catch (adminErr) {
+          throw new Error("Apenas Administradores Master podem remover perfis de acesso direto. Por favor, contacte o Admin.");
+        }
+        
+        // 2. Cleanup related data
+        const batch = writeBatch(db);
+        
+        const codeQ = query(collection(db, 'access_codes'), where('targetName', '==', name));
+        const codeSnap = await getDocs(codeQ);
+        codeSnap.docs.forEach(d => batch.delete(d.ref));
+
+        const liveQ = query(collection(db, 'drivers'), where('name', '==', name));
+        const liveSnap = await getDocs(liveQ);
+        liveSnap.docs.forEach(d => batch.delete(d.ref));
+
+        // Delete Revenue Logs
+        const revQ = query(collection(db, 'revenue_logs'), where('driverName', '==', name));
+        const revSnap = await getDocs(revQ);
+        revSnap.docs.forEach(d => batch.delete(d.ref));
+
+        // Delete Individual Reports
+        const repQ = query(collection(db, 'individual_reports'), where('driverName', '==', name));
+        const repSnap = await getDocs(repQ);
+        repSnap.docs.forEach(d => batch.delete(d.ref));
+
+        // Update Salary Sheets (Remove from staff list)
+        const sheetSnap = await getDocs(collection(db, 'salary_sheets'));
+        sheetSnap.docs.forEach(d => {
+          const sheetData = d.data();
+          if (sheetData.staff && Array.isArray(sheetData.staff)) {
+            const updatedStaff = sheetData.staff.filter((s: any) => s.name !== name);
+            if (updatedStaff.length !== sheetData.staff.length) {
+              batch.update(d.ref, { staff: updatedStaff });
+            }
+          }
+        });
+
+        await batch.commit();
+        alert(`Acesso e registros removidos com sucesso para ${name}`);
+      } catch (err: any) {
+        if (err.message.includes("Apenas Administradores")) {
+          alert(err.message);
+        } else {
+          handleFirestoreError(err, OperationType.DELETE, 'users');
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleAdminResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForReset || !resetPasswordInput.trim()) return;
+    if (resetPasswordInput.trim().length < 6) {
+      alert("A nova palavra-passe deve ter pelo menos 6 caracteres.");
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error("Você precisa estar autenticado como administrador.");
+
+      const token = await currentUser.getIdToken();
+
+      const response = await fetch('/api/admin/reset-user-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          email: selectedUserForReset.email,
+          password: resetPasswordInput.trim()
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Erro ao redefinir palavra-passe.");
+      }
+
+      alert(`Palavra-passe de ${selectedUserForReset.name} redefinida com sucesso!`);
+      setShowResetPasswordModal(false);
+      setSelectedUserForReset(null);
+      setResetPasswordInput('');
+    } catch (err: any) {
+      console.error("Error resetting password:", err);
+      alert(err.message || "Erro de rede ao conectar ao servidor central.");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  return (
+    <div className="max-w-[1400px] mx-auto space-y-10 pb-20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between bg-white px-10 py-10 rounded-[2.5rem] border border-slate-200 shadow-sm relative overflow-hidden group">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-brand-primary/5 rounded-full -mr-48 -mt-48 blur-[80px] opacity-50 group-hover:bg-brand-primary/10 transition-colors duration-700" />
+        <div className="relative z-10">
+          <div className="flex items-center gap-4 mb-2">
+            <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic text-brand-primary group-hover:text-slate-900 transition-colors">Portal Staff & Recrutamento</h2>
+            <div className="px-3 py-1 bg-brand-primary/10 text-brand-primary rounded-full text-[10px] font-black uppercase tracking-[0.2em] border border-brand-primary/20">PSM GATEWAY</div>
+          </div>
+          <p className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.3em] flex items-center gap-2">
+            <Key size={14} className="text-brand-primary" />
+            Gestão Centralizada de Capital Humano • LUENA MOXICO
+          </p>
+        </div>
+        <div className="hidden md:block w-px h-12 bg-slate-100 mx-10 relative z-10" />
+        <div className="relative z-10 text-right">
+           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Staff PSM</p>
+           <p className="text-3xl font-black text-slate-900 tracking-tighter italic">
+             {driversMasterCount + adminStaff.length} <span className="text-xs opacity-50 uppercase tracking-normal">Colaboradores</span>
+           </p>
+           <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
+             {driversMasterCount} Motoristas • {adminStaff.length} Administrativos
+           </p>
+        </div>
+      </div>
+
+      {/* SMARTPHONE / MOBILE VIEW: CARDS DE NAVEGAÇÃO DOS MÓDULOS */}
+      <div className="md:hidden space-y-2.5">
+        <div className="flex items-center justify-between px-1">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            Módulos do Portal Staff & Recrutamento
+          </p>
+          <span className="text-[9px] font-bold uppercase text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded-full border border-brand-primary/20">
+            Toque para abrir
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {subTabsList
+            .filter(tab => {
+              if (!tab.roles) return true;
+              const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
+              if (isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente') return true;
+              return tab.roles.includes(user?.role);
+            })
+            .map((tab) => {
+              const TabIcon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveSubTab(tab.id as any);
+                    setIsSubTabModalOpen(true);
+                  }}
+                  className={cn(
+                    "flex items-center justify-between p-3.5 rounded-2xl border transition-all text-left active:scale-[0.98] group",
+                    activeSubTab === tab.id
+                      ? "bg-slate-900 text-white border-brand-primary shadow-lg shadow-brand-primary/10"
+                      : "bg-white dark:bg-slate-900/90 text-slate-800 dark:text-slate-100 border-slate-200 dark:border-white/10 hover:border-brand-primary"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors",
+                      activeSubTab === tab.id 
+                        ? "bg-brand-primary text-white" 
+                        : "bg-slate-100 dark:bg-slate-800 text-brand-primary group-hover:bg-brand-primary group-hover:text-white"
+                    )}>
+                      <TabIcon size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-tight italic">{tab.label}</h4>
+                      <p className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">{tab.desc}</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-slate-400 group-hover:text-brand-primary shrink-0 ml-1" />
+                </button>
+              );
+            })}
+        </div>
+      </div>
+
+      {/* DESKTOP BARRA DE ABAS */}
+      <div className="hidden md:flex flex-wrap gap-3 p-1.5 bg-white border border-slate-200 rounded-[1.5rem] w-full max-w-[1400px] shadow-sm">
+        {subTabsList
+          .filter(tab => {
+            if (!tab.roles) return true;
+            const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
+            if (isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente') return true;
+            return tab.roles.includes(user?.role);
+          })
+          .map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveSubTab(tab.id as any);
+              }}
+              className={cn(
+                "flex items-center gap-3 px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all whitespace-nowrap active:scale-95 cursor-pointer",
+                activeSubTab === tab.id 
+                  ? "bg-slate-900 text-white shadow-xl shadow-slate-900/20 ring-2 ring-brand-primary/40" 
+                  : "text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold"
+              )}
+            >
+              <tab.icon size={16} />
+              {tab.label}
+            </button>
+          ))}
+      </div>
+
+      <AnimatePresence mode="wait">
+        {activeSubTab === 'driver_dashboard' && (
+          <motion.div
+            key="driver_dashboard"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <DriverDashboard />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'drivers_master' && (
+          <motion.div
+            key="drivers"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <DriversMaster embedded />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'access' && (
+          <motion.div
+            key="access"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-10"
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Formulário de Geração */}
+              <div className="lg:col-span-1 border border-slate-200 rounded-2xl bg-white p-6 shadow-sm h-fit">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white">
+                    <Ticket size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">Criar Convite</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Gerar chave de acesso</p>
+                  </div>
+                </div>
+
+                <form onSubmit={generateCode} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Colaborador Registrado</label>
+                    <select 
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all"
+                    >
+                      <option value="">Selecione um colaborador...</option>
+                      <optgroup label="Motoristas">
+                        {driversMaster.map(d => (
+                          <option key={d.id} value={d.name}>{d.name} ({d.prefix || 'N/A'})</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Administrativos">
+                        {adminStaff.map(s => (
+                          <option key={s.id} value={s.name}>{s.name} - {s.role}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">ID Atribuído (Ex: MOT-01, OP-05)</label>
+                    <div className="relative group">
+                      <ShieldCheck size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-brand-primary transition-colors" />
+                      <input 
+                        required
+                        type="text" 
+                        placeholder="Ex: MOT-01"
+                        value={formData.assignedId}
+                        onChange={(e) => setFormData({...formData, assignedId: e.target.value.toUpperCase()})}
+                        className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Atribuir Função</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {ROLES.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setFormData({...formData, role: r.id})}
+                          className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                            formData.role === r.id 
+                              ? 'border-brand-primary bg-brand-primary/5 ring-1 ring-brand-primary' 
+                              : 'border-slate-100 bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className={`p-2 rounded-lg ${formData.role === r.id ? 'bg-brand-primary text-white' : r.bg + ' ' + r.color}`}>
+                            <r.icon size={16} />
+                          </div>
+                          <span className={`text-[10px] font-black uppercase tracking-tight ${formData.role === r.id ? 'text-slate-900' : 'text-slate-500'}`}>
+                            {r.label}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex items-center gap-2 text-red-600 text-[10px] font-bold">
+                      <AlertCircle size={14} />
+                      {error}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-brand-primary text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-brand-secondary transition-all flex items-center justify-center gap-3 shadow-lg shadow-brand-primary/20 disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+                    GERAR CHAVE DE ACESSO
+                  </button>
+                </form>
+              </div>
+
+              {/* Lista de Chaves Ativas */}
+              <div className="lg:col-span-2 space-y-4">
+                <div className="bg-slate-900 rounded-2xl p-6 text-white relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-brand-primary/20 blur-3xl rounded-full" />
+                  <div className="relative z-10 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-black uppercase italic tracking-tight">Convites Ativos</h2>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Aguardando ativação por parte da equipa</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-black text-brand-primary leading-none">{activeCodes.length}</p>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Chaves Pendentes</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <AnimatePresence mode="popLayout">
+                    {activeCodes.map((code) => (
+                      <motion.div
+                        layout
+                        key={code.id}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow group relative overflow-hidden"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2.5 rounded-xl ${ROLES.find(r => r.id === code.role)?.bg} ${ROLES.find(r => r.id === code.role)?.color}`}>
+                              {React.createElement(ROLES.find(r => r.id === code.role)?.icon || User, { size: 18 })}
+                            </div>
+                            <div>
+                               <h3 className="text-xs font-black text-slate-900 uppercase tracking-tight">{code.targetName}</h3>
+                               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                  ID: <span className="text-slate-900">{code.assignedId || 'N/A'}</span> • {ROLES.find(r => r.id === code.role)?.label}
+                               </p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => deleteCode(code.id)}
+                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+
+                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex items-center justify-between">
+                           <code className="text-sm font-black text-brand-primary tracking-widest font-mono">
+                              {code.code}
+                           </code>
+                           <button 
+                            onClick={() => copyToClipboard(code.code)}
+                            className="p-1.5 text-slate-400 hover:text-brand-primary hover:bg-brand-primary/5 rounded-md transition-all"
+                           >
+                             <Copy size={14} />
+                           </button>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between border-t border-slate-50 pt-3">
+                           <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                             Criado em: {formatSafe(code.createdAt, 'dd/MM/yyyy')}
+                           </span>
+                           <div className="flex items-center gap-1 text-[8px] font-black text-green-500 uppercase tracking-widest animate-pulse">
+                             <ShieldCheck size={10} />
+                             Válido para Ativação
+                           </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+
+                  {activeCodes.length === 0 && (
+                    <div className="col-span-full py-12 flex flex-col items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                       <Ticket size={40} className="text-slate-300 mb-4" />
+                       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Nenhuma chave de convite ativa</p>
+                       <p className="text-[10px] text-slate-400 mt-1">Gere uma nova chave à esquerda para começar.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 flex gap-4">
+                  <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-blue-500 shadow-sm flex-shrink-0">
+                    <ShieldCheck size={24} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-tight mb-1">Como o funcionário ativa a conta?</h4>
+                    <p className="text-[11px] text-slate-600 font-bold leading-relaxed">
+                      Entrega o código acima ao colaborador. Ele deve aceder ao sistema, clicar em <span className="text-brand-primary font-black uppercase">"Ativar ID"</span> e preencher o formulário. O sistema irá associar automaticamente a função que você definiu aqui.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeSubTab === 'admin_staff' && (
+          <motion.div
+            key="staff"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-8"
+          >
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">Cadastro de Staff Administrativo</h2>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Gerentes, Contabilistas, Mecânicos e Serviços Gerais</p>
+                  </div>
+                  <button 
+                    onClick={() => setIsAdminStaffModalOpen(true)}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg"
+                  >
+                    <Plus size={16} /> Novo Colaborador
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                   <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-100">
+                          <th className="px-8 py-5">Nome / Identificação</th>
+                          <th className="px-8 py-5">Cargo / Função</th>
+                          <th className="px-8 py-5">Contatos</th>
+                          <th className="px-8 py-5 text-right">Acções</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {adminStaff.map(staff => (
+                          <tr key={staff.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-8 py-6 uppercase font-black text-sm italic tracking-tight text-slate-900">{staff.name}</td>
+                            <td className="px-8 py-6">
+                               <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-md text-[9px] font-black uppercase tracking-widest">
+                                 {staff.role}
+                               </span>
+                            </td>
+                            <td className="px-8 py-6">
+                               <p className="text-[11px] font-black text-slate-700">{staff.phone}</p>
+                               <p className="text-[9px] text-slate-400 font-bold">{staff.email}</p>
+                            </td>
+                            <td className="px-8 py-6 text-right">
+                               <button onClick={() => deleteStaff(staff.id)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all">
+                                 <Trash2 size={16} />
+                               </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminStaff.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="py-20 text-center">
+                               <Briefcase size={40} className="text-slate-200 mx-auto mb-4" />
+                               <p className="text-xs font-black text-slate-300 uppercase tracking-widest">Nenhum staff administrativo cadastrado</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                   </table>
+                </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeSubTab === 'vehicles' && (
+          <motion.div
+            key="vehicles"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <VehicleRegistry user={user} />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'rent_a_car' && (
+          <motion.div
+            key="rent_a_car"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <RentACar user={user} />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'internal_clients' && (
+          <motion.div
+            key="internal_clients"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <InternalClients user={user} />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'psm_phones' && (
+          <motion.div
+            key="psm_phones"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <CompanyPhones />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'warehouse' && (
+          <motion.div
+            key="warehouse"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <WarehouseManager user={user} />
+          </motion.div>
+        )}
+
+        {activeSubTab === 'driver_config' && (
+          <motion.div
+            key="driver_config"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.2 }}
+          >
+            <DriverAppConfig tenantId="default" tenantName="JIS ANGOLA" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* TELA PARTICULAR / MODAL INDIVIDUAL PARA CADA ABA MÓVEL */}
+      <AnimatePresence>
+        {isSubTabModalOpen && activeSubTab && (
+          <div className="fixed inset-0 z-[150] bg-slate-950 text-slate-100 flex flex-col overflow-hidden animate-in fade-in duration-200">
+            {/* Header da Tela Particular */}
+            <header className="px-4 py-3 bg-slate-900 border-b border-white/10 flex items-center justify-between shrink-0 shadow-2xl">
+              <button
+                onClick={() => setIsSubTabModalOpen(false)}
+                className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95 border border-white/10 shrink-0 cursor-pointer"
+              >
+                <ArrowLeft size={16} className="text-brand-primary" />
+                <span className="hidden sm:inline">Voltar às Abas</span>
+                <span className="sm:hidden">Voltar</span>
+              </button>
+
+              <div className="flex items-center gap-2.5 text-center overflow-hidden px-2">
+                {(() => {
+                  const currentTabObj = subTabsList.find(t => t.id === activeSubTab);
+                  const IconComp = currentTabObj?.icon || Key;
+                  return (
+                    <>
+                      <div className="w-8 h-8 rounded-xl bg-brand-primary/20 text-brand-primary flex items-center justify-center shrink-0 border border-brand-primary/30">
+                        <IconComp size={18} />
+                      </div>
+                      <div className="text-left overflow-hidden">
+                        <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight italic text-white truncate">
+                          {currentTabObj?.label}
+                        </h3>
+                        <p className="text-[8px] font-bold uppercase text-slate-400 tracking-widest truncate hidden sm:block">
+                          Portal Staff & Recrutamento • PSM GATEWAY
+                        </p>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <button
+                onClick={() => setIsSubTabModalOpen(false)}
+                className="w-9 h-9 bg-slate-800 hover:bg-rose-500/30 text-slate-300 hover:text-rose-400 rounded-xl flex items-center justify-center transition-all active:scale-95 border border-white/10 shrink-0 cursor-pointer"
+                title="Fechar Tela"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            {/* Corpo com o Módulo Seleccionado */}
+            <main className="flex-1 overflow-y-auto p-3 sm:p-6 custom-scrollbar bg-slate-950 text-slate-100">
+              <div className="max-w-[1400px] mx-auto">
+                {activeSubTab === 'driver_dashboard' && <DriverDashboard />}
+                {activeSubTab === 'drivers_master' && <DriversMaster embedded />}
+                {activeSubTab === 'vehicles' && <VehicleRegistry user={user} />}
+                {activeSubTab === 'rent_a_car' && <RentACar user={user} />}
+                {activeSubTab === 'internal_clients' && <InternalClients user={user} />}
+                {activeSubTab === 'psm_phones' && <CompanyPhones />}
+                {activeSubTab === 'warehouse' && <WarehouseManager user={user} />}
+                {activeSubTab === 'driver_config' && <DriverAppConfig tenantId="default" tenantName="JIS ANGOLA" />}
+                {activeSubTab === 'access' && (
+                  <div className="p-4 sm:p-6 bg-slate-900 rounded-2xl border border-white/10 text-white space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-brand-primary rounded-xl flex items-center justify-center text-white">
+                        <Key size={20} />
+                      </div>
+                      <div>
+                        <h2 className="text-sm font-black uppercase tracking-tight italic">Gestão de Acessos</h2>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Gerar chaves e convites de acesso para a equipa</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Aceda ao painel principal de Gestão de Acessos para configurar novos perfis, gerar códigos de convite e gerir a lista de utilizadores ativos na plataforma.
+                    </p>
+                  </div>
+                )}
+                {activeSubTab === 'admin_staff' && (
+                  <div className="bg-slate-900 border border-white/10 rounded-2xl p-4 sm:p-6 text-white space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-sm font-black uppercase tracking-tight italic">Staff Administrativo</h2>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Gerentes, Contabilistas, Mecânicos e Serviços Gerais</p>
+                      </div>
+                      <button 
+                        onClick={() => setIsAdminStaffModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-brand-secondary transition-all shadow-lg"
+                      >
+                        <Plus size={14} /> Novo Colaborador
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-950 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-white/10">
+                            <th className="px-4 py-3">Nome / Identificação</th>
+                            <th className="px-4 py-3">Cargo / Função</th>
+                            <th className="px-4 py-3">Contatos</th>
+                            <th className="px-4 py-3 text-right">Acções</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {adminStaff.map(staff => (
+                            <tr key={staff.id} className="hover:bg-white/5 transition-colors">
+                              <td className="px-4 py-3 uppercase font-black text-xs italic tracking-tight text-white">{staff.name}</td>
+                              <td className="px-4 py-3">
+                                <span className="px-2.5 py-1 bg-slate-800 text-slate-300 rounded-md text-[9px] font-black uppercase tracking-widest">
+                                  {staff.role}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <p className="text-[10px] font-black text-slate-200">{staff.phone}</p>
+                                <p className="text-[9px] text-slate-400 font-bold">{staff.email}</p>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button onClick={() => deleteStaff(staff.id)} className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all">
+                                  <Trash2 size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {adminStaff.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="py-12 text-center text-slate-400">
+                                <Briefcase size={32} className="mx-auto mb-2 text-slate-600" />
+                                <p className="text-xs font-black uppercase tracking-widest">Nenhum staff administrativo cadastrado</p>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isAdminStaffModalOpen && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAdminStaffModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden"
+            >
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="font-black text-slate-900 uppercase tracking-tight italic">Novo Staff Administrativo</h3>
+                <button onClick={() => setIsAdminStaffModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                  <XCircle size={20} />
+                </button>
+              </div>
+              <form onSubmit={handleCreateStaff} className="p-8 space-y-4">
+                 <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Nome Completo</label>
+                    <input 
+                      required 
+                      type="text" 
+                      value={newStaff.name}
+                      onChange={(e) => setNewStaff({...newStaff, name: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-brand-primary" 
+                    />
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Cargo</label>
+                       <select 
+                         value={newStaff.role}
+                         onChange={(e) => setNewStaff({...newStaff, role: e.target.value})}
+                         className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-brand-primary"
+                       >
+                         <option value="gerente">Gerente / Admin</option>
+                         <option value="contabilista">Contabilista</option>
+                         <option value="mecanico">Mecânico</option>
+                         <option value="faxineiro">Faxineiro</option>
+                         <option value="serviços gerais">Serviços Gerais</option>
+                         <option value="operador">Operador de Frota</option>
+                       </select>
+                    </div>
+                    <div className="space-y-1">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Telefone</label>
+                       <input 
+                         required 
+                         type="tel" 
+                         value={newStaff.phone}
+                         onChange={(e) => setNewStaff({...newStaff, phone: e.target.value})}
+                         className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:bg-white focus:border-brand-primary" 
+                       />
+                    </div>
+                 </div>
+                 <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-xs uppercase shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3">
+                   {loading ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle2 size={18} />}
+                   CONTRATAR COLABORADOR
+                 </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <div className="h-px bg-slate-200 w-full" />
+
+      {/* Tabela de Colaboradores Ativos */}
+      {isAdmin ? (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-6 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <div>
+              <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">Diretório de Acessos Ativos</h2>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Utilizadores que já sincronizaram conta via Portal</p>
+            </div>
+            <div className="px-4 py-1.5 bg-emerald-100 text-emerald-700 rounded-xl text-[10px] font-black uppercase tracking-widest">
+              {activeUsers.length} Logados
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                  <th className="px-6 py-4">Colaborador</th>
+                  <th className="px-6 py-4">Função / Cargo</th>
+                  <th className="px-6 py-4">ID / E-mail de Acesso</th>
+                  <th className="px-6 py-4">Data de Cadastro</th>
+                  <th className="px-6 py-4 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {activeUsers.map((user) => (
+                  <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-black italic shadow-lg shadow-black/10">
+                          {user.name.charAt(0)}
+                        </div>
+                        <span className="text-xs font-black text-slate-800 uppercase italic tracking-tight">{user.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                       <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest ${
+                          ROLES.find(r => r.id === user.role)?.bg
+                       } ${
+                          ROLES.find(r => r.id === user.role)?.color
+                       }`}>
+                          {ROLES.find(r => r.id === user.role)?.label || user.role}
+                       </span>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                           <span className="text-xs font-bold text-slate-500">{user.email}</span>
+                           <button onClick={() => copyToClipboard(user.email)} className="text-slate-300 hover:text-brand-primary transition-colors">
+                             <Copy size={12} />
+                           </button>
+                        </div>
+                        {(() => {
+                          const originalCodeDoc = allCodesHistory.find((c: any) => 
+                            c.usedBy === user.id || 
+                            c.usedBy === user.uid || 
+                            c.targetName === user.name ||
+                            (c.assignedId && user.email.toLowerCase().includes(c.assignedId.toLowerCase()))
+                          );
+                          if (originalCodeDoc) {
+                            return (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Chave original:</span>
+                                <code className="text-[9px] font-black text-brand-primary font-mono bg-brand-primary/5 px-1.5 py-0.5 rounded border border-brand-primary/10 select-all">
+                                  {originalCodeDoc.code}
+                                </code>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </td>
+                    <td className="px-6 py-5 text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                      {formatSafe(user.createdAt, 'dd/MM/yyyy', 'Sistema')}
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      {user.email !== 'joseiwezasuana@gmail.com' ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => {
+                              setSelectedUserForReset(user);
+                              setShowResetPasswordModal(true);
+                            }}
+                            className="text-slate-400 hover:text-brand-primary transition-colors p-2 hover:bg-brand-primary/5 rounded-lg"
+                            title="Redefinir Palavra-passe do Colaborador"
+                          >
+                            <Lock size={15} />
+                          </button>
+                          <button 
+                            onClick={() => deleteUser(user.id, user.name)}
+                            className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                            title="Remover Acesso"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] text-emerald-500 font-black uppercase tracking-wider bg-emerald-50 px-2 py-1 rounded-md border border-emerald-100">MASTER ADMIN</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {activeUsers.length === 0 && (
+                  <tr>
+                     <td colSpan={5} className="py-12 text-center text-[11px] font-bold text-slate-300 uppercase tracking-widest">Nenhum utilizador sincronizado</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-sm">
+          <Lock className="mx-auto text-slate-300 mb-2" size={24} />
+          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest italic">Acesso Restrito</h3>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">O Diretório de Acessos Ativos é exclusivo para o Administrador.</p>
+        </div>
+      )}
+
+      {/* Modal Redefinir Senha Administrador (exclusivo José) */}
+      <AnimatePresence>
+        {showResetPasswordModal && selectedUserForReset && (
+          <motion.div 
+            key="reset-password-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-[2rem] w-full max-w-md p-8 border border-slate-200 shadow-2xl relative"
+            >
+              <button 
+                onClick={() => {
+                  setShowResetPasswordModal(false);
+                  setSelectedUserForReset(null);
+                  setResetPasswordInput('');
+                }}
+                className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex items-center gap-3.5 mb-6">
+                <div className="w-12 h-12 rounded-full bg-brand-primary/10 flex items-center justify-center text-brand-primary">
+                  <Lock size={22} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight italic">Forçar Redefinição de Senha</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{selectedUserForReset.name}</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleAdminResetPassword} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">ID de E-mail de Acesso</label>
+                  <input 
+                    disabled
+                    type="text"
+                    value={selectedUserForReset.email}
+                    className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold font-mono outline-none text-slate-500 cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Nova Palavra-passe</label>
+                  <input 
+                    required
+                    type="text"
+                    placeholder="Introduza a nova senha (mínimo 6 chars)"
+                    value={resetPasswordInput}
+                    onChange={(e) => setResetPasswordInput(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:bg-white focus:border-brand-primary"
+                  />
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={isResettingPassword}
+                  className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-xs uppercase shadow-xl hover:bg-black transition-all flex items-center justify-center gap-3 disabled:opacity-50 h-[52px]"
+                >
+                  {isResettingPassword ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+                  ATUALIZAR CREDENCIAIS AGORA
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

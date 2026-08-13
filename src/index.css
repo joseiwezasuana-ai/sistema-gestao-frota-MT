@@ -1,0 +1,114 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@theme {
+  --color-brand-primary: #2563EB; /* Blue 600 (Accent) */
+  --color-brand-secondary: #1D4ED8; /* Blue 700 */
+  --color-brand-light: #EFF6FF; /* Blue 50 */
+  --color-sidebar: #0F172A; /* Slate 900 (Primary) */
+  --color-sidebar-hover: #1E293B; /* Slate 800 */
+  --color-bg-main: #F1F5F9; /* Slate 100 */
+  --color-border-base: #E2E8F0;
+  --color-text-main: #1E293B;
+  --color-text-muted: #64748B;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+  }
+  .custom-scrollbar-dark::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+  }
+  .custom-scrollbar-dark::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar-dark::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-[--color-bg-main] text-[--color-text-main] font-sans;
+  }
+
+  @media print {
+    /* Esconder elementos de interface que não pertencem ao manual */
+    nav, 
+    aside, 
+    header,
+    button:not(.print-visible), 
+    .no-print,
+    .sidebar {
+      display: none !important;
+    }
+
+    /* Ocupar a página toda no PDF */
+    main, .main-content, #root {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      display: block !important;
+    }
+
+    body {
+      background: white !important;
+      color: black !important;
+    }
+
+    /* Evitar que seções sejam cortadas a meio */
+    .print-break-inside-avoid {
+      page-break-inside: avoid;
+    }
+  }
+}
+
+/* 
+  Melhoria de Legibilidade - Fontes e Letras Maiores para Telemóvel e Tablet (JIS)
+  Garante que nenhuma classe de texto minúscula fique ilegível em ecrãs pequenos.
+*/
+@media (max-width: 1024px) {
+  .text-\[7\.5px\] { font-size: 10.5px !important; }
+  .text-\[8px\] { font-size: 11px !important; }
+  .text-\[8\.5px\] { font-size: 11.5px !important; }
+  .text-\[9px\] { font-size: 12px !important; }
+  .text-\[9\.5px\] { font-size: 12.5px !important; }
+  .text-\[10px\] { font-size: 13px !important; }
+  .text-\[11px\] { font-size: 13.5px !important; }
+  .text-xs { font-size: 14px !important; }
+  .text-sm { font-size: 15px !important; }
+  .text-base { font-size: 16.5px !important; }
+}
+
+@keyframes scan {
+  0% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+  100% {
+    top: 0%;
+  }
+}
+
+
