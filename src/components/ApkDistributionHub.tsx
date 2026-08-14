@@ -89,8 +89,8 @@ export default function ApkDistributionHub({ user, isEmbedded = false }: ApkDist
     staffAppSize: '21.2 MB',
     passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
     passengerAppSize: '16.8 MB',
-    isCriticalUpdate: true,
-    notifyOnStartup: true
+    isCriticalUpdate: false,
+    notifyOnStartup: false
   });
 
   // Download Stats Data State (Recharts Bar Chart)

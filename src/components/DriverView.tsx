@@ -39,7 +39,10 @@ import {
   Layout,
   AlertCircle,
   Lock,
+  ArrowLeft,
+  Gift,
 } from "lucide-react";
+import { customConfirm } from "../lib/customConfirm";
 import RevenueManagement from "./RevenueManagement";
 import PermissionManager from "./PermissionManager";
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
@@ -668,6 +671,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const [passengerRidesConfirmed, setPassengerRidesConfirmed] = useState<any[]>([]);
   const [passengerRidesTotal, setPassengerRidesTotal] = useState(0);
   const [passengerRidesAllTimeTotal, setPassengerRidesAllTimeTotal] = useState(0);
+  const [passengerBonusRidesCount, setPassengerBonusRidesCount] = useState(0);
   const [showThreeDotsMetrics, setShowThreeDotsMetrics] = useState(false);
 
   // Sync passenger rides in real-time
@@ -687,18 +691,30 @@ export default function DriverView({ user }: DriverViewProps) {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allCompletedTrips = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
 
+      const isBonusRide = (curr: any) =>
+        curr.usedBonus === true ||
+        curr.paidWithBonus === true ||
+        curr.paymentMethod === 'bonus' ||
+        curr.isBonus === true;
+
       // Filter out approved trips ONLY for the active declaration list
       const unapprovedList = allCompletedTrips.filter((trip) => trip.approvedByOperator !== true);
       setPassengerRidesConfirmed(unapprovedList);
       
-      // All-time historical total of completed app rides per driver
-      const allTimeTotal = allCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+      // All-time historical total of completed app rides per driver (excluding bonus rides which don't involve cash collection)
+      const allTimeTotal = allCompletedTrips
+        .filter(curr => !isBonusRide(curr))
+        .reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
       setPassengerRidesAllTimeTotal(allTimeTotal);
 
-      // Current automatic app billing (only undeclared calls)
-      const currentUndeclared = unapprovedList.filter((curr: any) => curr.declared !== true);
+      // Current automatic app billing (only undeclared cash/TPA calls - excludes bonus rides so they do NOT reflect in pending declarations)
+      const currentUndeclared = unapprovedList.filter((curr: any) => curr.declared !== true && !isBonusRide(curr));
       const currentTotal = currentUndeclared.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
       setPassengerRidesTotal(currentTotal);
+
+      // Track unapproved bonus rides count for informative badges
+      const bonusRides = unapprovedList.filter(curr => isBonusRide(curr));
+      setPassengerBonusRidesCount(bonusRides.length);
 
       // Dynamically calculate rating from ALL rated completed calls (including historical approved ones)
       const ratedCalls = allCompletedTrips.filter((curr: any) => {
@@ -744,7 +760,15 @@ export default function DriverView({ user }: DriverViewProps) {
     }
   });
 
-  const todayTotalRevenue = todayCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+  const isTripBonus = (trip: any) =>
+    trip.usedBonus === true ||
+    trip.paidWithBonus === true ||
+    trip.paymentMethod === 'bonus' ||
+    trip.isBonus === true;
+
+  const todayTotalRevenue = todayCompletedTrips
+    .filter(trip => !isTripBonus(trip))
+    .reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
 
   const [showNotification, setShowNotification] = useState(false);
   const [recentCalls, setRecentCalls] = useState<any[]>([]);
@@ -812,6 +836,7 @@ export default function DriverView({ user }: DriverViewProps) {
     }
   };
   const [showPanicModal, setShowPanicModal] = useState(false);
+  const [showPanicConfirmResolve, setShowPanicConfirmResolve] = useState(false);
   const [localPassengerOffline, setLocalPassengerOffline] = useState(false);
   const [activePanicAlert, setActivePanicAlert] = useState<any | null>(null);
   const [panicLoading, setPanicLoading] = useState(false);
@@ -1328,7 +1353,12 @@ export default function DriverView({ user }: DriverViewProps) {
         driverAcknowledge: true,
         acknowledgedAt: new Date().toISOString()
       });
-      alert("Recebimento de ajuda confirmado! Fique no local em segurança.");
+      setNotificationBanner({
+        title: "✅ AJUDA CONFIRMADA",
+        message: "Recebimento de ajuda confirmado! Fique no local em segurança.",
+        type: "success",
+        visible: true
+      });
     } catch (e) {
       console.error(e);
     }
@@ -1336,7 +1366,6 @@ export default function DriverView({ user }: DriverViewProps) {
 
   const resolvePanicFromDriver = async () => {
     if (!activePanicAlert?.id) return;
-    if (!window.confirm("Deseja mesmo cancelar o S.O.S? Confirme que está em total segurança.")) return;
     try {
       await updateDoc(doc(db, "panic_alerts", activePanicAlert.id), {
         status: "resolved",
@@ -1346,7 +1375,13 @@ export default function DriverView({ user }: DriverViewProps) {
       });
       setActivePanicAlert(null);
       setShowPanicModal(false);
-      alert("S.O.S encerrado com sucesso.");
+      setShowPanicConfirmResolve(false);
+      setNotificationBanner({
+        title: "🛡️ S.O.S ENCERRADO",
+        message: "O protocolo de emergência foi encerrado com sucesso. Estado seguro confirmado.",
+        type: "success",
+        visible: true
+      });
     } catch (e) {
       console.error(e);
     }
@@ -2112,7 +2147,14 @@ export default function DriverView({ user }: DriverViewProps) {
 
   const cancelService = async () => {
     if (!currentService) return;
-    if (!window.confirm("Deseja mesmo cancelar esta corrida? O passageiro será notificado e a corrida será cancelada no sistema.")) return;
+    const confirmed = await customConfirm({
+      title: "Cancelar Corrida",
+      message: "Deseja mesmo cancelar esta corrida? O passageiro será notificado e a corrida será cancelada no sistema.",
+      confirmText: "Sim, Cancelar",
+      cancelText: "Voltar",
+      isDanger: true,
+    });
+    if (!confirmed) return;
 
     try {
       // Unblock UI immediately
@@ -2158,7 +2200,14 @@ export default function DriverView({ user }: DriverViewProps) {
   };
 
   const forceUnlockScreen = async () => {
-    if (!window.confirm("Deseja forçar a saída desta tela de interação? O serviço atual será fechado no seu visor local de motorista, mas continuará arquivado no servidor.")) return;
+    const confirmed = await customConfirm({
+      title: "Forçar Saída",
+      message: "Deseja forçar a saída desta tela de interação? O serviço atual será fechado no seu visor local de motorista, mas continuará arquivado no servidor.",
+      confirmText: "Forçar Saída",
+      cancelText: "Voltar",
+      isDanger: true,
+    });
+    if (!confirmed) return;
     try {
       if (assignedVehicle?.id) {
         await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
@@ -2483,59 +2532,58 @@ export default function DriverView({ user }: DriverViewProps) {
         )}
       </AnimatePresence>
 
-      {/* Non-scrollable header and status bar zone */}
-      <div className="bg-slate-50 shrink-0 z-40 border-b border-slate-100">
-
-
-        <header className="px-4 py-4 flex items-center justify-between bg-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center border border-brand-primary/20">
-                <Shield size={20} className="text-brand-primary" />
+      {/* Unified Single Block Header & Control Console - Rendered ONLY on Main Dashboard */}
+      {!currentService && activeInternalTab === "dashboard" && (
+        <div className="bg-slate-950 text-white shrink-0 z-40 border-b border-slate-800 shadow-2xl sticky top-0 p-3.5 sm:p-4 space-y-2.5">
+          {/* Header Row: Shield + TAXICONTROL & Company + Quick Action Buttons */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-400 shrink-0">
+                <Shield size={18} />
               </div>
-              <div>
-                <h4 className="text-[13px] font-black text-slate-800 leading-none">
-                  PSM COMERCIAL
+              <div className="min-w-0 flex flex-col justify-center">
+                <h4 className="text-sm sm:text-base font-black tracking-tight text-white uppercase leading-none">
+                  TAXICONTROL
                 </h4>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Luena, Moxico
-                  </span>
-                  {stars !== "Novo" && Number(stars) >= 4.7 && (
-                    <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter border border-amber-200">
-                      Top Rated
-                    </span>
-                  )}
-                </div>
+                <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider mt-1 truncate">
+                  {user?.companyName || user?.company || user?.tenantName || (user?.tenantId === 'psm' ? 'PSMOREIRA' : 'PSMOREIRA')}
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 relative">
+
+            {/* Quick Action Icons */}
+            <div className="flex items-center gap-1 shrink-0 relative">
               <button 
                 onClick={() => setIsMessagesModalOpen(true)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors relative">
-                <Bell size={20} />
+                className="p-2 text-slate-400 hover:text-white transition-colors relative"
+                title="Mensagens"
+              >
+                <Bell size={18} />
                 {unreadMessages.length > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white animate-pulse" />
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-slate-900 animate-pulse" />
                 )}
               </button>
+
               <button
                 onClick={() => {
                   markAsRead();
                   setIsTeamChatOpen(true);
                 }}
-                className="p-2 text-slate-400 hover:text-brand-primary transition-colors relative"
+                className="p-2 text-slate-400 hover:text-amber-400 transition-colors relative"
                 title="Chat Interno"
               >
-                <MessageSquare size={20} />
+                <MessageSquare size={18} />
                 {hasUnread && (
-                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-ping" />
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border border-slate-900 animate-ping" />
                 )}
               </button>
 
               <button
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+                className="p-2 text-slate-400 hover:text-white transition-colors"
+                title="Menu"
               >
-                <MoreVertical size={20} />
+                <MoreVertical size={18} />
               </button>
 
               <AnimatePresence>
@@ -2549,14 +2597,14 @@ export default function DriverView({ user }: DriverViewProps) {
                       initial={{ opacity: 0, scale: 0.95, y: -10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                      className="absolute top-full right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 py-2 z-50"
+                      className="absolute top-full right-0 mt-2 w-52 bg-white text-slate-900 rounded-xl shadow-xl border border-slate-100 py-2 z-50"
                     >
                       <div className="px-4 py-2 border-b border-slate-50 mb-1">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                           Utilizador
                         </p>
                         <p className="text-xs font-bold text-slate-800 truncate">
-                          {user?.name}
+                          {user?.name || "Motorista"}
                         </p>
                       </div>
 
@@ -2647,8 +2695,134 @@ export default function DriverView({ user }: DriverViewProps) {
                 )}
               </AnimatePresence>
             </div>
-          </header>
+          </div>
+
+          {/* Driver Name bar - Directly above ESTADO */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 px-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">
+                Motorista:
+              </span>
+              <span className="text-[11px] font-black text-white uppercase tracking-tight truncate">
+                {user?.name || "Mestre PSM"}
+              </span>
+            </div>
+          </div>
+
+          {/* Grid Stats Bar: Em Serviço | Avaliação | Rendas Aprovadas */}
+          <div className="grid grid-cols-3 gap-2">
+            {/* Status Item */}
+            <div className="bg-slate-900/90 border border-slate-800/90 p-2.5 rounded-xl flex flex-col justify-center items-start">
+              <span className="text-[7.5px] font-black text-slate-500 uppercase tracking-widest leading-none">Estado</span>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className={cn(
+                  "w-2 h-2 rounded-full inline-block shrink-0",
+                  isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
+                )} />
+                <span className={cn(
+                  "text-[10px] font-black uppercase tracking-tight truncate",
+                  isOnline ? "text-emerald-400" : "text-slate-400"
+                )}>
+                  {isOnline ? "Em Serviço" : "Fora"}
+                </span>
+              </div>
+            </div>
+
+            {/* Rating Item */}
+            <div className="bg-slate-900/90 border border-slate-800/90 p-2.5 rounded-xl flex flex-col justify-center items-start">
+              <span className="text-[7.5px] font-black text-slate-500 uppercase tracking-widest leading-none">Avaliação</span>
+              <div className="flex items-center gap-1 mt-1 text-amber-400">
+                <Star size={11} fill="currentColor" />
+                <span className="text-[10px] font-black text-white leading-none">
+                  {typeof stars === 'number' || (typeof stars === 'string' && !isNaN(Number(stars)))
+                    ? `${Number(stars).toFixed(1)}`
+                    : (stars === "Novo" || !stars ? "Novo" : `${stars}`)}
+                </span>
+              </div>
+            </div>
+
+            {/* Earnings Item */}
+            <div className="bg-slate-900/90 border border-slate-800/90 p-2.5 rounded-xl flex flex-col justify-center items-start">
+              <span className="text-[7.5px] font-black text-slate-500 uppercase tracking-widest leading-none">Rendas</span>
+              <span className="text-[10px] font-black text-emerald-400 mt-1 leading-none truncate w-full">
+                {approvedEarnings.toLocaleString()} Kz
+              </span>
+            </div>
+          </div>
+
+          {/* Action Row: Terminar/Iniciar Turno + S.O.S Emergência */}
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              onClick={handleStartShift}
+              className={cn(
+                "flex-1 py-2.5 px-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-2 shadow-md active:scale-95",
+                isOnline 
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-950/20" 
+                  : "bg-amber-500 hover:bg-amber-600 text-slate-950 font-black"
+              )}
+            >
+              <Power size={13} />
+              {isOnline ? "Terminar Turno" : "Iniciar Turno"}
+            </button>
+
+            <button
+              onClick={triggerPanic}
+              disabled={panicLoading}
+              className="py-2.5 px-3.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all bg-rose-600 hover:bg-rose-700 text-white shadow-md active:scale-95 flex items-center justify-center gap-1.5 shrink-0 animate-pulse border border-rose-500/30"
+              title="S.O.S de Emergência"
+            >
+              <AlertTriangle size={14} />
+              <span>S.O.S</span>
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Dedicated Clean Full-Screen Header for Specific Driver Tabs */}
+      {!currentService && activeInternalTab !== "dashboard" && (
+        <div className="bg-slate-950 text-white shrink-0 z-40 border-b border-slate-800 shadow-xl sticky top-0 px-3.5 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={() => setActiveInternalTab("dashboard")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 active:scale-95 transition-all text-xs font-black uppercase tracking-wider shrink-0"
+              title="Voltar ao Painel Principal"
+            >
+              <ArrowLeft size={15} className="text-amber-400" />
+              <span>Painel</span>
+            </button>
+
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                {activeInternalTab === "history" && <History size={16} />}
+                {activeInternalTab === "contracts" && <FileSignature size={16} />}
+                {activeInternalTab === "rendas" && <Wallet size={16} />}
+                {activeInternalTab === "settings" && <Settings size={16} />}
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-white truncate">
+                  {activeInternalTab === "history" && "Histórico de Viagens"}
+                  {activeInternalTab === "contracts" && "Clientes de Passagem & Contratos"}
+                  {activeInternalTab === "rendas" && "Declaração de Renda Diária"}
+                  {activeInternalTab === "settings" && "Configurar Toque de Chamada"}
+                </h3>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider truncate">
+                  {user?.name || "Motorista"} • {user?.companyName || "SUPER TÁXI"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setActiveInternalTab("dashboard")}
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-900 active:scale-95 transition-colors"
+              title="Fechar e voltar ao Painel"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
         {isMessagesModalOpen && (
@@ -2851,38 +3025,22 @@ export default function DriverView({ user }: DriverViewProps) {
             </AnimatePresence>
 
             {currentService ? (
-              // INTERFACE ÚNICA DE INTERAÇÃO DO SERVIÇO (DEDICATED FULL SCREEN CALL UI)
-              <div className="space-y-6 max-w-2xl mx-auto py-2">
-                <div className="bg-slate-900 text-white rounded-[2.5rem] border-4 border-slate-950 p-6 sm:p-8 space-y-6 shadow-2xl overflow-hidden relative">
+              // INTERFACE ÚNICA E INDIVIDUAL DE INTERAÇÃO DO SERVIÇO (DEDICATED INDIVIDUAL FULL SCREEN SCREEN WITHOUT TOP HEADER)
+              <div className="fixed inset-0 z-[100] bg-slate-950 text-white p-4 sm:p-6 overflow-y-auto flex flex-col justify-center items-center min-h-screen">
+                <div className="w-full max-w-2xl mx-auto space-y-6 my-auto py-4">
+                  <div className="bg-slate-900 text-white rounded-[2.5rem] border-4 border-slate-950 p-6 sm:p-8 space-y-6 shadow-2xl overflow-hidden relative">
                   
                   {/* Decorative ambient GPS grid */}
                   <div className="absolute inset-0 opacity-5 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
 
-                  {/* Clean Service Call Header */}
-                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 relative z-10">
-                    <div className="flex items-center gap-2">
-                      <div className={cn(
-                        "w-2.5 h-2.5 rounded-full shrink-0",
-                        currentService.status === "pending" ? "bg-amber-400 animate-ping" : "bg-emerald-400 animate-pulse"
-                      )} />
-                      <span className="text-xs font-black text-white uppercase tracking-wider">
-                        {currentService.status === "pending" && (isDirectForwarded ? "Chamada Reencaminhada" : "Novo Pedido de Viagem")}
-                        {currentService.status === "connected" && "Atendimento de Voz"}
-                        {currentService.status === "price_sent" && "Proposta Enviada"}
-                        {currentService.status === "price_negotiation_requested" && "Pedido de Desconto do Passageiro"}
-                        {currentService.status === "confirmed" && "Corrida Confirmada"}
-                        {currentService.status === "active" && "Viagem em Curso"}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={forceUnlockScreen}
-                      className="p-1.5 bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-xl transition-all cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-700/50"
-                      title="Voltar ao Painel Principal"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+                  {/* Close button top right */}
+                  <button
+                    onClick={forceUnlockScreen}
+                    className="absolute top-4 right-4 z-20 p-2 bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-2xl transition-all cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-700/50"
+                    title="Voltar ao Painel Principal"
+                  >
+                    <X size={16} />
+                  </button>
 
                   {/* Operational Status Display indicator */}
                   <div className="text-center space-y-2 relative z-10 py-2">
@@ -2907,6 +3065,16 @@ export default function DriverView({ user }: DriverViewProps) {
                       {currentService.status === "active" ? "Viatura em Movimento no Luena" : "Negociação de Super Táxi"}
                     </p>
                   </div>
+
+                  {/* Live Real-Time Passenger Waiting Time - Directly below status subtitle */}
+                  {currentService.status !== 'active' && (
+                    <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 flex justify-between items-center relative z-10 animate-fadeIn">
+                      <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Clock size={12} className="animate-spin text-amber-400" /> TEMPO DE ESPERA DO PASSAGEIRO:
+                      </span>
+                      <WaitingTimer timestamp={currentService?.timestamp || currentService?.createdAt || currentService?.acceptedAt} className="text-xs font-mono font-black text-amber-400" />
+                    </div>
+                  )}
 
                   {/* Barra de Perfil do Passageiro - Sempre visível até ao fim da corrida */}
                   <div className="space-y-3 bg-white/5 p-4 rounded-3xl border border-white/5 relative z-10">
@@ -3036,16 +3204,6 @@ export default function DriverView({ user }: DriverViewProps) {
                     )}
                   </div>
 
-                  {/* Live Real-Time Passenger Waiting Time - Hidden when ride is active */}
-                  {currentService.status !== 'active' && (
-                    <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 flex justify-between items-center relative z-10 animate-fadeIn">
-                      <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
-                        <Clock size={12} className="animate-spin text-amber-400" /> TEMPO DE ESPERA DO PASSAGEIRO:
-                      </span>
-                      <WaitingTimer timestamp={currentService?.timestamp || currentService?.createdAt || currentService?.acceptedAt} className="text-xs font-mono font-black text-amber-400" />
-                    </div>
-                  )}
-
                   {/* Driver ETA Response Bar - Shown when passenger asks, driver responded or ride is active, BUT hidden when ride is active or for direct forwarded calls */}
                   {Boolean(!isDirectForwarded && !currentService.isForwarded && currentService.status !== 'active' && (currentService.status === 'confirmed' || currentService.status === 'arrived' || currentService.passengerAskedEta || currentService.driverEtaResponse)) && (
                     <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-3xl space-y-3 text-left relative z-10 animate-fadeIn">
@@ -3140,35 +3298,27 @@ export default function DriverView({ user }: DriverViewProps) {
                     </div>
                   )}
 
-                  {/* Collapsed / Toggle Button for VISUALIZADOR OPERACIONAL (Apenas para chamadas públicas de passageiro) */}
+                  {/* Collapsed / Toggle Button for Map (Apenas para chamadas públicas de passageiro) */}
                   {!isDirectForwarded && (
                     !showOperationalMap ? (
                       <button
                         type="button"
                         onClick={() => setShowOperationalMap(true)}
-                        className="w-full flex items-center justify-between bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10"
+                        className="w-full flex items-center justify-center bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10 text-amber-400 hover:text-amber-300 font-black text-xs uppercase tracking-wider gap-2 active:scale-95"
                       >
-                        <div className="flex items-center gap-2">
-                          <MapPin size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest">
-                            VISUALIZADOR OPERACIONAL
-                          </span>
-                        </div>
-                        <span className="text-[9.5px] font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all flex items-center gap-1.5">
-                          🗺️ Abrir Mapa <ChevronDown size={12} />
-                        </span>
+                        <span>🗺️ Abrir Mapa</span>
+                        <ChevronDown size={14} />
                       </button>
                     ) : (
                       <div className="space-y-2 animate-fadeIn relative z-10">
-                        {/* Toggle Map Mode buttons & VISUALIZADOR OPERACIONAL Header */}
+                        {/* Toggle Map Mode buttons */}
                         <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-2xl border border-white/10">
                           <button
                             type="button"
                             onClick={() => setShowOperationalMap(false)}
-                            className="flex items-center gap-2 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-widest pl-2"
+                            className="flex items-center gap-1.5 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-wider pl-2"
                           >
-                            <MapPin size={14} className="text-amber-400" />
-                            VISUALIZADOR OPERACIONAL
+                            <span>🗺️ Ocultar Mapa</span>
                             <ChevronUp size={12} className="text-amber-400" />
                           </button>
                           <div className="flex gap-1.5">
@@ -3651,23 +3801,7 @@ export default function DriverView({ user }: DriverViewProps) {
                           {isDirectForwarded ? <PhoneCall size={16} /> : <MapPin size={16} />}
                           {isDirectForwarded ? "📍 CHEGUEI & LIGAR GSM AO PASSAGEIRO" : "📍 Cheguei ao Ponto de Recolha"}
                         </button>
-
-                        <button
-                          disabled={true}
-                          onClick={() => alert("Por favor, clique primeiro em 'Cheguei ao Ponto de Recolha' quando estiver no local para ativar a corrida!")}
-                          className="w-full bg-slate-800/80 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest border border-white/10 opacity-60 cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                          <PhoneCall size={14} />
-                          INICIAR CORRIDA ACORDADA ({currentService.price ? Number(currentService.price).toLocaleString() : 0} Kz)
-                          <span className="text-[8px] block font-mono font-normal lowercase">(inativo até chegar)</span>
-                        </button>
                         
-                        <div className="p-2.5 bg-slate-950 border border-white/5 rounded-xl text-center">
-                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider flex items-center justify-center gap-1.5">
-                            <Lock size={12} className="text-amber-400" />
-                            Corrida Confirmada (Cancelamento Bloqueado)
-                          </span>
-                        </div>
                         <button
                           onClick={() => {
                             setShowNotification(false);
@@ -3782,10 +3916,10 @@ export default function DriverView({ user }: DriverViewProps) {
                       />
                     ) : null}
                   </div>
-
                 </div>
               </div>
-            ) : activeInternalTab === "dashboard" ? (
+            </div>
+          ) : activeInternalTab === "dashboard" ? (
               <div className="space-y-4">
 
                 {/* Warning Cards for Pending Items (Previous Shift Focus) - Consolidated Collapsible Alert Center */}
@@ -3901,139 +4035,7 @@ export default function DriverView({ user }: DriverViewProps) {
                   </div>
                 ) : null}
 
-                {/* Unified Cabine de Controlo Card (Shift Control, Rating, Earnings & SOS) */}
-                <div className="bg-slate-950 border border-slate-800 text-white rounded-[2rem] p-5 shadow-xl relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-brand-primary/10 blur-3xl rounded-full" />
-                  
-                  {/* Title & Status indicator */}
-                  <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
-                    <div className="text-left">
-                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em]">Cabine de Comando</span>
-                      <h3 className="text-sm font-black tracking-tight text-white leading-none mt-1 uppercase">
-                        {user?.name || "Mestre PSM"}
-                      </h3>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        "w-2 h-2 rounded-full",
-                        isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
-                      )} />
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-300">
-                        {isOnline ? "Em Serviço" : "Fora de Serviço"}
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Rating & Ganhos high density row */}
-                  <div className="grid grid-cols-2 gap-3.5 my-1">
-                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-2xl flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center flex-shrink-0">
-                        <Star size={16} fill="currentColor" />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Avaliação</p>
-                        <p className="text-[13px] font-black text-white mt-0.5">
-                          {typeof stars === 'number' || (typeof stars === 'string' && !isNaN(Number(stars)))
-                            ? `${Number(stars).toFixed(1)} ★${totalRatingCount > 0 ? ` (${totalRatingCount})` : ''}`
-                            : (stars === "Novo" || !stars ? "Novo (Sem avaliações)" : `${stars}`)}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-2xl flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center flex-shrink-0">
-                        <DollarSign size={16} />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Rendas Aprovadas</p>
-                        <p className="text-[13px] font-black text-emerald-400 mt-0.5">{approvedEarnings.toLocaleString()}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Shift Action Toggle / Service Control and Emergency Button */}
-                  <div className="flex items-center gap-3 mt-4 pt-3 border-t border-slate-800">
-                    {currentService && currentService.status === "pending" ? (
-                      isDirectForwarded ? (
-                        <>
-                          <button
-                            onClick={() => {
-                              setShowNotification(false);
-                              setIsTransferModalOpen(true);
-                            }}
-                            className="flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95 animate-pulse"
-                          >
-                            <Users size={13} />
-                            ENCAMINHAR A OUTRO COLEGA
-                          </button>
-
-                          <button
-                            onClick={triggerPanic}
-                            disabled={panicLoading}
-                            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-red-650 hover:bg-red-700 text-white shadow-lg active:scale-90 flex-shrink-0 animate-pulse border border-red-500/30"
-                            title="S.O.S de Emergência"
-                          >
-                            <AlertTriangle size={18} />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={attendCall}
-                            className="flex-[2] py-3 px-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-1.5 shadow-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20 active:scale-95 animate-pulse"
-                          >
-                            <PhoneCall size={13} className="animate-bounce" />
-                            ATENDER CHAMADA
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setShowNotification(false);
-                              setIsTransferModalOpen(true);
-                            }}
-                            className="flex-1 py-3 px-2 rounded-xl font-black text-[9.5px] uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-1 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95"
-                            title="Encaminhar a Outro Colega"
-                          >
-                            <Users size={13} />
-                            ENCAMINHAR
-                          </button>
-
-                          <button
-                            onClick={rejectService}
-                            className="w-11 h-11 rounded-xl flex items-center justify-center transition-all bg-rose-600 hover:bg-rose-700 text-white shadow-lg active:scale-95 flex-shrink-0 border border-rose-500/30 animate-pulse"
-                            title="Recusar Chamada"
-                          >
-                            <XCircle size={18} />
-                          </button>
-                        </>
-                      )
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleStartShift}
-                          className={cn(
-                            "flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg",
-                            isOnline 
-                              ? "bg-emerald-600 text-white shadow-emerald-950/20 active:bg-emerald-700" 
-                              : "bg-white text-slate-950 shadow-black/20 active:bg-slate-100"
-                          )}
-                        >
-                          <Power size={13} />
-                          {isOnline ? "Terminar Turno" : "Iniciar Turno"}
-                        </button>
-
-                        <button
-                          onClick={triggerPanic}
-                          disabled={panicLoading}
-                          className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-red-650 hover:bg-red-700 text-white shadow-lg active:scale-90 flex-shrink-0 animate-pulse border border-red-500/30"
-                          title="S.O.S de Emergência"
-                        >
-                          <AlertTriangle size={18} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
 
                 {/* Reencaminhar Chamada de cliente direta */}
                 {isOnline && (
@@ -4107,27 +4109,36 @@ export default function DriverView({ user }: DriverViewProps) {
 
                   {/* Current Ride / Map Placeholder */}
                   {!currentService && isOnline && (
-                    <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
-                      <div className="h-48 bg-slate-100 relative group overflow-hidden">
-                        {/* Fake Map */}
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-100 to-indigo-50" />
-                        <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/map/400/400')] bg-cover" />
+                    <>
+                      <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm relative">
+                        <div className="h-48 bg-slate-100 relative group overflow-hidden">
+                          {/* Fake Map */}
+                          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-100 to-indigo-50" />
+                          <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/map/400/400')] bg-cover" />
 
-                        <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
-                          <div>
-                            <MapPin
-                              size={32}
-                              className="text-slate-300 mx-auto mb-2"
-                            />
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-normal">
-                              A aguardar por
-                              <br />
-                              serviços da central...
-                            </p>
+                          <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
+                            <div>
+                              <MapPin
+                                size={32}
+                                className="text-slate-300 mx-auto mb-2"
+                              />
+                              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-normal">
+                                A aguardar por
+                                <br />
+                                serviços da central...
+                              </p>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+
+                      {/* Marca JIS ANGOLA com posicionamento fixo no canto inferior direito */}
+                      <div className="fixed bottom-3 right-3 sm:bottom-4 sm:right-4 z-30 pointer-events-none select-none flex items-center">
+                        <span className="text-[8.5px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-widest bg-white/85 dark:bg-slate-900/85 backdrop-blur-xs border border-slate-200/80 dark:border-slate-800/80 px-2.5 py-1 rounded-md shadow-xs pointer-events-auto">
+                          JIS ANGOLA
+                        </span>
+                      </div>
+                    </>
                   )}
 
                   {/* Quick Actions (Call/Chat) */}
@@ -4181,6 +4192,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       const isActive = trip.status === "active";
                       const isPending = ["pending", "connected", "price_sent"].includes(trip.status);
                       const isWaitingApproval = ["confirmed", "arrived"].includes(trip.status);
+                      const isBonusRide = trip.usedBonus === true || trip.paidWithBonus === true || trip.paymentMethod === 'bonus' || trip.isBonus === true;
 
                       return (
                         <div
@@ -4219,6 +4231,12 @@ export default function DriverView({ user }: DriverViewProps) {
                                 {(trip.pickupAddress || trip.pickup || "Origem").split(",")[0]} →{" "}
                                 {(trip.destinationAddress || trip.destination || "Destino").split(",")[0]}
                               </p>
+                              {isBonusRide && (
+                                <span className="inline-flex items-center gap-1 text-[7.5px] font-black px-2 py-0.5 rounded-full border uppercase bg-amber-500/10 text-amber-600 border-amber-500/30">
+                                  <Gift size={9} className="shrink-0" />
+                                  PAGO POR BÓNUS
+                                </span>
+                              )}
                               {!isCompleted && (
                                 <div className="flex items-center gap-2">
                                   <span className={cn(
@@ -4237,26 +4255,37 @@ export default function DriverView({ user }: DriverViewProps) {
                                 </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
                               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
                                 {trip.completedAt || trip.timestamp
                                   ? format(parseDateSafely(trip.completedAt || trip.timestamp), "HH:mm")
                                   : "Hoje"}
                               </span>
                               <span className="w-1 h-1 bg-slate-200 rounded-full" />
-                              <p className="text-[10px] text-emerald-600 font-black italic">
-                                {(trip.price || 0).toLocaleString()} Kz
-                              </p>
+                              {isBonusRide ? (
+                                <div className="flex items-center gap-1.5">
+                                  <p className="text-[10px] text-amber-500 font-black italic">
+                                    {(trip.price || 0).toLocaleString()} Kz
+                                  </p>
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase">
+                                    (Debitado Bónus - Isento Numerário)
+                                  </span>
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-emerald-600 font-black italic">
+                                  {(trip.price || 0).toLocaleString()} Kz
+                                </p>
+                              )}
                             </div>
                           </div>
                           <div className={cn(
                             "p-1.5 rounded-lg transition-all",
-                            isCompleted && "bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white",
+                            isCompleted && (isBonusRide ? "bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white" : "bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white"),
                             isActive && "bg-amber-500 text-slate-950 font-black",
                             isPending && "bg-blue-100 text-blue-600",
                             isWaitingApproval && "bg-emerald-100 text-emerald-600"
                           )}>
-                            {isCompleted ? <CheckCircle2 size={16} /> : (isActive ? <Zap size={14} className="animate-bounce" /> : <Clock size={14} />)}
+                            {isCompleted ? (isBonusRide ? <Gift size={16} /> : <CheckCircle2 size={16} />) : (isActive ? <Zap size={14} className="animate-bounce" /> : <Clock size={14} />)}
                           </div>
                         </div>
                       );
@@ -4623,17 +4652,29 @@ export default function DriverView({ user }: DriverViewProps) {
                         <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm relative overflow-hidden flex flex-col justify-between">
                           <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 blur-2xl rounded-full -mr-10 -mt-10" />
                           <div>
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
-                              Faturação Automática Concluídas (App)
-                            </p>
+                            <div className="flex items-center justify-between">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
+                                Faturação Automática Concluídas (App)
+                              </p>
+                              {passengerBonusRidesCount > 0 && (
+                                <span className="text-[7.5px] font-black bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full uppercase flex items-center gap-1">
+                                  <Gift size={8} /> {passengerBonusRidesCount} {passengerBonusRidesCount === 1 ? 'Bónus deduzido' : 'Bónus deduzidos'}
+                                </span>
+                              )}
+                            </div>
                             <h2 className="text-xl font-black mt-1.5 text-emerald-600 tracking-tight relative z-10">
                               {(passengerRidesTotal || 0).toLocaleString()} <span className="text-xs text-emerald-550 font-medium font-mono">Kz</span>
                             </h2>
                           </div>
-                          <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 relative z-10 flex items-center gap-1">
-                            <span className={`w-1.5 h-1.5 rounded-full ${passengerRidesTotal > 0 ? "bg-amber-400 animate-ping" : "bg-emerald-400"}`} />
-                            {passengerRidesTotal > 0 ? "Acumulado Pendente de Declaração" : "Reiniciado / Em Dia"}
-                          </p>
+                          <div className="space-y-0.5 mt-1 relative z-10">
+                            <p className="text-[8px] text-slate-400 font-bold uppercase flex items-center gap-1">
+                              <span className={`w-1.5 h-1.5 rounded-full ${passengerRidesTotal > 0 ? "bg-amber-400 animate-ping" : "bg-emerald-400"}`} />
+                              {passengerRidesTotal > 0 ? "Acumulado Pendente de Declaração" : "Reiniciado / Em Dia"}
+                            </p>
+                            <p className="text-[7.5px] text-slate-400 font-medium">
+                              * Corridas pagas com bónus são debitadas automaticamente pelo sistema e não entram no numerário pendente.
+                            </p>
+                          </div>
                         </div>
                       </div>
 
@@ -4902,9 +4943,7 @@ export default function DriverView({ user }: DriverViewProps) {
                   </button>
                 </div>
               </div>
-            ) : (
-              null
-            )}
+            ) : null}
           </main>
 
         {/* Panic Modal */}
@@ -4979,15 +5018,40 @@ export default function DriverView({ user }: DriverViewProps) {
                     </button>
                   )}
 
-                  <button
-                    onClick={resolvePanicFromDriver}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
-                  >
-                    Estou Seguro / Cancelar Emergência
-                  </button>
+                  {!showPanicConfirmResolve ? (
+                    <button
+                      onClick={() => setShowPanicConfirmResolve(true)}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+                    >
+                      <span>🛡️ Estou Seguro / Encerrar Emergência</span>
+                    </button>
+                  ) : (
+                    <div className="w-full bg-emerald-950/80 border border-emerald-500/50 rounded-2xl p-3.5 space-y-2.5 animate-fadeIn">
+                      <p className="text-[11px] font-black text-emerald-300 uppercase tracking-wider text-center leading-tight">
+                        Confirma que está em total segurança e deseja encerrar o S.O.S?
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setShowPanicConfirmResolve(false)}
+                          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all"
+                        >
+                          Voltar
+                        </button>
+                        <button
+                          onClick={resolvePanicFromDriver}
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg active:scale-95 transition-all"
+                        >
+                          Sim, Encerrar S.O.S
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <button
-                    onClick={() => setShowPanicModal(false)}
+                    onClick={() => {
+                      setShowPanicConfirmResolve(false);
+                      setShowPanicModal(false);
+                    }}
                     className="w-full bg-slate-900 border border-slate-800 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
                   >
                     Minimizar Janela SOS

@@ -313,8 +313,8 @@ export default function App() {
             version: CURRENT_SYSTEM_VERSION,
             releaseDate: '2026-08-10',
             buildNumber: '60021',
-            isCriticalUpdate: true,
-            notifyOnStartup: true,
+            isCriticalUpdate: false,
+            notifyOnStartup: false,
             minAndroidVersion: 'Android 8.0+ (API 26)',
             storageProvider: 'Alojamento Próprio (JIS Angola Cloud Server)',
             releaseNotes: 'Versão 6.0 Enterprise com suporte a Módulos Offline, Telemetria GPS 24h, Chat de Equipa com Alertas SOS, e Integração Contabilística em Tempo Real.',
@@ -332,11 +332,14 @@ export default function App() {
       } else {
         const data = docSnap.data();
         const savedVersion = (data?.version || '').trim();
-        if (savedVersion && savedVersion !== CURRENT_SYSTEM_VERSION) {
-          console.warn(`[VersionCheck] Discrepancy: Running v${CURRENT_SYSTEM_VERSION} vs Firestore v${savedVersion}`);
+        const isCritical = data?.isCriticalUpdate === true || data?.forceUpdate === true;
+        const shouldNotify = data?.notifyOnStartup === true || isCritical;
+        
+        if ((savedVersion && savedVersion !== CURRENT_SYSTEM_VERSION) || shouldNotify) {
+          console.warn(`[VersionCheck] Update Notice Active: Running v${CURRENT_SYSTEM_VERSION}, Firestore v${savedVersion || CURRENT_SYSTEM_VERSION}`);
           setVersionDiscrepancy({
             runningVersion: CURRENT_SYSTEM_VERSION,
-            requiredVersion: savedVersion,
+            requiredVersion: savedVersion || CURRENT_SYSTEM_VERSION,
             apkDetails: data
           });
         } else {
@@ -647,7 +650,7 @@ export default function App() {
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen relative w-full bg-slate-950 flex flex-col items-center justify-center">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] relative w-full bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
             <React.Suspense fallback={
               <div className="flex flex-col items-center justify-center gap-4 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -731,10 +734,10 @@ export default function App() {
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
             {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
             <React.Suspense fallback={
-              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar portal...</span>
               </div>
@@ -763,10 +766,10 @@ export default function App() {
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
             {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
             <React.Suspense fallback={
-              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel mecânico...</span>
               </div>
@@ -790,10 +793,10 @@ export default function App() {
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
             {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
             <React.Suspense fallback={
-              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel motorista...</span>
               </div>

@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">SuperTáxi</string>
-    <string name="title_activity_main">SuperTáxi</string>
-    <string name="package_name">com.supertaxi.app</string>
-    <string name="custom_url_scheme">com.supertaxi.app</string>
-</resources>

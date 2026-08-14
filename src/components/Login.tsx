@@ -925,9 +925,6 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                       Divulgação • App do Passageiro
                     </span>
                     <h4 className="text-sm font-black uppercase tracking-wider text-white mt-1">QR CODE DO APP PASSAGEIRO</h4>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight max-w-xs leading-relaxed">
-                      Digitalize com a câmara do telemóvel para abrir a App do Passageiro Oficial em Luena - Moxico
-                    </p>
                   </div>
 
                   {/* QR Image Frame */}

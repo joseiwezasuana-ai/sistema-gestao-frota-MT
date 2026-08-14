@@ -67,6 +67,27 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [showPermissionBanner, setShowPermissionBanner] = useState(false);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    cancelText: string;
+    isDanger: boolean;
+    resolve: (value: boolean) => void;
+  } | null>(null);
+
+  useEffect(() => {
+    const handleCustomConfirm = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setConfirmModal(customEvent.detail);
+      }
+    };
+    window.addEventListener('super_taxi_show_custom_confirm', handleCustomConfirm);
+    return () => {
+      window.removeEventListener('super_taxi_show_custom_confirm', handleCustomConfirm);
+    };
+  }, []);
 
   // Request browser notification permission
   const requestPermission = useCallback(async () => {
@@ -289,15 +310,16 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
       });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'messages'));
 
-    // 5. Monitor APK Distribution for Critical System Updates
+    // 5. Monitor APK Distribution for Critical System Updates (Only alert if there is a newer version than current running 6.0.0)
     const unsubApk = onSnapshot(doc(db, 'settings', 'apk_distribution'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        const latestVersion = data.version || '6.0.0';
+        const latestVersion = (data.version || '').trim();
+        const currentVersion = '6.0.0';
         const isCritical = data.isCriticalUpdate === true || data.forceUpdate === true;
         
-        // Show update alert if marked critical or if new version announced
-        if (isCritical || data.notifyOnStartup === true) {
+        // Show update alert ONLY if a strictly newer version is released and marked for update
+        if (latestVersion && latestVersion !== currentVersion && (isCritical || data.notifyOnStartup === true)) {
           const updateId = `apk-update-${latestVersion}${data.updatedAt?.seconds ? `-${data.updatedAt.seconds}` : ''}`;
           triggerAlert({
             id: updateId,
@@ -313,6 +335,9 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
               passengerAppUrl: data.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'
             }
           });
+        } else {
+          // If system is already on 6.0.0 or matching version, dismiss any old update alerts
+          setAlerts((prev) => prev.filter((a) => a.type !== 'system_update'));
         }
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/apk_distribution'));
@@ -458,6 +483,59 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
 
   return (
     <>
+      {/* Custom Confirm Dialog Modal for Sandboxed Environment Compatibility */}
+      <AnimatePresence>
+        {confirmModal && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-slate-900 border border-slate-700/80 text-white rounded-2xl p-6 max-w-md w-full shadow-2xl relative overflow-hidden space-y-4"
+            >
+              <div className="flex items-start gap-3.5">
+                <div className={`p-3 rounded-xl shrink-0 ${confirmModal.isDanger ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`}>
+                  <AlertTriangle size={24} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-tight text-white">
+                    {confirmModal.title}
+                  </h3>
+                  <p className="text-xs text-slate-300 font-medium leading-relaxed mt-1">
+                    {confirmModal.message}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                <button
+                  onClick={() => {
+                    confirmModal.resolve(false);
+                    setConfirmModal(null);
+                  }}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95"
+                >
+                  {confirmModal.cancelText}
+                </button>
+                <button
+                  onClick={() => {
+                    confirmModal.resolve(true);
+                    setConfirmModal(null);
+                  }}
+                  className={`flex-1 text-white py-3 rounded-xl text-xs font-black uppercase tracking-wider shadow-lg transition-all active:scale-95 ${
+                    confirmModal.isDanger
+                      ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-950/50'
+                      : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950/50'
+                  }`}
+                >
+                  {confirmModal.confirmText}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Toast Feedback */}
       {feedbackToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[110] bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 border border-emerald-500/50 shadow-2xl animate-bounce">
