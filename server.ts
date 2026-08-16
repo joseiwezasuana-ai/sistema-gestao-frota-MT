@@ -7,7 +7,7 @@ import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
-import { executeWeeklyStorageBackup, initWeeklyBackupScheduler } from "./server/storageBackupService";
+import { executeWeeklyStorageBackup, initWeeklyBackupScheduler } from "./server/storageBackupService.ts";
 
 // Load Firebase Config
 const configPath = path.join(process.cwd(), "firebase-applet-config.json");
@@ -357,6 +357,17 @@ async function startServer() {
       const email = id.includes('@') ? id : `${sanitizedId}@taxicontrol.ao`;
       console.log(`[Admin] Registering new identity: ${email} as ${role}`);
 
+      // Check if email is in banned_users
+      try {
+        const bannedDoc = await db.collection("banned_users").doc(email).get();
+        if (bannedDoc.exists) {
+          console.warn(`[Admin] Prevented creation of banned user: ${email}`);
+          return res.status(403).json({ error: "Este utilizador foi eliminado permanentemente e o seu acesso está bloqueado no sistema." });
+        }
+      } catch (e: any) {
+        console.warn("[Admin] Could not check banned_users collection:", e.message);
+      }
+
       // 1. Create in Firebase Auth
       let userRecord;
       try {
@@ -535,6 +546,25 @@ async function startServer() {
         if (targetUid) {
           const staffQuery2 = await db.collection("administrative_staff").where("uid", "==", targetUid).get();
           staffQuery2.forEach(d => d.ref.delete());
+        }
+        
+        // Fully scrub driver references if any
+        if (targetEmail) {
+          const driverQuery = await db.collection("drivers_master").where("email", "==", targetEmail).get();
+          driverQuery.forEach(d => d.ref.delete());
+          const dQuery = await db.collection("drivers").where("email", "==", targetEmail).get();
+          dQuery.forEach(d => d.ref.delete());
+        }
+
+        // Add to banned_users list so they can never recreate the account
+        if (targetEmail) {
+          await db.collection("banned_users").doc(targetEmail).set({
+            email: targetEmail,
+            uid: targetUid || null,
+            deletedAt: new Date().toISOString(),
+            deletedBy: requesterEmail
+          });
+          console.log(`[Admin] Added ${targetEmail} to banned_users list.`);
         }
       } catch (cleanErr) {
         console.warn("[Admin] Aux staff cleanup warning:", cleanErr);
@@ -928,6 +958,17 @@ async function startServer() {
 
       // 3. Prepare Firebase Auth Account
       const email = id.includes('@') ? id : `${id.toLowerCase().trim()}@taxicontrol.ao`;
+
+      // Check if email is in banned_users
+      try {
+        const bannedDoc = await db.collection("banned_users").doc(email).get();
+        if (bannedDoc.exists) {
+          console.warn(`[Register] Prevented registration of banned user: ${email}`);
+          return res.status(403).json({ error: "Este utilizador foi eliminado permanentemente e o seu acesso está bloqueado no sistema." });
+        }
+      } catch (e: any) {
+        console.warn("[Register] Could not check banned_users collection:", e.message);
+      }
       
       let userRecord;
       try {
