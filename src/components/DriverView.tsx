@@ -1,84 +1,46 @@
-// @ts-nocheck
+
+  // @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
+import QRCode from "qrcode";
+import { signOut } from "firebase/auth";
+import { MapContainer, TileLayer, Marker, useMap, Popup } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { motion, AnimatePresence } from "motion/react";
+import { format } from "date-fns";
+
+// Ícones
 import {
-  Smartphone,
-  Power,
-  MapPin,
-  Navigation,
-  Menu,
-  Bell,
-  Star,
-  DollarSign,
-  Clock,
-  CheckCircle2,
-  Plus,
-  XCircle,
-  Phone,
-  PhoneIncoming,
-  PhoneCall,
-  MessageCircle,
-  MoreVertical,
-  ChevronRight,
-  ChevronDown,
-  ChevronUp,
-  Shield,
-  Activity,
-  History,
-  AlertTriangle,
-  Wallet,
-  Wrench,
-  Settings,
-  FileSignature,
-  X,
-  Users,
-  Loader2,
-  ExternalLink,
-  RefreshCw,
-  Zap,
-  MessageSquare,
-  Layout,
-  AlertCircle,
-  Lock,
+  Smartphone, Power, MapPin, Navigation, Menu, Bell, Star, DollarSign,
+  Clock, CheckCircle2, Plus, XCircle, Phone, PhoneIncoming, PhoneCall,
+  MessageCircle, MoreVertical, ChevronRight, ChevronDown, ChevronUp, Shield,
+  Activity, History, AlertTriangle, Wallet, Wrench, Settings, FileSignature,
+  X, Users, Loader2, ExternalLink, RefreshCw, Zap, MessageSquare, Layout,
+  AlertCircle, Lock, ArrowLeft, Gift, Download, Copy, Car, Palette, Music,
+  Upload, Trash2, Volume2, Play, Pause
 } from "lucide-react";
+
+// Firestore Oficial (com todas as funções unificadas)
+import { 
+  collection, onSnapshot, doc, query, orderBy, where, or, and, limit,
+  setDoc, updateDoc, serverTimestamp, arrayUnion, addDoc, getDocs, getDoc
+} from 'firebase/firestore';
+
+// Utilitários e Serviços
+import { db, auth, handleFirestoreError, OperationType, withTimeout } from '../lib/firebase';
+import { customConfirm } from "../lib/customConfirm";
+import { cn } from "../lib/utils";
+import { useUnreadTeamChat } from "../lib/useUnreadTeamChat";
+import { geminiService } from "../services/geminiService";
+import { sendPassengerPushNotification } from "../lib/fcmService";
+
+// Componentes
 import RevenueManagement from "./RevenueManagement";
 import PermissionManager from "./PermissionManager";
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
 import { WebRTCAudioCall } from "./WebRTCAudioCall";
 import { TeamCollaborativeChat } from "./TeamCollaborativeChat";
-import { useUnreadTeamChat } from "../lib/useUnreadTeamChat";
 import WaitingTimer from './WaitingTimer';
-import { motion, AnimatePresence } from "motion/react";
-import { cn } from "../lib/utils";
-import { format } from "date-fns";
-import { db, handleFirestoreError, OperationType } from "../lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  or,
-  and,
-  onSnapshot,
-  orderBy,
-  limit,
-  doc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-  arrayUnion,
-  addDoc,
-  getDocs,
-  getDoc,
-} from '@/src/lib/firebase';
-
-import { auth } from "../lib/firebase";
-import { signOut } from "firebase/auth";
-
-import { MapContainer, TileLayer, Marker, useMap, Popup } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-
-import { geminiService } from "../services/geminiService";
-import { sendPassengerPushNotification } from "../lib/fcmService";
 
 // Fix for Leaflet default icon issues safely
 try {
@@ -440,6 +402,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const attendCall = async () => {
     if (!currentService?.id) return;
     try {
+      setIsCallScreenMinimized(false);
       const callRef = doc(db, "calls", currentService.id);
       await updateDoc(callRef, {
         status: "connected",
@@ -668,6 +631,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const [passengerRidesConfirmed, setPassengerRidesConfirmed] = useState<any[]>([]);
   const [passengerRidesTotal, setPassengerRidesTotal] = useState(0);
   const [passengerRidesAllTimeTotal, setPassengerRidesAllTimeTotal] = useState(0);
+  const [passengerBonusRidesCount, setPassengerBonusRidesCount] = useState(0);
   const [showThreeDotsMetrics, setShowThreeDotsMetrics] = useState(false);
 
   // Sync passenger rides in real-time
@@ -687,18 +651,30 @@ export default function DriverView({ user }: DriverViewProps) {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allCompletedTrips = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
 
+      const isBonusRide = (curr: any) =>
+        curr.usedBonus === true ||
+        curr.paidWithBonus === true ||
+        curr.paymentMethod === 'bonus' ||
+        curr.isBonus === true;
+
       // Filter out approved trips ONLY for the active declaration list
       const unapprovedList = allCompletedTrips.filter((trip) => trip.approvedByOperator !== true);
       setPassengerRidesConfirmed(unapprovedList);
       
-      // All-time historical total of completed app rides per driver
-      const allTimeTotal = allCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+      // All-time historical total of completed app rides per driver (excluding bonus rides which don't involve cash collection)
+      const allTimeTotal = allCompletedTrips
+        .filter(curr => !isBonusRide(curr))
+        .reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
       setPassengerRidesAllTimeTotal(allTimeTotal);
 
-      // Current automatic app billing (only undeclared calls)
-      const currentUndeclared = unapprovedList.filter((curr: any) => curr.declared !== true);
+      // Current automatic app billing (only undeclared cash/TPA calls - excludes bonus rides so they do NOT reflect in pending declarations)
+      const currentUndeclared = unapprovedList.filter((curr: any) => curr.declared !== true && !isBonusRide(curr));
       const currentTotal = currentUndeclared.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
       setPassengerRidesTotal(currentTotal);
+
+      // Track unapproved bonus rides count for informative badges
+      const bonusRides = unapprovedList.filter(curr => isBonusRide(curr));
+      setPassengerBonusRidesCount(bonusRides.length);
 
       // Dynamically calculate rating from ALL rated completed calls (including historical approved ones)
       const ratedCalls = allCompletedTrips.filter((curr: any) => {
@@ -744,30 +720,212 @@ export default function DriverView({ user }: DriverViewProps) {
     }
   });
 
-  const todayTotalRevenue = todayCompletedTrips.reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
+  const isTripBonus = (trip: any) =>
+    trip.usedBonus === true ||
+    trip.paidWithBonus === true ||
+    trip.paymentMethod === 'bonus' ||
+    trip.isBonus === true;
+
+  const todayTotalRevenue = todayCompletedTrips
+    .filter(trip => !isTripBonus(trip))
+    .reduce((acc, curr: any) => acc + (Number(curr.price) || 0), 0);
 
   const [showNotification, setShowNotification] = useState(false);
+  const [isCallScreenMinimized, setIsCallScreenMinimized] = useState(true);
   const [recentCalls, setRecentCalls] = useState<any[]>([]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMessagesModalOpen, setIsMessagesModalOpen] = useState(false);
   const [activeInternalTab, setActiveInternalTab] = useState<
     "dashboard" | "history" | "wallet" | "contracts" | "settings" | "rendas"
   >("dashboard");
+  // CONFIGURAÇÕES DE TEMAS DO ESPAÇO CENTRAL DE DESPACHO
+  const dispatchThemes = {
+    cyber_dark: {
+      id: 'cyber_dark',
+      name: 'Cyber Radar Dark',
+      badge: 'Tecnológico',
+      description: 'Radar futurista dark com acentos esmeralda e azuis',
+      containerClass: 'bg-slate-950 text-white border border-slate-800 shadow-2xl',
+      gridOverlayClass: 'bg-[radial-gradient(circle_at_center,_rgba(37,99,235,0.18),_transparent_70%)]',
+      radarRingClass: 'border-emerald-400/40',
+      textColor: 'text-white',
+      subtextColor: 'text-slate-400',
+      accentBadgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+      buttonClass: 'bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-emerald-500/30',
+      waitingIconClass: 'text-blue-400 bg-slate-900/90 border-slate-800',
+      avatarRingGradient: 'from-emerald-500 via-teal-400 to-blue-500'
+    },
+    emerald_taxi: {
+      id: 'emerald_taxi',
+      name: 'Verde Esmeralda Táxi',
+      badge: 'SUPER Táxi',
+      description: 'Verde esmeralda oficial com brilho de alta visibilidade',
+      containerClass: 'bg-gradient-to-br from-emerald-950 via-slate-950 to-teal-950 text-white border border-emerald-500/40 shadow-2xl shadow-emerald-950/50',
+      gridOverlayClass: 'bg-[radial-gradient(circle_at_center,_rgba(16,185,129,0.25),_transparent_70%)]',
+      radarRingClass: 'border-emerald-400/50',
+      textColor: 'text-white',
+      subtextColor: 'text-emerald-300/80',
+      accentBadgeClass: 'bg-emerald-400/15 text-emerald-300 border-emerald-400/30',
+      buttonClass: 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/40 font-black',
+      waitingIconClass: 'text-emerald-400 bg-emerald-950/90 border-emerald-800/60',
+      avatarRingGradient: 'from-emerald-400 via-green-300 to-amber-300'
+    },
+    midnight_luena: {
+      id: 'midnight_luena',
+      name: 'Noite de Luena (Midnight)',
+      badge: 'Azul Meia-Noite',
+      description: 'Azul profundo noturno com brilho ciano elegante',
+      containerClass: 'bg-gradient-to-br from-slate-950 via-blue-950 to-indigo-950 text-white border border-blue-500/40 shadow-2xl shadow-blue-950/50',
+      gridOverlayClass: 'bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.25),_transparent_70%)]',
+      radarRingClass: 'border-cyan-400/50',
+      textColor: 'text-white',
+      subtextColor: 'text-blue-200/80',
+      accentBadgeClass: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+      buttonClass: 'bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 shadow-cyan-500/30 font-black',
+      waitingIconClass: 'text-cyan-400 bg-blue-950/90 border-blue-800/60',
+      avatarRingGradient: 'from-cyan-400 via-blue-400 to-indigo-400'
+    },
+    amber_gold: {
+      id: 'amber_gold',
+      name: 'Âmbar Executivo Ouro',
+      badge: 'Premium Gold',
+      description: 'Preto obsidiana com dourado e âmbar executivo',
+      containerClass: 'bg-gradient-to-br from-stone-950 via-neutral-950 to-amber-950/80 text-white border border-amber-500/40 shadow-2xl shadow-amber-950/40',
+      gridOverlayClass: 'bg-[radial-gradient(circle_at_center,_rgba(245,158,11,0.22),_transparent_70%)]',
+      radarRingClass: 'border-amber-400/50',
+      textColor: 'text-white',
+      subtextColor: 'text-amber-200/80',
+      accentBadgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      buttonClass: 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 shadow-amber-500/30 font-black',
+      waitingIconClass: 'text-amber-400 bg-neutral-900/90 border-amber-500/40',
+      avatarRingGradient: 'from-amber-400 via-yellow-400 to-orange-400'
+    },
+    clean_light: {
+      id: 'clean_light',
+      name: 'Clássico Clean Claro',
+      badge: 'Light Nítido',
+      description: 'Visual moderno claro com alto contraste e elegância',
+      containerClass: 'bg-white text-slate-900 border border-slate-200 shadow-xl',
+      gridOverlayClass: 'bg-[radial-gradient(circle_at_center,_rgba(16,185,129,0.1),_transparent_70%)]',
+      radarRingClass: 'border-emerald-500/40',
+      textColor: 'text-slate-900',
+      subtextColor: 'text-slate-500',
+      accentBadgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      buttonClass: 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20 font-black',
+      waitingIconClass: 'text-emerald-600 bg-slate-100 border-slate-200',
+      avatarRingGradient: 'from-emerald-500 via-teal-500 to-slate-800'
+    },
+    pure_carbon: {
+      id: 'pure_carbon',
+      name: 'Carbono Minimalista',
+      badge: 'OLED Minimal',
+      description: 'Preto puro com detalhes em titânio e contraste extremo',
+      containerClass: 'bg-black text-white border border-neutral-800 shadow-2xl',
+      gridOverlayClass: 'bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.07),_transparent_70%)]',
+      radarRingClass: 'border-white/30',
+      textColor: 'text-white',
+      subtextColor: 'text-neutral-400',
+      accentBadgeClass: 'bg-white/10 text-white border-white/20',
+      buttonClass: 'bg-white hover:bg-neutral-200 text-black shadow-white/20 font-black',
+      waitingIconClass: 'text-white bg-neutral-900 border-neutral-800',
+      avatarRingGradient: 'from-white via-neutral-300 to-neutral-500'
+    }
+  };
+
+  const [dispatchTheme, setDispatchTheme] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('driver_dispatch_theme') || 'cyber_dark';
+    }
+    return 'cyber_dark';
+  });
+  const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+
   const [selectedRingtone, setSelectedRingtone] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('driver_ringtone') || 'voice_supertaxi';
     }
     return 'voice_supertaxi';
   });
+
+  const [customRingtones, setCustomRingtones] = useState<Array<{ id: string; name: string; url: string; isCustom: boolean }>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('driver_custom_ringtones');
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  });
+  const [isPlayingAudioId, setIsPlayingAudioId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const ringtones = [
+  const baseRingtones = [
     { id: 'classic', name: 'Clássico', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
     { id: 'modern', name: 'Moderno', url: 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3' },
     { id: 'alert', name: 'Alerta', url: 'https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3' },
     { id: 'melodic', name: 'Melódico', url: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3' },
     { id: 'voice_supertaxi', name: 'Voz: Pedido Super Táxi 🗣️', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
   ];
+
+  const ringtones = [...customRingtones, ...baseRingtones];
+
+  const handleUploadCustomRingtone = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('audio/') && !file.name.match(/\.(mp3|wav|ogg|m4a|aac|webm|flac)$/i)) {
+      alert("Por favor selecione um ficheiro de áudio válido (MP3, WAV, OGG, M4A).");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      alert("O ficheiro de áudio é demasiado grande. O limite máximo é de 8MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Audio = event.target?.result as string;
+      if (!base64Audio) return;
+      const newRing = {
+        id: `custom_${Date.now()}`,
+        name: `🎵 ${file.name.replace(/\.[^/.]+$/, '')}`,
+        url: base64Audio,
+        isCustom: true
+      };
+      const updated = [newRing, ...customRingtones];
+      setCustomRingtones(updated);
+      try {
+        localStorage.setItem('driver_custom_ringtones', JSON.stringify(updated));
+      } catch (err) {
+        console.warn("Could not save audio to localStorage:", err);
+      }
+      setSelectedRingtone(newRing.id);
+      localStorage.setItem('driver_ringtone', newRing.id);
+      playPreview(newRing.url, newRing.id);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleDeleteCustomRingtone = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = customRingtones.filter(r => r.id !== id);
+    setCustomRingtones(updated);
+    try {
+      localStorage.setItem('driver_custom_ringtones', JSON.stringify(updated));
+    } catch (err) {
+      console.warn(err);
+    }
+    if (selectedRingtone === id) {
+      setSelectedRingtone('voice_supertaxi');
+      localStorage.setItem('driver_ringtone', 'voice_supertaxi');
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    setIsPlayingAudioId(null);
+  };
 
   const speakNotification = () => {
     try {
@@ -797,7 +955,13 @@ export default function DriverView({ user }: DriverViewProps) {
     try {
       if (audioRef.current) {
         audioRef.current.pause();
+        audioRef.current.currentTime = 0;
       }
+      if (ringId && ringId === isPlayingAudioId) {
+        setIsPlayingAudioId(null);
+        return;
+      }
+      setIsPlayingAudioId(ringId || null);
       if (ringId === 'voice_supertaxi') {
         speakNotification();
         return;
@@ -805,13 +969,19 @@ export default function DriverView({ user }: DriverViewProps) {
       if (typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
         const AudioClass = (window as any).Audio;
         audioRef.current = new AudioClass(url);
-        audioRef.current.play().catch(e => console.warn(e));
+        audioRef.current.onended = () => setIsPlayingAudioId(null);
+        audioRef.current.play().catch(e => {
+          console.warn(e);
+          setIsPlayingAudioId(null);
+        });
       }
     } catch (e) {
       console.warn("Audio preview error:", e);
+      setIsPlayingAudioId(null);
     }
   };
   const [showPanicModal, setShowPanicModal] = useState(false);
+  const [showPanicConfirmResolve, setShowPanicConfirmResolve] = useState(false);
   const [localPassengerOffline, setLocalPassengerOffline] = useState(false);
   const [activePanicAlert, setActivePanicAlert] = useState<any | null>(null);
   const [panicLoading, setPanicLoading] = useState(false);
@@ -835,6 +1005,33 @@ export default function DriverView({ user }: DriverViewProps) {
       unsubPassenger();
     };
   }, []);
+
+  const [isPassengerApkModalOpen, setIsPassengerApkModalOpen] = useState(false);
+  const [passengerApkQrUrl, setPassengerApkQrUrl] = useState<string>('');
+  const [apkConfig, setApkConfig] = useState<any>({
+    version: '6.0.0',
+    passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
+    passengerAppSize: '16.8 MB'
+  });
+
+  useEffect(() => {
+    const unsubApk = onSnapshot(doc(db, 'settings', 'apk_distribution'), (snap) => {
+      if (snap.exists()) {
+        setApkConfig(snap.data());
+      }
+    }, (err) => console.warn("Driver APK config sync error:", err));
+    return () => unsubApk();
+  }, []);
+
+  useEffect(() => {
+    if (isPassengerApkModalOpen) {
+      const rawUrl = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
+      const fullUrl = rawUrl.startsWith('http') ? rawUrl : `${window.location.origin}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+      QRCode.toDataURL(fullUrl, { width: 280, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } })
+        .then(url => setPassengerApkQrUrl(url))
+        .catch(() => setPassengerApkQrUrl(`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(fullUrl)}`));
+    }
+  }, [isPassengerApkModalOpen, apkConfig.passengerAppUrl]);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [contractLoading, setContractLoading] = useState(false);
   const [contractFormData, setContractFormData] = useState({
@@ -1328,7 +1525,12 @@ export default function DriverView({ user }: DriverViewProps) {
         driverAcknowledge: true,
         acknowledgedAt: new Date().toISOString()
       });
-      alert("Recebimento de ajuda confirmado! Fique no local em segurança.");
+      setNotificationBanner({
+        title: "✅ AJUDA CONFIRMADA",
+        message: "Recebimento de ajuda confirmado! Fique no local em segurança.",
+        type: "success",
+        visible: true
+      });
     } catch (e) {
       console.error(e);
     }
@@ -1336,7 +1538,6 @@ export default function DriverView({ user }: DriverViewProps) {
 
   const resolvePanicFromDriver = async () => {
     if (!activePanicAlert?.id) return;
-    if (!window.confirm("Deseja mesmo cancelar o S.O.S? Confirme que está em total segurança.")) return;
     try {
       await updateDoc(doc(db, "panic_alerts", activePanicAlert.id), {
         status: "resolved",
@@ -1346,7 +1547,13 @@ export default function DriverView({ user }: DriverViewProps) {
       });
       setActivePanicAlert(null);
       setShowPanicModal(false);
-      alert("S.O.S encerrado com sucesso.");
+      setShowPanicConfirmResolve(false);
+      setNotificationBanner({
+        title: "🛡️ S.O.S ENCERRADO",
+        message: "O protocolo de emergência foi encerrado com sucesso. Estado seguro confirmado.",
+        type: "success",
+        visible: true
+      });
     } catch (e) {
       console.error(e);
     }
@@ -2112,7 +2319,14 @@ export default function DriverView({ user }: DriverViewProps) {
 
   const cancelService = async () => {
     if (!currentService) return;
-    if (!window.confirm("Deseja mesmo cancelar esta corrida? O passageiro será notificado e a corrida será cancelada no sistema.")) return;
+    const confirmed = await customConfirm({
+      title: "Cancelar Corrida",
+      message: "Deseja mesmo cancelar esta corrida? O passageiro será notificado e a corrida será cancelada no sistema.",
+      confirmText: "Sim, Cancelar",
+      cancelText: "Voltar",
+      isDanger: true,
+    });
+    if (!confirmed) return;
 
     try {
       // Unblock UI immediately
@@ -2158,7 +2372,14 @@ export default function DriverView({ user }: DriverViewProps) {
   };
 
   const forceUnlockScreen = async () => {
-    if (!window.confirm("Deseja forçar a saída desta tela de interação? O serviço atual será fechado no seu visor local de motorista, mas continuará arquivado no servidor.")) return;
+    const confirmed = await customConfirm({
+      title: "Forçar Saída",
+      message: "Deseja forçar a saída desta tela de interação? O serviço atual será fechado no seu visor local de motorista, mas continuará arquivado no servidor.",
+      confirmText: "Forçar Saída",
+      cancelText: "Voltar",
+      isDanger: true,
+    });
+    if (!confirmed) return;
     try {
       if (assignedVehicle?.id) {
         await updateDoc(doc(db, "drivers", assignedVehicle.id), { status: "disponível" });
@@ -2483,59 +2704,58 @@ export default function DriverView({ user }: DriverViewProps) {
         )}
       </AnimatePresence>
 
-      {/* Non-scrollable header and status bar zone */}
-      <div className="bg-slate-50 shrink-0 z-40 border-b border-slate-100">
-
-
-        <header className="px-4 py-4 flex items-center justify-between bg-white">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-brand-primary/10 flex items-center justify-center border border-brand-primary/20">
-                <Shield size={20} className="text-brand-primary" />
+      {/* Unified Single Block Header & Control Console - Rendered ONLY on Main Dashboard */}
+      {!currentService && activeInternalTab === "dashboard" && (
+        <div className="bg-slate-950 text-white shrink-0 z-40 border-b border-slate-800 shadow-2xl sticky top-0 p-3.5 sm:p-4 space-y-2.5">
+          {/* Header Row: Shield + TAXICONTROL & Company + Quick Action Buttons */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-2xl bg-amber-500/10 flex items-center justify-center border border-amber-500/20 text-amber-400 shrink-0">
+                <Shield size={18} />
               </div>
-              <div>
-                <h4 className="text-[13px] font-black text-slate-800 leading-none">
-                  PSM COMERCIAL
+              <div className="min-w-0 flex flex-col justify-center">
+                <h4 className="text-sm sm:text-base font-black tracking-tight text-white uppercase leading-none">
+                  TAXICONTROL
                 </h4>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Luena, Moxico
-                  </span>
-                  {stars !== "Novo" && Number(stars) >= 4.7 && (
-                    <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter border border-amber-200">
-                      Top Rated
-                    </span>
-                  )}
-                </div>
+                <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider mt-1 truncate">
+                  {user?.companyName || user?.company || user?.tenantName || (user?.tenantId === 'psm' ? 'PSMOREIRA' : 'PSMOREIRA')}
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 relative">
+
+            {/* Quick Action Icons */}
+            <div className="flex items-center gap-1 shrink-0 relative">
               <button 
                 onClick={() => setIsMessagesModalOpen(true)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors relative">
-                <Bell size={20} />
+                className="p-2 text-slate-400 hover:text-white transition-colors relative"
+                title="Mensagens"
+              >
+                <Bell size={18} />
                 {unreadMessages.length > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white animate-pulse" />
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-slate-900 animate-pulse" />
                 )}
               </button>
+
               <button
                 onClick={() => {
                   markAsRead();
                   setIsTeamChatOpen(true);
                 }}
-                className="p-2 text-slate-400 hover:text-brand-primary transition-colors relative"
+                className="p-2 text-slate-400 hover:text-amber-400 transition-colors relative"
                 title="Chat Interno"
               >
-                <MessageSquare size={20} />
+                <MessageSquare size={18} />
                 {hasUnread && (
-                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-ping" />
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border border-slate-900 animate-ping" />
                 )}
               </button>
 
               <button
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
-                className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+                className="p-2 text-slate-400 hover:text-white transition-colors"
+                title="Menu"
               >
-                <MoreVertical size={20} />
+                <MoreVertical size={18} />
               </button>
 
               <AnimatePresence>
@@ -2549,14 +2769,14 @@ export default function DriverView({ user }: DriverViewProps) {
                       initial={{ opacity: 0, scale: 0.95, y: -10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                      className="absolute top-full right-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-slate-100 py-2 z-50"
+                      className="absolute top-full right-0 mt-2 w-52 bg-white text-slate-900 rounded-xl shadow-xl border border-slate-100 py-2 z-50"
                     >
                       <div className="px-4 py-2 border-b border-slate-50 mb-1">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                           Utilizador
                         </p>
                         <p className="text-xs font-bold text-slate-800 truncate">
-                          {user?.name}
+                          {user?.name || "Motorista"}
                         </p>
                       </div>
 
@@ -2625,6 +2845,16 @@ export default function DriverView({ user }: DriverViewProps) {
                       <div className="h-px bg-slate-100 my-1.5" />
 
                       <button
+                        onClick={() => { setIsPassengerApkModalOpen(true); setIsMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <Smartphone size={14} className="text-emerald-500" />
+                        <span>Download APK Passageiro & QR</span>
+                      </button>
+
+                      <div className="h-px bg-slate-100 my-1.5" />
+
+                      <button
                         onClick={() => { setActiveInternalTab("settings"); setIsMenuOpen(false); }}
                         className={cn(
                           "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left",
@@ -2632,11 +2862,11 @@ export default function DriverView({ user }: DriverViewProps) {
                         )}
                       >
                         <Settings size={14} className={activeInternalTab === "settings" ? "text-brand-primary" : "text-slate-400"} />
-                        Configurar Toque
+                        Configurações
                       </button>
 
                       <button
-                        onClick={() => signOut(auth)}
+                        onClick={() => window.dispatchEvent(new CustomEvent('jis-request-logout'))}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50 transition-colors text-left"
                       >
                         <Power size={14} className="text-red-400" />
@@ -2647,8 +2877,134 @@ export default function DriverView({ user }: DriverViewProps) {
                 )}
               </AnimatePresence>
             </div>
-          </header>
+          </div>
+
+          {/* Driver Name bar - Directly above ESTADO */}
+          <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 px-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">
+                Motorista:
+              </span>
+              <span className="text-[11px] font-black text-white uppercase tracking-tight truncate">
+                {user?.name || "Mestre PSM"}
+              </span>
+            </div>
+          </div>
+
+          {/* Grid Stats Bar: Em Serviço | Avaliação | Rendas Aprovadas */}
+          <div className="grid grid-cols-3 gap-2">
+            {/* Status Item */}
+            <div className="bg-slate-900/90 border border-slate-800/90 p-2.5 rounded-xl flex flex-col justify-center items-start">
+              <span className="text-[7.5px] font-black text-slate-500 uppercase tracking-widest leading-none">Estado</span>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className={cn(
+                  "w-2 h-2 rounded-full inline-block shrink-0",
+                  isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
+                )} />
+                <span className={cn(
+                  "text-[10px] font-black uppercase tracking-tight truncate",
+                  isOnline ? "text-emerald-400" : "text-slate-400"
+                )}>
+                  {isOnline ? "Em Serviço" : "Fora"}
+                </span>
+              </div>
+            </div>
+
+            {/* Rating Item */}
+            <div className="bg-slate-900/90 border border-slate-800/90 p-2.5 rounded-xl flex flex-col justify-center items-start">
+              <span className="text-[7.5px] font-black text-slate-500 uppercase tracking-widest leading-none">Avaliação</span>
+              <div className="flex items-center gap-1 mt-1 text-amber-400">
+                <Star size={11} fill="currentColor" />
+                <span className="text-[10px] font-black text-white leading-none">
+                  {typeof stars === 'number' || (typeof stars === 'string' && !isNaN(Number(stars)))
+                    ? `${Number(stars).toFixed(1)}`
+                    : (stars === "Novo" || !stars ? "Novo" : `${stars}`)}
+                </span>
+              </div>
+            </div>
+
+            {/* Earnings Item */}
+            <div className="bg-slate-900/90 border border-slate-800/90 p-2.5 rounded-xl flex flex-col justify-center items-start">
+              <span className="text-[7.5px] font-black text-slate-500 uppercase tracking-widest leading-none">Rendas</span>
+              <span className="text-[10px] font-black text-emerald-400 mt-1 leading-none truncate w-full">
+                {approvedEarnings.toLocaleString()} Kz
+              </span>
+            </div>
+          </div>
+
+          {/* Action Row: Terminar/Iniciar Turno + S.O.S Emergência */}
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              onClick={handleStartShift}
+              className={cn(
+                "flex-1 py-2.5 px-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-2 shadow-md active:scale-95",
+                isOnline 
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-950/20" 
+                  : "bg-amber-500 hover:bg-amber-600 text-slate-950 font-black"
+              )}
+            >
+              <Power size={13} />
+              {isOnline ? "Terminar Turno" : "Iniciar Turno"}
+            </button>
+
+            <button
+              onClick={triggerPanic}
+              disabled={panicLoading}
+              className="py-2.5 px-3.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all bg-rose-600 hover:bg-rose-700 text-white shadow-md active:scale-95 flex items-center justify-center gap-1.5 shrink-0 animate-pulse border border-rose-500/30"
+              title="S.O.S de Emergência"
+            >
+              <AlertTriangle size={14} />
+              <span>S.O.S</span>
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* Dedicated Clean Full-Screen Header for Specific Driver Tabs */}
+      {!currentService && activeInternalTab !== "dashboard" && (
+        <div className="bg-slate-950 text-white shrink-0 z-40 border-b border-slate-800 shadow-xl sticky top-0 px-3.5 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={() => setActiveInternalTab("dashboard")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 active:scale-95 transition-all text-xs font-black uppercase tracking-wider shrink-0"
+              title="Voltar ao Painel Principal"
+            >
+              <ArrowLeft size={15} className="text-amber-400" />
+              <span>Painel</span>
+            </button>
+
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                {activeInternalTab === "history" && <History size={16} />}
+                {activeInternalTab === "contracts" && <FileSignature size={16} />}
+                {activeInternalTab === "rendas" && <Wallet size={16} />}
+                {activeInternalTab === "settings" && <Settings size={16} />}
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-white truncate">
+                  {activeInternalTab === "history" && "Histórico de Viagens"}
+                  {activeInternalTab === "contracts" && "Clientes de Passagem & Contratos"}
+                  {activeInternalTab === "rendas" && "Declaração de Renda Diária"}
+                  {activeInternalTab === "settings" && "Configurações"}
+                </h3>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider truncate">
+                  {user?.name || "Motorista"} • {user?.companyName || "SUPER TÁXI"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setActiveInternalTab("dashboard")}
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-900 active:scale-95 transition-colors"
+              title="Fechar e voltar ao Painel"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
         {isMessagesModalOpen && (
@@ -2850,39 +3206,23 @@ export default function DriverView({ user }: DriverViewProps) {
               )}
             </AnimatePresence>
 
-            {currentService ? (
-              // INTERFACE ÚNICA DE INTERAÇÃO DO SERVIÇO (DEDICATED FULL SCREEN CALL UI)
-              <div className="space-y-6 max-w-2xl mx-auto py-2">
-                <div className="bg-slate-900 text-white rounded-[2.5rem] border-4 border-slate-950 p-6 sm:p-8 space-y-6 shadow-2xl overflow-hidden relative">
+            {currentService && !isCallScreenMinimized ? (
+              // INTERFACE ÚNICA E INDIVIDUAL DE INTERAÇÃO DO SERVIÇO (DEDICATED INDIVIDUAL FULL SCREEN SCREEN WITHOUT TOP HEADER)
+              <div className="fixed inset-0 z-[100] bg-slate-950 text-white p-4 sm:p-6 overflow-y-auto flex flex-col justify-center items-center min-h-screen">
+                <div className="w-full max-w-2xl mx-auto space-y-6 my-auto py-4">
+                  <div className="bg-slate-900 text-white rounded-[2.5rem] border-4 border-slate-950 p-6 sm:p-8 space-y-6 shadow-2xl overflow-hidden relative">
                   
                   {/* Decorative ambient GPS grid */}
                   <div className="absolute inset-0 opacity-5 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
 
-                  {/* Clean Service Call Header */}
-                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 relative z-10">
-                    <div className="flex items-center gap-2">
-                      <div className={cn(
-                        "w-2.5 h-2.5 rounded-full shrink-0",
-                        currentService.status === "pending" ? "bg-amber-400 animate-ping" : "bg-emerald-400 animate-pulse"
-                      )} />
-                      <span className="text-xs font-black text-white uppercase tracking-wider">
-                        {currentService.status === "pending" && (isDirectForwarded ? "Chamada Reencaminhada" : "Novo Pedido de Viagem")}
-                        {currentService.status === "connected" && "Atendimento de Voz"}
-                        {currentService.status === "price_sent" && "Proposta Enviada"}
-                        {currentService.status === "price_negotiation_requested" && "Pedido de Desconto do Passageiro"}
-                        {currentService.status === "confirmed" && "Corrida Confirmada"}
-                        {currentService.status === "active" && "Viagem em Curso"}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={forceUnlockScreen}
-                      className="p-1.5 bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-xl transition-all cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-700/50"
-                      title="Voltar ao Painel Principal"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+                  {/* Close / Minimize button top right */}
+                  <button
+                    onClick={() => setIsCallScreenMinimized(true)}
+                    className="absolute top-4 right-4 z-20 p-2 bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 rounded-2xl transition-all cursor-pointer flex items-center gap-1 active:scale-95 border border-slate-700/50"
+                    title="Minimizar Tela de Chamada"
+                  >
+                    <X size={16} />
+                  </button>
 
                   {/* Operational Status Display indicator */}
                   <div className="text-center space-y-2 relative z-10 py-2">
@@ -2907,6 +3247,16 @@ export default function DriverView({ user }: DriverViewProps) {
                       {currentService.status === "active" ? "Viatura em Movimento no Luena" : "Negociação de Super Táxi"}
                     </p>
                   </div>
+
+                  {/* Live Real-Time Passenger Waiting Time - Directly below status subtitle */}
+                  {currentService.status !== 'active' && (
+                    <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 flex justify-between items-center relative z-10 animate-fadeIn">
+                      <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Clock size={12} className="animate-spin text-amber-400" /> TEMPO DE ESPERA DO PASSAGEIRO:
+                      </span>
+                      <WaitingTimer timestamp={currentService?.timestamp || currentService?.createdAt || currentService?.acceptedAt} className="text-xs font-mono font-black text-amber-400" />
+                    </div>
+                  )}
 
                   {/* Barra de Perfil do Passageiro - Sempre visível até ao fim da corrida */}
                   <div className="space-y-3 bg-white/5 p-4 rounded-3xl border border-white/5 relative z-10">
@@ -3032,19 +3382,183 @@ export default function DriverView({ user }: DriverViewProps) {
                             </span>
                           </div>
                         )}
+
+                        {/* Collapsed / Toggle Button for Map (dentro dos detalhes por baixo do token de embarque) */}
+                        {!isDirectForwarded && (
+                          !showOperationalMap ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowOperationalMap(true)}
+                              className="w-full flex items-center justify-center bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10 text-amber-400 hover:text-amber-300 font-black text-xs uppercase tracking-wider gap-2 active:scale-95 mt-1"
+                            >
+                              <span>🗺️ Abrir Mapa</span>
+                              <ChevronDown size={14} />
+                            </button>
+                          ) : (
+                            <div className="space-y-2 animate-fadeIn relative z-10 pt-1">
+                              {/* Toggle Map Mode buttons */}
+                              <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-2xl border border-white/10">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowOperationalMap(false)}
+                                  className="flex items-center gap-1.5 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-wider pl-2"
+                                >
+                                  <span>🗺️ Ocultar Mapa</span>
+                                  <ChevronUp size={12} className="text-amber-400" />
+                                </button>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setMapMode("real")}
+                                    className={cn(
+                                      "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                                      mapMode === "real" 
+                                        ? "bg-brand-primary text-slate-950 shadow" 
+                                        : "bg-transparent text-slate-400 hover:text-white"
+                                    )}
+                                  >
+                                    🗺️ Mapa Real
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setMapMode("radar")}
+                                    className={cn(
+                                      "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
+                                      mapMode === "radar" 
+                                        ? "bg-brand-primary text-slate-950 shadow" 
+                                        : "bg-transparent text-slate-400 hover:text-white"
+                                    )}
+                                  >
+                                    📡 Radar HUD
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Interactive Map Container or Cinematic Radar SVG */}
+                              {mapMode === "real" ? (
+                                <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative h-72 w-full z-20">
+                                  <MapErrorBoundary>
+                                    {/* @ts-ignore */}
+                                    <MapContainer
+                                      center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
+                                      zoom={14}
+                                      style={{ height: '100%', width: '100%' }}
+                                      zoomControl={false}
+                                    >
+                                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                      
+                                      {/* Driver Marker */}
+                                      {driverLiveCoords && (
+                                        <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
+                                          <Popup>
+                                            <div className="text-slate-900 font-sans p-1">
+                                              <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
+                                              <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
+                                            </div>
+                                          </Popup>
+                                        </Marker>
+                                      )}
+
+                                      {/* Passenger Marker */}
+                                      <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
+                                        <Popup>
+                                          <div className="text-slate-900 font-sans p-1">
+                                            <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
+                                            <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
+                                          </div>
+                                        </Popup>
+                                      </Marker>
+
+                                      <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
+                                    </MapContainer>
+                                  </MapErrorBoundary>
+                                  
+                                  {/* Float controls top left inside the map */}
+                                  <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1 pointer-events-none">
+                                    <div className="bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1.5">
+                                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                                      GPS Sincro Passageiro
+                                    </div>
+                                  </div>
+
+                                  {/* Float buttons INSIDE the map container at the bottom */}
+                                  <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[400] flex gap-2 font-sans">
+                                    <a
+                                      href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xl transition-all border border-amber-400/40"
+                                    >
+                                      <Navigation size={12} /> Abrir Rota no Google Maps
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (currentService.pickupLat && currentService.pickupLng) {
+                                          setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
+                                        }
+                                      }}
+                                      className="bg-slate-950/90 hover:bg-slate-900 text-white font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-white/20 shadow-xl backdrop-blur-md"
+                                    >
+                                      <MapPin size={12} /> Focar Cliente
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
+                                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
+                                  <div className="absolute inset-x-0 bottom-2 text-center z-10">
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                                      Rota de Viagem em Direto
+                                    </p>
+                                  </div>
+
+                                  {/* High Density Grid pattern */}
+                                  <div className="absolute inset-0 opacity-10 pointer-events-none">
+                                    <svg width="100%" height="100%">
+                                      <pattern id="driver-grid-pat" width="15" height="15" patternUnits="userSpaceOnUse">
+                                        <path d="M 15 0 L 0 0 0 15" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
+                                      </pattern>
+                                      <rect width="100%" height="100%" fill="url(#driver-grid-pat)" />
+                                    </svg>
+                                  </div>
+
+                                  {/* Satellite tracking active status indicator (JIS) */}
+                                  <div className="absolute top-2.5 left-2.5 bg-black/85 px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
+                                    <div className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
+                                    Live GPS Sincro
+                                  </div>
+
+                                  {/* Match Passenger Bezier Path and animated car positioner */}
+                                  <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
+                                    <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray="5" />
+                                    <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current animate-pulse" />
+                                    <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
+                                    
+                                    <motion.g
+                                      initial={{ x: 50, y: 150 }}
+                                      animate={{
+                                        x: [50, 110, 150, 200, 250],
+                                        y: [150, 90, 75, 95, 120]
+                                      }}
+                                      transition={{
+                                        duration: 12,
+                                        repeat: Infinity,
+                                        ease: "easeInOut"
+                                      }}
+                                    >
+                                      <circle r="6" className="text-blue-400 fill-current shadow-lg animate-pulse" />
+                                      <polygon points="-2,-2 3,0 -2,2" fill="white" />
+                                    </motion.g>
+                                  </svg>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        )}
                       </div>
                     )}
                   </div>
-
-                  {/* Live Real-Time Passenger Waiting Time - Hidden when ride is active */}
-                  {currentService.status !== 'active' && (
-                    <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 flex justify-between items-center relative z-10 animate-fadeIn">
-                      <span className="text-[8.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
-                        <Clock size={12} className="animate-spin text-amber-400" /> TEMPO DE ESPERA DO PASSAGEIRO:
-                      </span>
-                      <WaitingTimer timestamp={currentService?.timestamp || currentService?.createdAt || currentService?.acceptedAt} className="text-xs font-mono font-black text-amber-400" />
-                    </div>
-                  )}
 
                   {/* Driver ETA Response Bar - Shown when passenger asks, driver responded or ride is active, BUT hidden when ride is active or for direct forwarded calls */}
                   {Boolean(!isDirectForwarded && !currentService.isForwarded && currentService.status !== 'active' && (currentService.status === 'confirmed' || currentService.status === 'arrived' || currentService.passengerAskedEta || currentService.driverEtaResponse)) && (
@@ -3115,7 +3629,7 @@ export default function DriverView({ user }: DriverViewProps) {
                                       driverEtaResponse: resp, 
                                       driverEta: resp, 
                                       eta: resp, 
-                                      passengerEtaFeedback: null,
+                                      passengerEtaFeedback: null, 
                                       driverEtaResponseAt: new Date().toISOString(),
                                       passengerAcceptedEta: false
                                     }));
@@ -3139,188 +3653,6 @@ export default function DriverView({ user }: DriverViewProps) {
                       )}
                     </div>
                   )}
-
-                  {/* Collapsed / Toggle Button for VISUALIZADOR OPERACIONAL (Apenas para chamadas públicas de passageiro) */}
-                  {!isDirectForwarded && (
-                    !showOperationalMap ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowOperationalMap(true)}
-                        className="w-full flex items-center justify-between bg-slate-950/60 hover:bg-slate-950/90 p-3 rounded-2xl border border-white/10 transition-all group shadow-lg relative z-10"
-                      >
-                        <div className="flex items-center gap-2">
-                          <MapPin size={16} className="text-amber-400 group-hover:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest">
-                            VISUALIZADOR OPERACIONAL
-                          </span>
-                        </div>
-                        <span className="text-[9.5px] font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all flex items-center gap-1.5">
-                          🗺️ Abrir Mapa <ChevronDown size={12} />
-                        </span>
-                      </button>
-                    ) : (
-                      <div className="space-y-2 animate-fadeIn relative z-10">
-                        {/* Toggle Map Mode buttons & VISUALIZADOR OPERACIONAL Header */}
-                        <div className="flex items-center justify-between bg-slate-950/60 p-2 rounded-2xl border border-white/10">
-                          <button
-                            type="button"
-                            onClick={() => setShowOperationalMap(false)}
-                            className="flex items-center gap-2 text-[10px] font-black text-amber-400 hover:text-amber-300 uppercase tracking-widest pl-2"
-                          >
-                            <MapPin size={14} className="text-amber-400" />
-                            VISUALIZADOR OPERACIONAL
-                            <ChevronUp size={12} className="text-amber-400" />
-                          </button>
-                          <div className="flex gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => setMapMode("real")}
-                              className={cn(
-                                "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
-                                mapMode === "real" 
-                                  ? "bg-brand-primary text-slate-950 shadow" 
-                                  : "bg-transparent text-slate-400 hover:text-white"
-                              )}
-                            >
-                              🗺️ Mapa Real
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setMapMode("radar")}
-                              className={cn(
-                                "px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all",
-                                mapMode === "radar" 
-                                  ? "bg-brand-primary text-slate-950 shadow" 
-                                  : "bg-transparent text-slate-400 hover:text-white"
-                              )}
-                            >
-                              📡 Radar HUD
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Interactive Map Container or Cinematic Radar SVG */}
-                        {mapMode === "real" ? (
-                          <div className="bg-slate-950/90 rounded-3xl overflow-hidden border border-white/10 shadow-2xl relative h-72 w-full z-20">
-                            <MapErrorBoundary>
-                              {/* @ts-ignore */}
-                              <MapContainer
-                                center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]}
-                                zoom={14}
-                                style={{ height: '100%', width: '100%' }}
-                                zoomControl={false}
-                              >
-                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                                
-                                {/* Driver Marker */}
-                                {driverLiveCoords && (
-                                  <Marker position={driverLiveCoords} icon={driverMapIcon || undefined}>
-                                    <Popup>
-                                      <div className="text-slate-900 font-sans p-1">
-                                        <p className="font-black text-xs text-brand-primary uppercase">Minha Posição (Táxi)</p>
-                                        <p className="text-[10px] text-slate-500 font-bold">Rastreamento de GPS Ativo</p>
-                                      </div>
-                                    </Popup>
-                                  </Marker>
-                                )}
-
-                                {/* Passenger Marker */}
-                                <Marker position={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} icon={passengerMapIcon || undefined}>
-                                  <Popup>
-                                    <div className="text-slate-900 font-sans p-1">
-                                      <p className="font-black text-xs text-emerald-600 uppercase">📍 {currentService.customerName || currentService.passengerName || "Passageiro"}</p>
-                                      <p className="text-[10px] text-slate-500 font-medium">Ponto de Recolha: {currentService.pickupAddress || currentService.pickup || "Luena"}</p>
-                                    </div>
-                                  </Popup>
-                                </Marker>
-
-                                <MapUpdater center={[currentService.pickupLat || -11.7833, currentService.pickupLng || 19.9167]} />
-                              </MapContainer>
-                            </MapErrorBoundary>
-                            
-                            {/* Float controls top left inside the map */}
-                            <div className="absolute top-2.5 left-2.5 z-[400] flex flex-col gap-1 pointer-events-none">
-                              <div className="bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/10 text-[8px] font-black uppercase tracking-widest text-emerald-400 shadow flex items-center gap-1.5">
-                                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-                                GPS Sincro Passageiro
-                              </div>
-                            </div>
-
-                            {/* Float buttons INSIDE the map container at the bottom */}
-                            <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[400] flex gap-2 font-sans">
-                              <a
-                                href={`https://www.google.com/maps/dir/?api=1&origin=${driverLiveCoords[0]},${driverLiveCoords[1]}&destination=${currentService.pickupLat || -11.7833},${currentService.pickupLng || 19.9167}&travelmode=driving`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-xl transition-all border border-amber-400/40"
-                              >
-                                <Navigation size={12} /> Abrir Rota no Google Maps
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (currentService.pickupLat && currentService.pickupLng) {
-                                    setDriverLiveCoords([currentService.pickupLat, currentService.pickupLng]);
-                                  }
-                                }}
-                                className="bg-slate-950/90 hover:bg-slate-900 text-white font-black text-[9.5px] uppercase tracking-wider py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-white/20 shadow-xl backdrop-blur-md"
-                              >
-                                <MapPin size={12} /> Focar Cliente
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                      <div className="bg-slate-950/65 rounded-3xl overflow-hidden border border-white/5 shadow-inner relative h-36">
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-slate-950" />
-                        <div className="absolute inset-x-0 bottom-2 text-center z-10">
-                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">
-                            Rota de Viagem em Direto
-                          </p>
-                        </div>
-
-                        {/* High Density Grid pattern */}
-                        <div className="absolute inset-0 opacity-10 pointer-events-none">
-                          <svg width="100%" height="100%">
-                            <pattern id="driver-grid-pat" width="15" height="15" patternUnits="userSpaceOnUse">
-                              <path d="M 15 0 L 0 0 0 15" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-blue-500" />
-                            </pattern>
-                            <rect width="100%" height="100%" fill="url(#driver-grid-pat)" />
-                          </svg>
-                        </div>
-
-                        {/* Satellite tracking active status indicator (JIS) */}
-                        <div className="absolute top-2.5 left-2.5 bg-black/85 px-2 py-0.5 rounded border border-white/10 text-[7.5px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1 animate-pulse z-10">
-                          <div className="w-1 h-1 bg-rose-500 rounded-full animate-ping" />
-                          Live GPS Sincro
-                        </div>
-
-                        {/* Match Passenger Bezier Path and animated car positioner */}
-                        <svg className="absolute inset-0 w-full h-full text-brand-primary pointer-events-none opacity-60" viewBox="0 0 300 200">
-                          <path d="M 50,150 Q 150,50 250,120" fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeDasharray="5" />
-                          <circle cx="50" cy="150" r="5" className="text-amber-500 fill-current animate-pulse" />
-                          <circle cx="250" cy="120" r="5" className="text-emerald-500 fill-current" />
-                          
-                          <motion.g
-                            initial={{ x: 50, y: 150 }}
-                            animate={{
-                              x: [50, 110, 150, 200, 250],
-                              y: [150, 90, 75, 95, 120]
-                            }}
-                            transition={{
-                              duration: 12,
-                              repeat: Infinity,
-                              ease: "easeInOut"
-                            }}
-                          >
-                            <circle r="6" className="text-blue-400 fill-current shadow-lg animate-pulse" />
-                            <polygon points="-2,-2 3,0 -2,2" fill="white" />
-                          </motion.g>
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                )
-              )}
 
                   {/* Operational Controls by Status */}
                   <div className="space-y-4 pt-2 relative z-10 border-t border-dashed border-white/10">
@@ -3651,23 +3983,7 @@ export default function DriverView({ user }: DriverViewProps) {
                           {isDirectForwarded ? <PhoneCall size={16} /> : <MapPin size={16} />}
                           {isDirectForwarded ? "📍 CHEGUEI & LIGAR GSM AO PASSAGEIRO" : "📍 Cheguei ao Ponto de Recolha"}
                         </button>
-
-                        <button
-                          disabled={true}
-                          onClick={() => alert("Por favor, clique primeiro em 'Cheguei ao Ponto de Recolha' quando estiver no local para ativar a corrida!")}
-                          className="w-full bg-slate-800/80 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest border border-white/10 opacity-60 cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                          <PhoneCall size={14} />
-                          INICIAR CORRIDA ACORDADA ({currentService.price ? Number(currentService.price).toLocaleString() : 0} Kz)
-                          <span className="text-[8px] block font-mono font-normal lowercase">(inativo até chegar)</span>
-                        </button>
                         
-                        <div className="p-2.5 bg-slate-950 border border-white/5 rounded-xl text-center">
-                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider flex items-center justify-center gap-1.5">
-                            <Lock size={12} className="text-amber-400" />
-                            Corrida Confirmada (Cancelamento Bloqueado)
-                          </span>
-                        </div>
                         <button
                           onClick={() => {
                             setShowNotification(false);
@@ -3707,16 +4023,6 @@ export default function DriverView({ user }: DriverViewProps) {
                             Ligar ao Passageiro via GSM (+244)
                           </a>
                         )}
-                        <button
-                          onClick={() => {
-                            setShowNotification(false);
-                            setIsTransferModalOpen(true);
-                          }}
-                          className="w-full py-3 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                        >
-                          <Users size={14} />
-                          Encaminhar a Outro Colega
-                        </button>
                       </div>
                     )}
 
@@ -3738,54 +4044,56 @@ export default function DriverView({ user }: DriverViewProps) {
                   </div>
 
                   {/* COMMUNICATIVE INTERACTION ACCORDING TO USER REQUIREMENT:
-                      "e remove os botoes (Ligar Cliente Chat (APP)) esses botoes so aparece se o cliente sair da linha/offline." */}
-                  <div className="pt-4 border-t border-dashed border-white/10 space-y-3 relative z-10">
-                    
-                    {(currentService.status === "active" || localPassengerOffline || currentService.passengerOffline) ? (
-                      <div className="space-y-2.5 animate-fade-in">
-                        <div className="bg-rose-500/10 border border-rose-500/20 p-3.5 rounded-2xl text-center">
-                          <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest block mb-0.5">⚠️ Passageiro Desconectado / Offline</span>
-                          <span className="text-[8.5px] text-slate-300 uppercase tracking-wider block font-bold">O passageiro saiu da linha ou está sem internet. Use os botões abaixo para ligar normal ou enviar chat tradicional.</span>
+                      "quando o motorista iniciar a corrida ja nao pode ter a informaçao de (passageiro desconectado/..., ligar cliente, chat app) 
+                       e essas informaçoes estarao viziveis naste intervalo: quando o motorista atende ate iniciar a corrida." */}
+                  {currentService.status !== "pending" && currentService.status !== "active" && currentService.status !== "finished" && (
+                    <div className="pt-4 border-t border-dashed border-white/10 space-y-3 relative z-10">
+                      {(localPassengerOffline || currentService.passengerOffline) ? (
+                        <div className="space-y-2.5 animate-fade-in">
+                          <div className="bg-rose-500/10 border border-rose-500/20 p-3.5 rounded-2xl text-center">
+                            <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest block mb-0.5">⚠️ Passageiro Desconectado / Offline</span>
+                            <span className="text-[8.5px] text-slate-300 uppercase tracking-wider block font-bold">O passageiro saiu da linha ou está sem internet. Use os botões abaixo para ligar normal ou enviar chat tradicional.</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 font-sans">
+                            <button 
+                              onClick={() => {
+                                if (currentService.customerPhone || currentService.passengerPhone) {
+                                  window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
+                                } else {
+                                  alert("Cliente não tem número de telemóvel associado.");
+                                }
+                              }}
+                              className="flex items-center justify-center gap-2 bg-white text-slate-800 p-3.5 rounded-2xl transition-all hover:bg-slate-100 font-extrabold text-[10.5px] uppercase tracking-wider"
+                            >
+                              <Phone size={14} className="text-blue-600 animate-pulse" />
+                              Ligar Cliente
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                setIsMessagesModalOpen(true);
+                              }}
+                              className="flex items-center justify-center gap-2 bg-white text-slate-800 p-3.5 rounded-2xl transition-all hover:bg-slate-100 font-extrabold text-[10.5px] uppercase tracking-wider"
+                            >
+                              <MessageSquare size={14} className="text-emerald-500 animate-pulse" />
+                              Chat (APP)
+                            </button>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3 font-sans">
-                          <button 
-                            onClick={() => {
-                              if (currentService.customerPhone || currentService.passengerPhone) {
-                                window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
-                              } else {
-                                alert("Cliente não tem número de telemóvel associado.");
-                              }
-                            }}
-                            className="flex items-center justify-center gap-2 bg-white text-slate-800 p-3.5 rounded-2xl transition-all hover:bg-slate-100 font-extrabold text-[10.5px] uppercase tracking-wider"
-                          >
-                            <Phone size={14} className="text-blue-600 animate-pulse" />
-                            Ligar Cliente
-                          </button>
-                          <button 
-                            onClick={async () => {
-                              setIsMessagesModalOpen(true);
-                            }}
-                            className="flex items-center justify-center gap-2 bg-white text-slate-800 p-3.5 rounded-2xl transition-all hover:bg-slate-100 font-extrabold text-[10.5px] uppercase tracking-wider"
-                          >
-                            <MessageSquare size={14} className="text-emerald-500 animate-pulse" />
-                            Chat (APP)
-                          </button>
-                        </div>
-                      </div>
-                    ) : (driverAppConfig?.webrtcEnabled !== false && passengerAppConfig?.webrtcEnabled !== false) ? (
-                      <WebRTCAudioCall
-                        callId={currentService.id}
-                        role="driver"
-                        callStatus={currentService.status}
-                        partnerName={currentService.customerName || currentService.passengerName || "Passageiro"}
-                        partnerPhone={currentService.customerPhone || currentService.passengerPhone || currentService.phone}
-                      />
-                    ) : null}
-                  </div>
-
+                      ) : (driverAppConfig?.webrtcEnabled !== false && passengerAppConfig?.webrtcEnabled !== false) ? (
+                        <WebRTCAudioCall
+                          callId={currentService.id}
+                          role="driver"
+                          callStatus={currentService.status}
+                          partnerName={currentService.customerName || currentService.passengerName || "Passageiro"}
+                          partnerPhone={currentService.customerPhone || currentService.passengerPhone || currentService.phone}
+                        />
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </div>
-            ) : activeInternalTab === "dashboard" ? (
+            </div>
+          ) : activeInternalTab === "dashboard" ? (
               <div className="space-y-4">
 
                 {/* Warning Cards for Pending Items (Previous Shift Focus) - Consolidated Collapsible Alert Center */}
@@ -3901,139 +4209,7 @@ export default function DriverView({ user }: DriverViewProps) {
                   </div>
                 ) : null}
 
-                {/* Unified Cabine de Controlo Card (Shift Control, Rating, Earnings & SOS) */}
-                <div className="bg-slate-950 border border-slate-800 text-white rounded-[2rem] p-5 shadow-xl relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-brand-primary/10 blur-3xl rounded-full" />
-                  
-                  {/* Title & Status indicator */}
-                  <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
-                    <div className="text-left">
-                      <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em]">Cabine de Comando</span>
-                      <h3 className="text-sm font-black tracking-tight text-white leading-none mt-1 uppercase">
-                        {user?.name || "Mestre PSM"}
-                      </h3>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        "w-2 h-2 rounded-full",
-                        isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
-                      )} />
-                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-300">
-                        {isOnline ? "Em Serviço" : "Fora de Serviço"}
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Rating & Ganhos high density row */}
-                  <div className="grid grid-cols-2 gap-3.5 my-1">
-                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-2xl flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center flex-shrink-0">
-                        <Star size={16} fill="currentColor" />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Avaliação</p>
-                        <p className="text-[13px] font-black text-white mt-0.5">
-                          {typeof stars === 'number' || (typeof stars === 'string' && !isNaN(Number(stars)))
-                            ? `${Number(stars).toFixed(1)} ★${totalRatingCount > 0 ? ` (${totalRatingCount})` : ''}`
-                            : (stars === "Novo" || !stars ? "Novo (Sem avaliações)" : `${stars}`)}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-slate-900 border border-slate-800 p-3 rounded-2xl flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center flex-shrink-0">
-                        <DollarSign size={16} />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest leading-none">Rendas Aprovadas</p>
-                        <p className="text-[13px] font-black text-emerald-400 mt-0.5">{approvedEarnings.toLocaleString()}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Shift Action Toggle / Service Control and Emergency Button */}
-                  <div className="flex items-center gap-3 mt-4 pt-3 border-t border-slate-800">
-                    {currentService && currentService.status === "pending" ? (
-                      isDirectForwarded ? (
-                        <>
-                          <button
-                            onClick={() => {
-                              setShowNotification(false);
-                              setIsTransferModalOpen(true);
-                            }}
-                            className="flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95 animate-pulse"
-                          >
-                            <Users size={13} />
-                            ENCAMINHAR A OUTRO COLEGA
-                          </button>
-
-                          <button
-                            onClick={triggerPanic}
-                            disabled={panicLoading}
-                            className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-red-650 hover:bg-red-700 text-white shadow-lg active:scale-90 flex-shrink-0 animate-pulse border border-red-500/30"
-                            title="S.O.S de Emergência"
-                          >
-                            <AlertTriangle size={18} />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={attendCall}
-                            className="flex-[2] py-3 px-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-1.5 shadow-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20 active:scale-95 animate-pulse"
-                          >
-                            <PhoneCall size={13} className="animate-bounce" />
-                            ATENDER CHAMADA
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setShowNotification(false);
-                              setIsTransferModalOpen(true);
-                            }}
-                            className="flex-1 py-3 px-2 rounded-xl font-black text-[9.5px] uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-1 shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 active:scale-95"
-                            title="Encaminhar a Outro Colega"
-                          >
-                            <Users size={13} />
-                            ENCAMINHAR
-                          </button>
-
-                          <button
-                            onClick={rejectService}
-                            className="w-11 h-11 rounded-xl flex items-center justify-center transition-all bg-rose-600 hover:bg-rose-700 text-white shadow-lg active:scale-95 flex-shrink-0 border border-rose-500/30 animate-pulse"
-                            title="Recusar Chamada"
-                          >
-                            <XCircle size={18} />
-                          </button>
-                        </>
-                      )
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleStartShift}
-                          className={cn(
-                            "flex-1 py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-2 shadow-lg",
-                            isOnline 
-                              ? "bg-emerald-600 text-white shadow-emerald-950/20 active:bg-emerald-700" 
-                              : "bg-white text-slate-950 shadow-black/20 active:bg-slate-100"
-                          )}
-                        >
-                          <Power size={13} />
-                          {isOnline ? "Terminar Turno" : "Iniciar Turno"}
-                        </button>
-
-                        <button
-                          onClick={triggerPanic}
-                          disabled={panicLoading}
-                          className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-red-650 hover:bg-red-700 text-white shadow-lg active:scale-90 flex-shrink-0 animate-pulse border border-red-500/30"
-                          title="S.O.S de Emergência"
-                        >
-                          <AlertTriangle size={18} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
 
                 {/* Reencaminhar Chamada de cliente direta */}
                 {isOnline && (
@@ -4105,43 +4281,131 @@ export default function DriverView({ user }: DriverViewProps) {
                   )}
                 </div>
 
-                  {/* Current Ride / Map Placeholder */}
-                  {!currentService && isOnline && (
-                    <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
-                      <div className="h-48 bg-slate-100 relative group overflow-hidden">
-                        {/* Fake Map */}
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-100 to-indigo-50" />
-                        <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/map/400/400')] bg-cover" />
+                  {/* Current Ride / Map / Central Dispatch Interactive Block */}
+                  {isOnline && (() => {
+                    const currentTheme = dispatchThemes[dispatchTheme] || dispatchThemes.cyber_dark;
+                    return (
+                      <>
+                        <div className={cn(
+                          "rounded-[2rem] overflow-hidden relative min-h-[235px] flex flex-col items-center justify-center p-5 select-none transition-all",
+                          currentTheme.containerClass
+                        )}>
+                          {/* Background GPS Radar Grid & Theme Gradient */}
+                          <div className={cn("absolute inset-0 pointer-events-none", currentTheme.gridOverlayClass)} />
+                          <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#38bdf820_1px,transparent_1px),linear-gradient(to_bottom,#38bdf820_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none" />
 
-                        <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
-                          <div>
-                            <MapPin
-                              size={32}
-                              className="text-slate-300 mx-auto mb-2"
-                            />
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest leading-normal">
-                              A aguardar por
-                              <br />
-                              serviços da central...
-                            </p>
-                          </div>
+                          {/* Quick Theme Switcher Trigger */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIsThemeModalOpen(true);
+                            }}
+                            title="Personalizar Tema do Espaço Central"
+                            className="absolute top-3.5 right-3.5 z-20 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-current flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-sm"
+                          >
+                            <Palette size={14} />
+                          </button>
+
+                          {currentService ? (
+                            /* SE HOUVER CHAMADA: APARECE DENTRO DESTE BLOCO COM FOTO, NOME E BOTÃO VER CHAMADA */
+                            <div className="relative z-10 w-full flex flex-col items-center text-center space-y-3.5 my-auto animate-fadeIn">
+                              {/* Avatar com Ondas Radar Concêntricas do Tema */}
+                              <div className="relative flex items-center justify-center">
+                                <div className={cn("absolute w-20 h-20 rounded-full border animate-radar-ring pointer-events-none", currentTheme.radarRingClass)} />
+                                <div className={cn("absolute w-24 h-24 rounded-full border animate-radar-ring [animation-delay:1s] pointer-events-none opacity-60", currentTheme.radarRingClass)} />
+                                
+                                <div className={cn("relative p-1 rounded-full bg-gradient-to-tr shadow-xl", currentTheme.avatarRingGradient)}>
+                                  <PassengerAvatar 
+                                    src={currentService.passengerPhoto || currentService.customerPhoto} 
+                                    name={currentService.customerName || currentService.passengerName || "Passageiro"} 
+                                    size="lg" 
+                                  />
+                                  <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center text-slate-950 shadow-md">
+                                    <PhoneCall size={12} className="animate-bounce" />
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Identificação do Passageiro */}
+                              <div className="space-y-0.5">
+                                <span className={cn(
+                                  "text-[9.5px] font-black uppercase tracking-widest px-3 py-1 rounded-full border inline-flex items-center gap-1.5 shadow-xs",
+                                  currentTheme.accentBadgeClass
+                                )}>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping"></span>
+                                  {currentService.status === "pending" ? "Chamada a Tocar" : "Chamada em Linha"}
+                                </span>
+                                <h4 className={cn("text-base sm:text-lg font-black uppercase tracking-tight truncate max-w-xs pt-1", currentTheme.textColor)}>
+                                  {currentService.customerName || currentService.passengerName || "Passageiro"}
+                                </h4>
+                                {(currentService.pickupAddress || currentService.pickup) && (
+                                  <p className={cn("text-[11px] font-semibold truncate max-w-xs flex items-center justify-center gap-1", currentTheme.subtextColor)}>
+                                    <MapPin size={11} className="text-amber-400 shrink-0" />
+                                    <span className="truncate">{currentService.pickupAddress || currentService.pickup}</span>
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Botão Ver Chamada */}
+                              <button
+                                type="button"
+                                onClick={() => setIsCallScreenMinimized(false)}
+                                className={cn(
+                                  "px-6 py-3 font-black text-xs uppercase tracking-wider rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer",
+                                  currentTheme.buttonClass
+                                )}
+                              >
+                                <PhoneCall size={15} className="animate-pulse" />
+                                Ver Chamada
+                              </button>
+                            </div>
+                          ) : (
+                            /* QUANDO NÃO HÁ CHAMADA: A AGUARDAR POR SERVIÇOS DA CENTRAL */
+                            <div className="relative z-10 flex flex-col items-center justify-center text-center space-y-2.5 my-auto">
+                              <div className={cn("relative p-3.5 rounded-2xl border shadow-inner flex items-center justify-center", currentTheme.waitingIconClass)}>
+                                <MapPin
+                                  size={30}
+                                  className="animate-pulse"
+                                />
+                                <div className="absolute inset-0 rounded-2xl border border-current animate-ping opacity-20 pointer-events-none" />
+                              </div>
+                              <div>
+                                <p className={cn("text-xs font-black uppercase tracking-widest leading-normal", currentTheme.textColor)}>
+                                  A aguardar por
+                                  <br />
+                                  <span className="opacity-90">serviços da central...</span>
+                                </p>
+                                <span className={cn("text-[9px] font-bold uppercase tracking-wider block mt-0.5", currentTheme.subtextColor)}>
+                                  Tema: {currentTheme.name}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    </div>
-                  )}
+
+                        {/* Marca JIS ANGOLA com posicionamento fixo no canto inferior direito */}
+                        <div className="fixed bottom-3 right-3 sm:bottom-4 sm:right-4 z-30 pointer-events-none select-none flex items-center">
+                          <span className="text-[8.5px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-widest bg-white/85 dark:bg-slate-900/85 backdrop-blur-xs border border-slate-200/80 dark:border-slate-800/80 px-2.5 py-1 rounded-md shadow-xs pointer-events-auto">
+                            JIS ANGOLA
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
 
                   {/* Quick Actions (Call/Chat) */}
-                  {currentService && (
+                  {currentService && currentService.status !== "pending" && isCallScreenMinimized && (
                     <div className="grid grid-cols-2 gap-3">
                       <button 
                         onClick={() => {
-                          if (currentService.customerPhone) {
-                            window.open(`tel:${currentService.customerPhone}`, '_self');
+                          if (currentService.customerPhone || currentService.passengerPhone) {
+                            window.open(`tel:${currentService.customerPhone || currentService.passengerPhone}`, '_self');
                           } else {
                             alert("Cliente não tem número de telemóvel associado.");
                           }
                         }}
-                        className="flex items-center justify-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl text-slate-700 transition-all hover:bg-slate-50 group"
+                        className="flex items-center justify-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl text-slate-700 transition-all hover:bg-slate-50 group cursor-pointer"
                       >
                         <div className="p-2 bg-blue-50 text-blue-600 rounded-lg group-hover:bg-blue-100">
                           <Phone size={18} />
@@ -4152,7 +4416,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       </button>
                       <button 
                         onClick={() => setIsMessagesModalOpen(true)}
-                        className="flex items-center justify-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl text-slate-700 transition-all hover:bg-slate-50 group"
+                        className="flex items-center justify-center gap-3 bg-white border border-slate-200 p-4 rounded-2xl text-slate-700 transition-all hover:bg-slate-50 group cursor-pointer"
                       >
                         <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg group-hover:bg-emerald-100">
                           <MessageCircle size={18} />
@@ -4181,6 +4445,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       const isActive = trip.status === "active";
                       const isPending = ["pending", "connected", "price_sent"].includes(trip.status);
                       const isWaitingApproval = ["confirmed", "arrived"].includes(trip.status);
+                      const isBonusRide = trip.usedBonus === true || trip.paidWithBonus === true || trip.paymentMethod === 'bonus' || trip.isBonus === true;
 
                       return (
                         <div
@@ -4219,6 +4484,12 @@ export default function DriverView({ user }: DriverViewProps) {
                                 {(trip.pickupAddress || trip.pickup || "Origem").split(",")[0]} →{" "}
                                 {(trip.destinationAddress || trip.destination || "Destino").split(",")[0]}
                               </p>
+                              {isBonusRide && (
+                                <span className="inline-flex items-center gap-1 text-[7.5px] font-black px-2 py-0.5 rounded-full border uppercase bg-amber-500/10 text-amber-600 border-amber-500/30">
+                                  <Gift size={9} className="shrink-0" />
+                                  PAGO POR BÓNUS
+                                </span>
+                              )}
                               {!isCompleted && (
                                 <div className="flex items-center gap-2">
                                   <span className={cn(
@@ -4237,26 +4508,37 @@ export default function DriverView({ user }: DriverViewProps) {
                                 </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
                               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
                                 {trip.completedAt || trip.timestamp
                                   ? format(parseDateSafely(trip.completedAt || trip.timestamp), "HH:mm")
                                   : "Hoje"}
                               </span>
                               <span className="w-1 h-1 bg-slate-200 rounded-full" />
-                              <p className="text-[10px] text-emerald-600 font-black italic">
-                                {(trip.price || 0).toLocaleString()} Kz
-                              </p>
+                              {isBonusRide ? (
+                                <div className="flex items-center gap-1.5">
+                                  <p className="text-[10px] text-amber-500 font-black italic">
+                                    {(trip.price || 0).toLocaleString()} Kz
+                                  </p>
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase">
+                                    (Debitado Bónus - Isento Numerário)
+                                  </span>
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-emerald-600 font-black italic">
+                                  {(trip.price || 0).toLocaleString()} Kz
+                                </p>
+                              )}
                             </div>
                           </div>
                           <div className={cn(
                             "p-1.5 rounded-lg transition-all",
-                            isCompleted && "bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white",
+                            isCompleted && (isBonusRide ? "bg-amber-50 text-amber-600 group-hover:bg-amber-500 group-hover:text-white" : "bg-emerald-50 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white"),
                             isActive && "bg-amber-500 text-slate-950 font-black",
                             isPending && "bg-blue-100 text-blue-600",
                             isWaitingApproval && "bg-emerald-100 text-emerald-600"
                           )}>
-                            {isCompleted ? <CheckCircle2 size={16} /> : (isActive ? <Zap size={14} className="animate-bounce" /> : <Clock size={14} />)}
+                            {isCompleted ? (isBonusRide ? <Gift size={16} /> : <CheckCircle2 size={16} />) : (isActive ? <Zap size={14} className="animate-bounce" /> : <Clock size={14} />)}
                           </div>
                         </div>
                       );
@@ -4623,17 +4905,29 @@ export default function DriverView({ user }: DriverViewProps) {
                         <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm relative overflow-hidden flex flex-col justify-between">
                           <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 blur-2xl rounded-full -mr-10 -mt-10" />
                           <div>
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
-                              Faturação Automática Concluídas (App)
-                            </p>
+                            <div className="flex items-center justify-between">
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest relative z-10">
+                                Faturação Automática Concluídas (App)
+                              </p>
+                              {passengerBonusRidesCount > 0 && (
+                                <span className="text-[7.5px] font-black bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full uppercase flex items-center gap-1">
+                                  <Gift size={8} /> {passengerBonusRidesCount} {passengerBonusRidesCount === 1 ? 'Bónus deduzido' : 'Bónus deduzidos'}
+                                </span>
+                              )}
+                            </div>
                             <h2 className="text-xl font-black mt-1.5 text-emerald-600 tracking-tight relative z-10">
                               {(passengerRidesTotal || 0).toLocaleString()} <span className="text-xs text-emerald-550 font-medium font-mono">Kz</span>
                             </h2>
                           </div>
-                          <p className="text-[8px] text-slate-400 font-bold uppercase mt-1 relative z-10 flex items-center gap-1">
-                            <span className={`w-1.5 h-1.5 rounded-full ${passengerRidesTotal > 0 ? "bg-amber-400 animate-ping" : "bg-emerald-400"}`} />
-                            {passengerRidesTotal > 0 ? "Acumulado Pendente de Declaração" : "Reiniciado / Em Dia"}
-                          </p>
+                          <div className="space-y-0.5 mt-1 relative z-10">
+                            <p className="text-[8px] text-slate-400 font-bold uppercase flex items-center gap-1">
+                              <span className={`w-1.5 h-1.5 rounded-full ${passengerRidesTotal > 0 ? "bg-amber-400 animate-ping" : "bg-emerald-400"}`} />
+                              {passengerRidesTotal > 0 ? "Acumulado Pendente de Declaração" : "Reiniciado / Em Dia"}
+                            </p>
+                            <p className="text-[7.5px] text-slate-400 font-medium">
+                              * Corridas pagas com bónus são debitadas automaticamente pelo sistema e não entram no numerário pendente.
+                            </p>
+                          </div>
                         </div>
                       </div>
 
@@ -4829,82 +5123,250 @@ export default function DriverView({ user }: DriverViewProps) {
               </div>
             ) : activeInternalTab === "settings" ? (
               <div className="space-y-6">
+                {/* Input Invisível para Carregar Áudio do Dispositivo */}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleUploadCustomRingtone}
+                  accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.webm"
+                  className="hidden"
+                />
+
+                {/* SEÇÃO 1: TEMA DO ESPAÇO CENTRAL DE DESPACHO */}
                 <div>
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter">
-                    Ajustes de Notificação
-                  </h3>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">
-                    Configure o som para novas chamadas
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
+                        <Palette size={16} className="text-brand-primary" />
+                        Tema do Espaço Central de Despacho
+                      </h3>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+                        Personalize a aparência do radar e ecrã de chamadas do motorista
+                      </p>
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 bg-brand-primary/10 text-brand-primary rounded-full border border-brand-primary/20">
+                      {dispatchThemes[dispatchTheme]?.name || "Cyber Dark"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    {Object.values(dispatchThemes).map((th) => {
+                      const isSelected = dispatchTheme === th.id;
+                      return (
+                        <div
+                          key={th.id}
+                          onClick={() => {
+                            setDispatchTheme(th.id);
+                            localStorage.setItem('driver_dispatch_theme', th.id);
+                          }}
+                          className={cn(
+                            "relative p-4 rounded-2xl border-2 transition-all cursor-pointer select-none text-left flex flex-col justify-between overflow-hidden group active:scale-98",
+                            isSelected 
+                              ? "border-emerald-500 bg-emerald-50/20 shadow-md ring-2 ring-emerald-500/20" 
+                              : "border-slate-200/80 bg-white hover:border-slate-300 hover:shadow-sm"
+                          )}
+                        >
+                          {/* Mini visual preview card */}
+                          <div className={cn(
+                            "w-full h-16 rounded-xl p-2.5 relative overflow-hidden mb-3 flex items-center justify-between",
+                            th.containerClass
+                          )}>
+                            <div className={cn("absolute inset-0 pointer-events-none opacity-40", th.gridOverlayClass)} />
+                            <div className="relative z-10 flex items-center gap-2">
+                              <div className={cn("w-6 h-6 rounded-lg border flex items-center justify-center text-[10px]", th.waitingIconClass)}>
+                                <MapPin size={12} />
+                              </div>
+                              <span className={cn("text-[10px] font-black uppercase tracking-wider", th.textColor)}>
+                                Radar Central
+                              </span>
+                            </div>
+                            <div className={cn("relative z-10 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest", th.accentBadgeClass)}>
+                              {th.badge}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">
+                                {th.name}
+                              </h4>
+                              {isSelected && (
+                                <span className="flex items-center gap-1 text-[8.5px] font-black text-emerald-600 uppercase bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                                  <CheckCircle2 size={11} /> Selecionado
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                              {th.description}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4 font-sans">
-                  <div className="space-y-3">
-                    {ringtones.map((ring) => (
-                      <button
-                        key={ring.id}
-                        onClick={() => {
-                          setSelectedRingtone(ring.id);
-                          localStorage.setItem('driver_ringtone', ring.id);
-                          playPreview(ring.url, ring.id);
-                        }}
-                        className={cn(
-                          "w-full p-4 rounded-2xl border flex items-center justify-between transition-all active:scale-95",
-                          selectedRingtone === ring.id
-                            ? "bg-brand-primary/5 border-brand-primary shadow-sm"
-                            : "bg-slate-50 border-slate-100 hover:border-slate-200"
-                        )}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={cn(
-                            "w-8 h-8 rounded-full flex items-center justify-center",
-                            selectedRingtone === ring.id ? "bg-brand-primary text-white" : "bg-slate-200 text-slate-400"
-                          )}>
-                            <PhoneIncoming size={14} />
+                {/* SEÇÃO 2: TOQUES E MÚSICAS DO DISPOSITIVO */}
+                <div className="border-t border-slate-100 pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
+                        <Music size={16} className="text-brand-primary" />
+                        Toques e Músicas do Dispositivo
+                      </h3>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+                        Escolha ou importe músicas/áudios locais do telemóvel para chamadas e notificações
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Botão de Upload do Dispositivo */}
+                  <div className="mt-4 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-5 text-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5 text-center sm:text-left">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                        <Upload size={22} className="animate-bounce" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-white">
+                          Carregar Música / Áudio do Dispositivo
+                        </h4>
+                        <p className="text-[10px] text-slate-300 mt-0.5">
+                          Suporta ficheiros MP3, WAV, OGG ou M4A guardados no seu telemóvel (máx. 8MB).
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full sm:w-auto px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 active:scale-95 cursor-pointer shrink-0"
+                    >
+                      <Upload size={14} />
+                      Escolher do Telemóvel
+                    </button>
+                  </div>
+
+                  {/* Lista de Toques (Custom + Padrão) */}
+                  <div className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4 font-sans mt-4">
+                    <div className="flex items-center justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                      <span>Lista de Sons Disponíveis ({ringtones.length})</span>
+                      <span>Toque para Testar / Selecionar</span>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {ringtones.map((ring) => {
+                        const isSelected = selectedRingtone === ring.id;
+                        const isPlaying = isPlayingAudioId === ring.id;
+                        const isCustom = (ring as any).isCustom;
+
+                        return (
+                          <div
+                            key={ring.id}
+                            onClick={() => {
+                              setSelectedRingtone(ring.id);
+                              localStorage.setItem('driver_ringtone', ring.id);
+                              playPreview(ring.url, ring.id);
+                            }}
+                            className={cn(
+                              "w-full p-3.5 rounded-2xl border flex items-center justify-between transition-all cursor-pointer active:scale-99 select-none",
+                              isSelected
+                                ? "bg-brand-primary/5 border-brand-primary shadow-sm"
+                                : "bg-slate-50/80 border-slate-100 hover:border-slate-200"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 min-w-0 pr-2">
+                              {/* Botão Play / Pause Preview */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  playPreview(ring.url, ring.id);
+                                }}
+                                title={isPlaying ? "Parar Som" : "Ouvir Demonstração"}
+                                className={cn(
+                                  "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-90",
+                                  isPlaying
+                                    ? "bg-emerald-500 text-slate-950 animate-pulse"
+                                    : isSelected
+                                      ? "bg-brand-primary text-white"
+                                      : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                                )}
+                              >
+                                {isPlaying ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
+                              </button>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "text-xs font-black uppercase truncate",
+                                    isSelected ? "text-brand-primary" : "text-slate-700"
+                                  )}>
+                                    {ring.name}
+                                  </span>
+                                  {isCustom && (
+                                    <span className="text-[7.5px] font-black uppercase tracking-widest bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
+                                      Dispositivo
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[9px] text-slate-400 font-medium truncate">
+                                  {ring.id === 'voice_supertaxi' ? 'Alerta de voz nativo da aplicação' : isCustom ? 'Música importada pelo utilizador' : 'Toque do sistema'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isCustom && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteCustomRingtone(ring.id, e)}
+                                  title="Remover toque importado"
+                                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+
+                              {isSelected ? (
+                                <div className="flex items-center gap-1 bg-brand-primary text-white px-2.5 py-1 rounded-full text-[8.5px] font-black uppercase tracking-widest">
+                                  <CheckCircle2 size={11} />
+                                  Ativo
+                                </div>
+                              ) : (
+                                <span className="text-[9px] font-bold text-slate-400 uppercase">
+                                  Selecionar
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <span className={cn(
-                            "text-xs font-black uppercase",
-                            selectedRingtone === ring.id ? "text-brand-primary" : "text-slate-600"
-                          )}>
-                            {ring.name}
-                          </span>
-                        </div>
-                        {selectedRingtone === ring.id && (
-                          <div className="flex items-center gap-1.5 bg-brand-primary text-white px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest">
-                            <CheckCircle2 size={10} />
-                            Ativo
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                        );
+                      })}
+                    </div>
 
-                  <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-start gap-3">
-                    <Bell size={16} className="text-amber-500 shrink-0" />
-                    <p className="text-[9px] text-amber-700 font-bold uppercase leading-relaxed">
-                      O toque escolhido tocará continuamente no seu telemóvel sempre que houver uma nova chamada pendente para aceitar.
-                    </p>
-                  </div>
+                    <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-start gap-3">
+                      <Bell size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-[9.5px] text-amber-700 font-bold uppercase leading-relaxed">
+                        O toque ou música escolhida tocará continuamente no seu telemóvel sempre que houver uma nova chamada ou serviço da central pendente para aceitar.
+                      </p>
+                    </div>
 
-                  {/* SEÇÃO DE PERMISSÕES OPERACIONAIS, GESTÃO DE CHAMADAS/SMS NATIVAS E VOZ */}
-                  <div className="border-t border-dashed border-slate-200 pt-6">
-                    <PermissionManager 
-                      driverId={user?.uid || "anon-driver"} 
-                      driverName={user?.name || "Motorista Luena"} 
-                    />
-                  </div>
+                    {/* SEÇÃO DE PERMISSÕES OPERACIONAIS, GESTÃO DE CHAMADAS/SMS NATIVAS E VOZ */}
+                    <div className="border-t border-dashed border-slate-200 pt-6">
+                      <PermissionManager 
+                        driverId={user?.uid || "anon-driver"} 
+                        driverName={user?.name || "Motorista Luena"} 
+                      />
+                    </div>
 
-                  <button
-                    onClick={() => setActiveInternalTab("dashboard")}
-                    className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
-                  >
-                    Guardar e Voltar
-                  </button>
+                    <button
+                      onClick={() => setActiveInternalTab("dashboard")}
+                      className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all cursor-pointer"
+                    >
+                      Guardar e Voltar ao Painel
+                    </button>
+                  </div>
                 </div>
               </div>
-            ) : (
-              null
-            )}
+            ) : null}
           </main>
 
         {/* Panic Modal */}
@@ -4979,15 +5441,40 @@ export default function DriverView({ user }: DriverViewProps) {
                     </button>
                   )}
 
-                  <button
-                    onClick={resolvePanicFromDriver}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all"
-                  >
-                    Estou Seguro / Cancelar Emergência
-                  </button>
+                  {!showPanicConfirmResolve ? (
+                    <button
+                      onClick={() => setShowPanicConfirmResolve(true)}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+                    >
+                      <span>🛡️ Estou Seguro / Encerrar Emergência</span>
+                    </button>
+                  ) : (
+                    <div className="w-full bg-emerald-950/80 border border-emerald-500/50 rounded-2xl p-3.5 space-y-2.5 animate-fadeIn">
+                      <p className="text-[11px] font-black text-emerald-300 uppercase tracking-wider text-center leading-tight">
+                        Confirma que está em total segurança e deseja encerrar o S.O.S?
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setShowPanicConfirmResolve(false)}
+                          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all"
+                        >
+                          Voltar
+                        </button>
+                        <button
+                          onClick={resolvePanicFromDriver}
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-wider shadow-lg active:scale-95 transition-all"
+                        >
+                          Sim, Encerrar S.O.S
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <button
-                    onClick={() => setShowPanicModal(false)}
+                    onClick={() => {
+                      setShowPanicConfirmResolve(false);
+                      setShowPanicModal(false);
+                    }}
                     className="w-full bg-slate-900 border border-slate-800 text-slate-400 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all"
                   >
                     Minimizar Janela SOS
@@ -5609,6 +6096,179 @@ export default function DriverView({ user }: DriverViewProps) {
               >
                 Confirmar e Fechar
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* PASSENGER APK DOWNLOAD & QR CODE MODAL IN DRIVER VIEW */}
+      <AnimatePresence>
+        {isPassengerApkModalOpen && (
+          <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-slate-900 border-2 border-emerald-500/60 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-center relative overflow-hidden"
+            >
+              <button
+                onClick={() => setIsPassengerApkModalOpen(false)}
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-800 rounded-full transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+
+              <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/30">
+                <Smartphone size={24} />
+              </div>
+
+              <div>
+                <h3 className="text-base font-black text-white uppercase tracking-tight italic">SUPER Táxi Passageiro</h3>
+                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-0.5">Versão Oficial • Android APK</p>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl w-48 h-48 mx-auto flex items-center justify-center shadow-inner border border-slate-700">
+                {passengerApkQrUrl ? (
+                  <img src={passengerApkQrUrl} alt="QR Code APK Passageiro" className="w-full h-full object-contain" />
+                ) : (
+                  <div className="animate-spin text-slate-400 text-xs font-bold">A gerar QR...</div>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-1">
+                <p className="text-[9px] text-slate-400 font-bold leading-relaxed px-2">
+                  Aponte a câmara do telemóvel para o QR Code ou utilize o botão direto abaixo para descarregar o APK do passageiro.
+                </p>
+
+                <div className="flex gap-2 pt-2">
+                  <a
+                    href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <Download size={14} />
+                    <span>Descarregar .APK</span>
+                  </a>
+                  <button
+                    onClick={() => {
+                      const url = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
+                      navigator.clipboard.writeText(url);
+                      alert("Link copiado para a área de transferência!");
+                    }}
+                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Copiar Link"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Quick Theme Customizer Modal for Central Dispatch */}
+      <AnimatePresence>
+        {isThemeModalOpen && (
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsThemeModalOpen(false)}
+              className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="relative w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-[2.5rem] p-6 text-white shadow-2xl z-10 space-y-5 max-h-[90vh] overflow-y-auto no-scrollbar"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-emerald-500/20 border border-emerald-500/30 rounded-2xl flex items-center justify-center text-emerald-400">
+                    <Palette size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black tracking-tight text-white uppercase">
+                      Tema do Espaço Central
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                      Escolha o visual do radar de despacho
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsThemeModalOpen(false)}
+                  className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Object.values(dispatchThemes).map((th) => {
+                  const isSelected = dispatchTheme === th.id;
+                  return (
+                    <div
+                      key={th.id}
+                      onClick={() => {
+                        setDispatchTheme(th.id);
+                        localStorage.setItem('driver_dispatch_theme', th.id);
+                      }}
+                      className={cn(
+                        "p-3.5 rounded-2xl border-2 transition-all cursor-pointer select-none text-left flex flex-col justify-between overflow-hidden active:scale-95",
+                        isSelected 
+                          ? "border-emerald-400 bg-emerald-950/40 shadow-lg ring-2 ring-emerald-400/30" 
+                          : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                      )}
+                    >
+                      {/* Mini preview bar */}
+                      <div className={cn(
+                        "w-full h-12 rounded-xl p-2 relative overflow-hidden mb-2.5 flex items-center justify-between",
+                        th.containerClass
+                      )}>
+                        <div className={cn("absolute inset-0 pointer-events-none opacity-40", th.gridOverlayClass)} />
+                        <div className="relative z-10 flex items-center gap-1.5">
+                          <MapPin size={12} className="text-emerald-400" />
+                          <span className={cn("text-[9px] font-black uppercase", th.textColor)}>
+                            Radar
+                          </span>
+                        </div>
+                        <span className={cn("relative z-10 px-1.5 py-0.5 rounded text-[7px] font-black uppercase", th.accentBadgeClass)}>
+                          {th.badge}
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-white uppercase tracking-tight">
+                            {th.name}
+                          </h4>
+                          {isSelected && (
+                            <CheckCircle2 size={13} className="text-emerald-400" />
+                          )}
+                        </div>
+                        <p className="text-[9.5px] text-slate-400 mt-0.5 line-clamp-1">
+                          {th.description}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsThemeModalOpen(false)}
+                  className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-500/30 cursor-pointer"
+                >
+                  Aplicar e Fechar
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

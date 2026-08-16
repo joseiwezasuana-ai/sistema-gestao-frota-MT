@@ -7,10 +7,11 @@ import {
   Car, MapPin, Phone, User, Users, Camera, Sun, Moon, Sparkles, ShieldCheck, 
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
-  Wifi, ArrowRight, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
+  Wifi, ArrowRight, ArrowLeft, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
   ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { customConfirm } from '../lib/customConfirm';
 import { PWAInstallModal } from './PWAInstallBanner';
 import { WebRTCAudioCall } from './WebRTCAudioCall';
 import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion, limit, deleteDoc } from '../lib/firebase';
@@ -1451,6 +1452,28 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
     }
   }, [activeRideRecord?.id, isRestoringCall]);
 
+  const handleDeleteRideFromHistory = async (rideId: string) => {
+    const confirmed = await customConfirm({
+      title: "Eliminar do Histórico",
+      message: "Deseja remover este registo de corrida do seu histórico?",
+      confirmText: "Sim, Eliminar",
+      cancelText: "Cancelar",
+      isDanger: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      setMyRides(prev => prev.filter(r => r.id !== rideId));
+      await updateDoc(doc(db, 'calls', rideId), {
+        hiddenFromPassenger: true,
+        deletedFromPassenger: true,
+        deletedFromPassengerAt: new Date().toISOString()
+      });
+    } catch (err) {
+      console.warn("Could not mark call hidden in Firestore, removed locally:", err);
+    }
+  };
+
   // Sync rides in real time
   useEffect(() => {
     if (!passengerProfile?.name) return;
@@ -1459,7 +1482,9 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
       where('passengerName', '==', passengerProfile.name)
     );
     const unsub = onSnapshot(qRides, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((r: any) => r.hiddenFromPassenger !== true && r.deletedFromPassenger !== true);
       list.sort((a: any, b: any) => {
         const tA = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt).getTime();
         const tB = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt).getTime();
@@ -2525,18 +2550,29 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
           {passengerProfile && (
             <header className="p-2.5 sm:p-3 border-b border-white/10 flex items-center justify-between bg-slate-950/90 backdrop-blur-md shrink-0 relative z-50 gap-2 shadow-xl">
               
-              {/* 1. BRANDING (SUPER TÁXI PASSAGEIRO OFICIAL - posição e tamanho originais) + PERFIL DO PASSAGEIRO */}
+              {/* 1. BRANDING & VOLTAR OU PERFIL DO PASSAGEIRO */}
               <div className="flex items-center gap-2.5 min-w-0">
-                {/* Brand Logo & Title (Posição e tamanho originais) */}
-                <div className="flex items-center gap-2 shrink-0 border-r border-white/10 pr-2.5">
-                  <div className={`p-1.5 rounded-xl ${currentTheme.cardClass} border border-white/10 shadow-sm`}>
-                    <Car size={14} className={currentTheme.textClass} />
+                {passengerTab !== 'viagem' ? (
+                  <button
+                    onClick={() => setPassengerTab('viagem')}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-900 border border-white/10 hover:bg-white/10 text-amber-400 hover:text-white transition-all active:scale-95 text-xs font-bold shrink-0 cursor-pointer shadow-md"
+                    title="Voltar ao Início / Pedir Táxi"
+                  >
+                    <ArrowLeft size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-wider text-white">Início</span>
+                  </button>
+                ) : (
+                  /* Brand Logo & Title (Posição e tamanho originais) */
+                  <div className="flex items-center gap-2 shrink-0 border-r border-white/10 pr-2.5">
+                    <div className={`p-1.5 rounded-xl ${currentTheme.cardClass} border border-white/10 shadow-sm`}>
+                      <Car size={14} className={currentTheme.textClass} />
+                    </div>
+                    <div className="leading-none">
+                      <h1 className="text-xs font-black uppercase tracking-tighter italic text-white">SUPER TÁXI</h1>
+                      <p className="text-[7.5px] text-amber-400 font-extrabold uppercase tracking-widest leading-none mt-0.5">Passageiro Oficial</p>
+                    </div>
                   </div>
-                  <div className="leading-none">
-                    <h1 className="text-xs font-black uppercase tracking-tighter italic text-white">SUPER TÁXI</h1>
-                    <p className="text-[7.5px] text-amber-400 font-extrabold uppercase tracking-widest leading-none mt-0.5">Passageiro Oficial</p>
-                  </div>
-                </div>
+                )}
 
                 {/* Perfil do Passageiro (Foto, Nome, Endereço, Contacto) */}
                 <div className="flex items-center gap-2 min-w-0">
@@ -2617,23 +2653,23 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   </button>
 
                   {isNavMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-100">
+                    <div className="absolute right-0 mt-2 w-52 bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-100">
                       <div className="px-3 py-1.5 border-b border-white/5 bg-black/40">
-                        <p className="text-[7.5px] text-slate-500 font-extrabold uppercase tracking-widest">Navegação Rápida</p>
+                        <p className="text-[8.5px] text-slate-400 font-bold tracking-wider">Navegação rápida</p>
                       </div>
                       <button
                         onClick={() => {
                           setPassengerTab('viagem');
                           setIsNavMenuOpen(false);
                         }}
-                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all ${
+                        className={`w-full text-left px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2.5 transition-all ${
                           passengerTab === 'viagem'
-                            ? 'bg-amber-500 text-slate-950 font-black'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                            ? 'bg-amber-500 text-slate-950 font-bold'
+                            : 'text-slate-200 hover:bg-white/5 hover:text-white'
                         }`}
                       >
-                        <Car size={13} />
-                        Pedir Táxi
+                        <Car size={14} />
+                        <span>Pedir táxi</span>
                       </button>
 
                       <button
@@ -2641,10 +2677,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           setShowRidesHistoryModal(true);
                           setIsNavMenuOpen(false);
                         }}
-                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-white hover:bg-white/5 border-b border-white/5 cursor-pointer"
+                        className="w-full text-left px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2.5 transition-all text-slate-200 hover:text-white hover:bg-white/5 border-b border-white/5 cursor-pointer"
                       >
-                        <Trophy size={13} className="text-amber-400" />
-                        Minhas Corridas Recentes
+                        <Trophy size={14} className="text-amber-400" />
+                        <span>Minhas corridas recentes</span>
                       </button>
 
                       <button
@@ -2652,14 +2688,14 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           setPassengerTab('seguranca');
                           setIsNavMenuOpen(false);
                         }}
-                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all ${
+                        className={`w-full text-left px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2.5 transition-all ${
                           passengerTab === 'seguranca'
-                            ? 'bg-rose-500 text-white font-black'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                            ? 'bg-rose-500 text-white font-bold'
+                            : 'text-slate-200 hover:bg-white/5 hover:text-white'
                         }`}
                       >
-                        <ShieldCheck size={13} />
-                        Segurança
+                        <ShieldCheck size={14} />
+                        <span>Segurança</span>
                       </button>
 
                       <button
@@ -2667,14 +2703,14 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           setPassengerTab('perfil');
                           setIsNavMenuOpen(false);
                         }}
-                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all ${
+                        className={`w-full text-left px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2.5 transition-all ${
                           passengerTab === 'perfil'
-                            ? 'bg-[#3b82f6] text-white font-black'
-                            : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                            ? 'bg-[#3b82f6] text-white font-bold'
+                            : 'text-slate-200 hover:bg-white/5 hover:text-white'
                         }`}
                       >
-                        <User size={13} />
-                        Minha Conta
+                        <User size={14} />
+                        <span>Minha conta</span>
                       </button>
 
                       {passengerProfile && (
@@ -2683,10 +2719,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             setIsNavMenuOpen(false);
                             handleLogout();
                           }}
-                          className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-rose-400 hover:bg-rose-500/10 border-t border-white/5 cursor-pointer"
+                          className="w-full text-left px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2.5 transition-all text-rose-400 hover:bg-rose-500/10 border-t border-white/5 cursor-pointer"
                         >
-                          <LogOut size={13} />
-                          Terminar Sessão
+                          <LogOut size={14} />
+                          <span>Terminar sessão</span>
                         </button>
                       )}
 
@@ -2696,10 +2732,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           setShowApkDownloadModal(true);
                           setIsNavMenuOpen(false);
                         }}
-                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-emerald-400 hover:bg-emerald-500/10 border-t border-white/10 mt-1 cursor-pointer"
+                        className="w-full text-left px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2.5 transition-all text-emerald-400 hover:bg-emerald-500/10 border-t border-white/10 mt-1 cursor-pointer"
                       >
-                        <Smartphone size={13} className="text-emerald-400" />
-                        Download App Android (.APK)
+                        <Smartphone size={14} className="text-emerald-400" />
+                        <span>Download App Android (.apk)</span>
                       </button>
 
                       {/* INSTALAR APLICAÇÃO (PWA) */}
@@ -2708,10 +2744,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           setShowInstallPwaModal(true);
                           setIsNavMenuOpen(false);
                         }}
-                        className="w-full text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-2.5 transition-all text-amber-400 hover:bg-amber-500/10 border-t border-white/5 cursor-pointer"
+                        className="w-full text-left px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2.5 transition-all text-amber-400 hover:bg-amber-500/10 border-t border-white/5 cursor-pointer"
                       >
-                        <Download size={13} className="text-amber-400" />
-                        Instalar SUPER Táxi Web
+                        <Download size={14} className="text-amber-400" />
+                        <span>Instalar SUPER Táxi Web</span>
                       </button>
 
                       {/* No collaborator buttons inside passenger app */}
@@ -3275,12 +3311,12 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </div>
                       </div>
 
-                      {/* 2. CANTO SUPERIOR DIREITO DO MAPA: Monitorização Satélite por cima do Raio Máx */}
+                      {/* 2. CANTO SUPERIOR DIREITO DO MAPA: Monitor Satélite por cima do Raio Máx */}
                       <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-1.5 pointer-events-none">
-                        {/* Monitorização Satélite Ativa */}
+                        {/* Monitor Satélite Ativa */}
                         <div className="bg-slate-950/90 backdrop-blur px-2.5 py-1 rounded-xl border border-white/10 text-[7.5px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5 shadow-lg select-none pointer-events-auto">
                           <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
-                          Monitorização Satélite Ativa
+                          Monitor satélite ativa
                         </div>
 
                         {/* Raio Máx */}
@@ -3386,8 +3422,8 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                                 <p className="text-[12px] font-black tracking-tight leading-snug text-white">
                                   {appConfig?.customWelcomeMsg || 'Olá! Como o podemos ajudar por Luena hoje?'}
                                 </p>
-                                <p className="text-[9px] text-amber-400 font-extrabold uppercase tracking-wider">
-                                  Bandeirada Base para serviços públicos: <strong className="text-white font-black">{appConfig?.baseFareKz || 500} Kz</strong>
+                                <p className="text-[9.5px] text-amber-400 font-bold lowercase tracking-normal">
+                                  bandeira base super taxi: <strong className="text-white font-black font-mono">{appConfig?.baseFareKz || 500} Kz</strong>
                                 </p>
                               </div>
 
@@ -3504,6 +3540,24 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   {/* ABA 2: SEGURANÇA E SUPORTE */}
                   {passengerTab === 'seguranca' && (
                     <div className="space-y-3.5 animate-in fade-in duration-300 text-left">
+                      {/* BOTÃO VOLTAR / INÍCIO DA ABA DE SEGURANÇA */}
+                      <div className="flex items-center justify-between bg-slate-900/90 border border-white/10 p-2.5 rounded-2xl shadow-sm">
+                        <button
+                          onClick={() => setPassengerTab('viagem')}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white transition-all active:scale-95 text-xs font-bold cursor-pointer"
+                        >
+                          <ArrowLeft size={14} className="text-rose-400" />
+                          <span>Voltar ao Início</span>
+                        </button>
+                        <button
+                          onClick={() => setPassengerTab('viagem')}
+                          className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all active:scale-95 cursor-pointer"
+                          title="Fechar e voltar"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+
                       {/* RECOMENDAÇÃO DE SEGURANÇA TAXICONTROL - CENTRAL DE PROTEÇÃO */}
                       <div className="bg-slate-900 border border-white/5 rounded-2xl overflow-hidden shadow-xl text-left">
                         <div className="p-3 bg-rose-500/10 border-b border-rose-500/20 flex items-center justify-between">
@@ -3600,6 +3654,23 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   {/* ABA 3: PERFIL E AJUSTES (MINHA CONTA) */}
                   {passengerTab === 'perfil' && (
                     <div className="space-y-3.5 animate-in fade-in duration-300 text-left">
+                      {/* BOTÃO VOLTAR / INÍCIO DA ABA MINHA CONTA */}
+                      <div className="flex items-center justify-between bg-slate-900/90 border border-white/10 p-2.5 rounded-2xl shadow-sm">
+                        <button
+                          onClick={() => setPassengerTab('viagem')}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white transition-all active:scale-95 text-xs font-bold cursor-pointer"
+                        >
+                          <ArrowLeft size={14} className="text-blue-400" />
+                          <span>Voltar ao Início</span>
+                        </button>
+                        <button
+                          onClick={() => setPassengerTab('viagem')}
+                          className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all active:scale-95 cursor-pointer"
+                          title="Fechar e voltar"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
                       
                       {/* CLUB BONUS & OFFERS PANEL (JIS) */}
                       {appConfig?.bonusClubEnabled !== false && (
@@ -4659,7 +4730,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </span>
                       </div>
                       <p className="text-[8.5px] text-slate-400 font-extrabold uppercase tracking-widest truncate mt-0.5">
-                        Tela Individual • Histórico Completo SUPER Táxi
+                        Histórico Completo SUPER Táxi
                       </p>
                     </div>
                   </div>
@@ -4683,7 +4754,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       <div className="space-y-1">
                         <p className="text-xs text-slate-200 uppercase font-black">Nenhuma corrida registada ainda</p>
                         <p className="text-[9.5px] text-slate-400 font-bold max-w-xs mx-auto">
-                          Os seus pedidos de SUPER Táxi no Luena e Moxico ficarão arquivados detalhadamente nesta tela individual.
+                          Os seus pedidos de SUPER Táxi no Luena e Moxico ficarão arquivados detalhadamente no seu histórico.
                         </p>
                       </div>
                       <button
@@ -4720,6 +4791,17 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             <span className="text-xs font-black text-amber-400 font-mono">
                               {getRidePriceText(rd)}
                             </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteRideFromHistory(rd.id);
+                              }}
+                              className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer ml-1"
+                              title="Eliminar esta corrida do histórico"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
                         </div>
 

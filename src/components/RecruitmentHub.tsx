@@ -39,19 +39,24 @@ import {
 } from 'lucide-react';
 import CompanyPhones from './CompanyPhones';
 import WarehouseManager from './WarehouseManager';
+// SDK Oficial do Firestore
 import { 
   collection, 
-  addDoc, 
   query, 
   where, 
   onSnapshot, 
+  addDoc, 
+  updateDoc, 
   deleteDoc, 
   doc, 
-  serverTimestamp,
-  orderBy,
-  getDocs,
-  writeBatch
-} from '@/src/lib/firebase';
+  serverTimestamp, 
+  orderBy, 
+  getDocs, 
+  writeBatch 
+} from 'firebase/firestore';
+
+// Utilitários locais
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 const ROLES = [
   { id: 'gerente', label: 'Gerente', icon: ShieldCheck, color: 'text-rose-500', bg: 'bg-rose-50' },
@@ -1124,14 +1129,19 @@ export default function RecruitmentHub({ user }: { user?: any }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {activeUsers.map((user) => (
+                {activeUsers.map((user) => {
+                  const userName = user.name || user.displayName || (user.email ? user.email.split('@')[0] : 'Utilizador');
+                  const userInitial = (userName && userName.length > 0 ? userName.charAt(0) : 'U').toUpperCase();
+                  const userEmail = user.email || 'Sem e-mail';
+
+                  return (
                   <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-5">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-black italic shadow-lg shadow-black/10">
-                          {user.name.charAt(0)}
+                          {userInitial}
                         </div>
-                        <span className="text-xs font-black text-slate-800 uppercase italic tracking-tight">{user.name}</span>
+                        <span className="text-xs font-black text-slate-800 uppercase italic tracking-tight">{userName}</span>
                       </div>
                     </td>
                     <td className="px-6 py-5">
@@ -1146,17 +1156,19 @@ export default function RecruitmentHub({ user }: { user?: any }) {
                     <td className="px-6 py-5">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
-                           <span className="text-xs font-bold text-slate-500">{user.email}</span>
-                           <button onClick={() => copyToClipboard(user.email)} className="text-slate-300 hover:text-brand-primary transition-colors">
-                             <Copy size={12} />
-                           </button>
+                           <span className="text-xs font-bold text-slate-500">{userEmail}</span>
+                           {user.email && (
+                             <button onClick={() => copyToClipboard(user.email)} className="text-slate-300 hover:text-brand-primary transition-colors cursor-pointer" title="Copiar E-mail">
+                               <Copy size={12} />
+                             </button>
+                           )}
                         </div>
                         {(() => {
                           const originalCodeDoc = allCodesHistory.find((c: any) => 
                             c.usedBy === user.id || 
                             c.usedBy === user.uid || 
-                            c.targetName === user.name ||
-                            (c.assignedId && user.email.toLowerCase().includes(c.assignedId.toLowerCase()))
+                            (c.targetName && user.name && c.targetName.toLowerCase() === user.name.toLowerCase()) ||
+                            (c.assignedId && user.email && user.email.toLowerCase().includes(c.assignedId.toLowerCase()))
                           );
                           if (originalCodeDoc) {
                             return (
@@ -1176,21 +1188,21 @@ export default function RecruitmentHub({ user }: { user?: any }) {
                       {formatSafe(user.createdAt, 'dd/MM/yyyy', 'Sistema')}
                     </td>
                     <td className="px-6 py-5 text-right">
-                      {user.email !== 'joseiwezasuana@gmail.com' ? (
+                      {(user.email || '').toLowerCase() !== 'joseiwezasuana@gmail.com' ? (
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => {
                               setSelectedUserForReset(user);
                               setShowResetPasswordModal(true);
                             }}
-                            className="text-slate-400 hover:text-brand-primary transition-colors p-2 hover:bg-brand-primary/5 rounded-lg"
+                            className="text-slate-400 hover:text-brand-primary transition-colors p-2 hover:bg-brand-primary/5 rounded-lg cursor-pointer"
                             title="Redefinir Palavra-passe do Colaborador"
                           >
                             <Lock size={15} />
                           </button>
                           <button 
-                            onClick={() => deleteUser(user.id, user.name)}
-                            className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-lg"
+                            onClick={() => deleteUser(user.id, userName)}
+                            className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-lg cursor-pointer"
                             title="Remover Acesso"
                           >
                             <Trash2 size={16} />
@@ -1201,7 +1213,8 @@ export default function RecruitmentHub({ user }: { user?: any }) {
                       )}
                     </td>
                   </tr>
-                ))}
+                );
+              })}
                 {activeUsers.length === 0 && (
                   <tr>
                      <td colSpan={5} className="py-12 text-center text-[11px] font-bold text-slate-300 uppercase tracking-widest">Nenhum utilizador sincronizado</td>

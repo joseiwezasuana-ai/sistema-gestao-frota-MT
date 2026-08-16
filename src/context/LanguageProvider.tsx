@@ -1,0 +1,1 @@
+import React, { createContext, useContext } from 'react'; const Context = createContext({ lang: 'pt' }); export const LanguageProvider = ({ children }: { children: React.ReactNode }) => <Context.Provider value={{ lang: 'pt' }}>{children}</Context.Provider>; export const useLanguage = () => useContext(Context); export default LanguageProvider;

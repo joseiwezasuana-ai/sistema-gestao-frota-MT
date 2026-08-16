@@ -13,15 +13,23 @@ android {
         applicationId "com.supertaxi.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        aaptOptions {
-             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        versionCode 601
+        versionName "6.0.1"
+    }
+
+    // 1. ADICIONA O BLOCO DE ASSINATURA (signingConfigs)
+    signingConfigs {
+        release {
+            storeFile file('supertaxi-release-key.jks')
+            storePassword 'defacadanac.a'    // Coloca a senha que definiste no keytool
+            keyAlias 'supertaxi'
+            keyPassword 'defacadanac.a'      // Coloca a senha que definiste no keytool
         }
     }
+
     buildTypes {
         release {
+            signingConfig signingConfigs.release    // 2. VINCULA A ASSINATURA AO MODO RELEASE
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

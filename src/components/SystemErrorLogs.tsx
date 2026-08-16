@@ -101,28 +101,26 @@ export default function SystemErrorLogs({ user }: SystemErrorLogsProps) {
       });
       triggerToast(newStatus ? 'Log marcado como resolvido!' : 'Log reaberto com sucesso!');
     } catch (e: any) {
-      alert('Erro ao atualizar log: ' + e.message);
+      triggerToast('Erro ao atualizar log: ' + (e?.message || 'Falha de conexão'));
     }
   };
 
   const deleteSingleLog = async (logId?: string) => {
     if (!logId || !db) return;
-    if (!confirm('Deseja eliminar este log de erro permanentemente?')) return;
     try {
       await deleteDoc(doc(db, 'system_error_logs', logId));
       triggerToast('Log de erro eliminado com sucesso.');
     } catch (e: any) {
-      alert('Erro ao eliminar log: ' + e.message);
+      triggerToast('Erro ao eliminar log: ' + (e?.message || 'Falha de permissão'));
     }
   };
 
   const clearResolvedLogs = async () => {
     const resolvedLogs = logs.filter(l => l.resolved && l.id);
     if (resolvedLogs.length === 0) {
-      alert('Não existem logs resolvidos para eliminar.');
+      triggerToast('Não existem logs resolvidos para eliminar.');
       return;
     }
-    if (!confirm(`Confirmar eliminação de ${resolvedLogs.length} log(s) resolvido(s)?`)) return;
 
     try {
       const batch = writeBatch(db);
@@ -132,7 +130,7 @@ export default function SystemErrorLogs({ user }: SystemErrorLogsProps) {
       await batch.commit();
       triggerToast(`${resolvedLogs.length} log(s) resolvido(s) limpo(s) com sucesso!`);
     } catch (e: any) {
-      alert('Falha ao limpar logs: ' + e.message);
+      triggerToast('Falha ao limpar logs: ' + (e?.message || 'Erro de rede'));
     }
   };
 

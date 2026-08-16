@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LogIn, Car, User, Key, ArrowRight, Shield, AlertCircle, Loader2, CheckCircle2, ShieldCheck, ChevronRight, ChevronDown, ChevronUp, MessageSquare, MoreVertical, X, Globe, Lock, Building, HelpCircle, QrCode, Copy, Check, ExternalLink } from 'lucide-react';
+import { LogIn, Car, User, Key, ArrowRight, Shield, AlertCircle, Loader2, CheckCircle2, ShieldCheck, ChevronRight, ChevronDown, ChevronUp, MessageSquare, MoreVertical, X, Globe, Lock, Building, Building2, HelpCircle, QrCode, Copy, Check, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithRedirect } from 'firebase/auth';
 import { db, auth, googleProvider, withTimeout, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
@@ -209,7 +209,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
       try {
         let results: { id: string, name: string }[] = [];
 
-        if (validationRole === 'admin' || validationRole === 'operator' || validationRole === 'contabilista' || validationRole === 'mecanico') {
+        if (validationRole === 'admin' || validationRole === 'gerente' || validationRole === 'manager' || validationRole === 'operator' || validationRole === 'contabilista' || validationRole === 'mecanico') {
           const staffQuery = query(
             collection(db, 'administrative_staff'), 
             where('status', '==', 'Ativo')
@@ -234,7 +234,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
       } catch (err) {
         console.error("Error fetching collaborators, loading fallback staff/drivers:", err);
         // Supply rich, friendly fallbacks for Jose Iweza Suana and team so they can proceed
-        if (validationRole === 'admin' || validationRole === 'operator' || validationRole === 'contabilista' || validationRole === 'mecanico') {
+        if (validationRole === 'admin' || validationRole === 'gerente' || validationRole === 'manager' || validationRole === 'operator' || validationRole === 'contabilista' || validationRole === 'mecanico') {
           setCollaborators([
             { id: "fallback-jos", name: "José Iweza Suana (Admin)" },
             { id: "fallback-ant", name: "António Moreira" },
@@ -591,7 +591,76 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     try {
       // First try standard Firebase authentication
       try {
-        await signInWithEmailAndPassword(auth, email, password);
+        const userCred = await signInWithEmailAndPassword(auth, email, password);
+        
+        if (userCred.user) {
+          const uRef = doc(db, 'users', userCred.user.uid);
+          const uSnap = await getDoc(uRef).catch(() => null);
+
+          // Check if this user is a registered staff member in administrative_staff
+          let staffRole: string | null = null;
+          let staffName: string | null = null;
+
+          try {
+            const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', email.toLowerCase()));
+            const staffSnap = await getDocs(staffQ);
+            if (!staffSnap.empty) {
+              const sData = staffSnap.docs[0].data();
+              staffRole = sData.role || 'gerente';
+              staffName = sData.name || null;
+            } else {
+              // Try searching by name or ID
+              const staffByNameQ = query(collection(db, 'administrative_staff'), where('name', '==', rawId));
+              const staffByNameSnap = await getDocs(staffByNameQ);
+              if (!staffByNameSnap.empty) {
+                const sData = staffByNameSnap.docs[0].data();
+                staffRole = sData.role || 'gerente';
+                staffName = sData.name || null;
+              }
+            }
+          } catch (staffErr) {
+            console.warn("Staff lookup on login error:", staffErr);
+          }
+
+          const userEmail = email.toLowerCase();
+          const isMaster = userEmail === 'joseiwezasuana@gmail.com';
+          const isExplicitAdmin = isMaster || userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager');
+          const isExplicitOp = userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator');
+          const isExplicitMec = userEmail.includes('mecanico') || userEmail.includes('mechanic');
+          const isExplicitFin = userEmail.includes('contabilista') || userEmail.includes('finance');
+
+          let resolvedRole: string | null = staffRole;
+          if (!resolvedRole) {
+            if (isExplicitAdmin) resolvedRole = 'gerente';
+            else if (isExplicitOp) resolvedRole = 'operator';
+            else if (isExplicitMec) resolvedRole = 'mecanico';
+            else if (isExplicitFin) resolvedRole = 'contabilista';
+          }
+
+          if (!uSnap || !uSnap.exists()) {
+            // Profile document does not exist yet: create it preserving staff/manager role!
+            const defaultRole = resolvedRole || (userEmail.startsWith('tx-') || userEmail.startsWith('mot-') ? 'driver' : 'gerente');
+            await setDoc(uRef, {
+              uid: userCred.user.uid,
+              email: email,
+              name: staffName || rawId.toUpperCase(),
+              role: defaultRole,
+              tenantId: 'psm',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }, { merge: true }).catch(console.warn);
+          } else {
+            const currentProfile = uSnap.data();
+            // If the user is a manager or staff member, but their profile role was accidentally saved as 'driver' or empty, auto-repair it!
+            if (resolvedRole && currentProfile?.role !== resolvedRole && (currentProfile?.role === 'driver' || !currentProfile?.role)) {
+              await setDoc(uRef, {
+                role: resolvedRole,
+                updatedAt: new Date().toISOString()
+              }, { merge: true }).catch(console.warn);
+            }
+          }
+        }
+
         localStorage.removeItem('local_user_session'); // clear local if standard worked
       } catch (authErr: any) {
         console.warn("Standard Auth login failed. Trying local database fallback...", authErr);
@@ -669,7 +738,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-white px-0 font-sans antialiased text-slate-900 notranslate selection:bg-brand-primary/30 w-full relative">
+    <div className="w-full h-full min-h-[100dvh] overflow-y-auto overflow-x-hidden bg-white font-sans antialiased text-slate-900 notranslate selection:bg-brand-primary/30 relative flex flex-col justify-between">
       {/* Background Decorative Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none bg-white">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-primary/5 blur-[120px] rounded-full animate-pulse" />
@@ -848,66 +917,43 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         className={`w-full bg-white relative z-10 transition-all duration-500 shadow-none border-none ${
-          loginMethod === 'companies' ? "max-w-full min-h-screen flex flex-col" : "max-w-[440px]"
+          loginMethod === 'companies' ? "max-w-7xl mx-auto p-3 sm:p-6 lg:p-8 min-h-screen flex flex-col my-0 pb-20" : "max-w-[440px] mx-auto py-4 sm:py-6 px-4 my-auto"
         }`}
       >
-        <div className={`bg-white text-slate-900 relative overflow-hidden flex flex-col justify-center transition-all duration-500 ${
-          loginMethod === 'companies' ? "h-[160px] p-6 lg:p-10 text-left" : "h-[200px] p-6 text-center"
-        }`}>
-          {/* Technical Grid Pattern */}
-          <div className="absolute inset-0 opacity-5 pointer-events-none" 
-               style={{ backgroundImage: 'radial-gradient(#94a3b8 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
-          
-          <div className="absolute top-0 right-0 w-80 h-80 bg-brand-primary/10 blur-[120px] rounded-full -mr-40 -mt-40 animate-pulse" />
-          
-          {loginMethod === 'companies' ? (
-            <div className="flex items-center gap-4 relative z-10">
-              <div className="h-16 w-16 flex items-center justify-center bg-slate-50 rounded-2xl p-2 border border-slate-150 shadow-md overflow-hidden shrink-0">
-                <img 
-                  src="/logo.svg" 
-                  alt="SUPER Taxi" 
-                  className="w-full h-full object-contain relative z-10 drop-shadow-[0_4px_12px_rgba(245,158,11,0.25)]"
-                />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black tracking-tight uppercase italic leading-none flex items-center gap-2 text-slate-900">
-                  SUPER<span className="text-brand-primary">Taxi</span>
-                  <span className="text-xs bg-brand-primary text-white font-black uppercase px-2 py-0.5 rounded-md tracking-wider">
-                    Administração Central
-                  </span>
-                </h1>
-                <p className="text-xs text-slate-500 font-black uppercase tracking-[0.2em] mt-1">JIS ANGOLA</p>
-              </div>
+        {loginMethod !== 'companies' && (
+          <div className="bg-white text-slate-900 relative overflow-hidden flex flex-col justify-center transition-all duration-500 py-4 sm:py-6 px-4 text-center shrink-0">
+            {/* Technical Grid Pattern */}
+            <div className="absolute inset-0 opacity-5 pointer-events-none" 
+                 style={{ backgroundImage: 'radial-gradient(#94a3b8 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
+            
+            <div className="absolute top-0 right-0 w-80 h-80 bg-brand-primary/10 blur-[120px] rounded-full -mr-40 -mt-40 animate-pulse" />
+            
+            <motion.div 
+              initial={{ scale: 0.8, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              className="mx-auto flex h-20 w-20 items-center justify-center relative z-10 mb-2 group overflow-hidden"
+            >
+              <img 
+                src="/logo.svg" 
+                alt="PSM Taxi" 
+                className="w-full h-full object-contain relative z-10 filter drop-shadow-[0_8px_20px_rgba(245,158,11,0.3)]"
+              />
+            </motion.div>
+            
+            <h1 className="text-2xl font-black tracking-tighter uppercase italic relative z-10 leading-none">
+              <span className="text-blue-600 dark:text-blue-400">SUPER</span><span className="text-amber-500 ml-1.5">Taxi</span>
+            </h1>
+            
+            <div className="mt-2 flex items-center justify-center gap-3 relative z-10 px-4">
+               <div className="h-0.5 w-6 bg-brand-primary/40" />
+               <p className="text-[9px] text-slate-500 font-black uppercase tracking-[0.4em] whitespace-nowrap">JIS ANGOLA</p>
+               <div className="h-0.5 w-6 bg-brand-primary/40" />
             </div>
-          ) : (
-            <>
-              <motion.div 
-                initial={{ scale: 0.8, y: 15 }}
-                animate={{ scale: 1, y: 0 }}
-                className="mx-auto flex h-16 w-16 items-center justify-center relative z-10 mb-3 group bg-slate-50 rounded-2xl p-3 border border-slate-150 shadow-md overflow-hidden"
-              >
-                <img 
-                  src="/logo.svg" 
-                  alt="SUPER Taxi" 
-                  className="w-full h-full object-contain relative z-10 drop-shadow-[0_4px_12px_rgba(245,158,11,0.25)]"
-                />
-              </motion.div>
-              
-              <h1 className="text-2xl font-black tracking-tighter uppercase italic relative z-10 leading-none text-slate-900">
-                SUPER<span className="text-brand-primary ml-1">Taxi</span>
-              </h1>
-              
-              <div className="mt-2 flex items-center justify-center gap-3 relative z-10 px-4">
-                 <div className="h-0.5 w-6 bg-brand-primary/40" />
-                 <p className="text-[9px] text-slate-500 font-black uppercase tracking-[0.4em] whitespace-nowrap">JIS ANGOLA</p>
-                 <div className="h-0.5 w-6 bg-brand-primary/40" />
-              </div>
-            </>
-          )}
-        </div>
+          </div>
+        )}
         
-        <div className={`relative transition-all duration-500 flex flex-col justify-center ${
-          loginMethod === 'companies' ? "p-6 lg:p-10 min-h-[450px]" : "p-6 min-h-[320px] items-center"
+        <div className={`relative transition-all duration-500 flex flex-col ${
+          loginMethod === 'companies' ? "p-0 min-h-0 flex-1 justify-start" : "p-4 sm:p-6 min-h-[320px] items-center justify-center"
         }`}>
           <AnimatePresence mode="wait">
             {loginMethod === 'cover' ? (
@@ -925,9 +971,6 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                       Divulgação • App do Passageiro
                     </span>
                     <h4 className="text-sm font-black uppercase tracking-wider text-white mt-1">QR CODE DO APP PASSAGEIRO</h4>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight max-w-xs leading-relaxed">
-                      Digitalize com a câmara do telemóvel para abrir a App do Passageiro Oficial em Luena - Moxico
-                    </p>
                   </div>
 
                   {/* QR Image Frame */}
@@ -990,17 +1033,20 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                 exit={{ opacity: 0, x: -20 }}
                 className="w-full"
               >
-                <div className="mb-8 flex items-center justify-between">
-                  <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">
-                    {loginMethod === 'google' ? 'Administração' : loginMethod === 'credentials' ? 'Colaborador' : loginMethod === 'recover' ? 'Recuperar Acesso' : loginMethod === 'companies' ? 'Gestão de Companhias' : 'Autenticar colaborador'}
-                  </h3>
-                  <button 
-                    onClick={() => handleMethodChange('cover')}
-                    className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400"
-                  >
-                    <ArrowRight className="rotate-180" size={18} />
-                  </button>
-                </div>
+                {loginMethod !== 'companies' && (
+                  <div className="mb-6 flex items-center justify-between">
+                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">
+                      {loginMethod === 'google' ? 'Administração' : loginMethod === 'credentials' ? 'Colaborador' : loginMethod === 'recover' ? 'Recuperar Acesso' : 'Autenticar colaborador'}
+                    </h3>
+                    <button 
+                      onClick={() => handleMethodChange('cover')}
+                      className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400 cursor-pointer"
+                      title="Voltar"
+                    >
+                      <ArrowRight className="rotate-180" size={18} />
+                    </button>
+                  </div>
+                )}
 
                 {/* Forms Section */}
                 {loginMethod === 'google' && (
@@ -1337,7 +1383,10 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
 
                 {loginMethod === 'companies' && (
                   <div className="w-full text-left">
-                    <CompanyManagement user={{ email: 'joseiwezasuana@gmail.com', role: 'admin' }} />
+                    <CompanyManagement 
+                      user={{ email: 'joseiwezasuana@gmail.com', role: 'admin' }} 
+                      onBack={() => handleMethodChange('cover')} 
+                    />
                   </div>
                 )}
               </motion.div>
@@ -1345,7 +1394,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
           </AnimatePresence>
         </div>
         
-        <div className="px-10 py-6 bg-white flex items-center justify-between text-[11px] text-slate-400 font-black uppercase tracking-widest italic border-none">
+        <div className="px-6 sm:px-10 py-4 sm:py-6 bg-white flex items-center justify-between text-[11px] text-slate-400 font-black uppercase tracking-widest italic border-none shrink-0">
           <span>v6.5 • LUENA</span>
           <span className="opacity-50">SISTEMA AUDITADO</span>
         </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import QRCode from 'qrcode';
 import {
   LayoutDashboard,
   Truck,
@@ -37,7 +38,10 @@ import {
   Check,
   Fingerprint,
   Lock,
-  UserPlus
+  User,
+  UserPlus,
+  Download,
+  Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -58,6 +62,7 @@ interface StaffMobileViewProps {
   user: any;
   onLogout: () => void;
   onExitMobile?: () => void;
+  onEditProfile?: () => void;
 }
 
 const STAFF_PALETTES = {
@@ -106,7 +111,7 @@ const STAFF_PALETTES = {
   }
 };
 
-export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffMobileViewProps) {
+export default function StaffMobileView({ user, onLogout, onExitMobile, onEditProfile }: StaffMobileViewProps) {
   const canManageScales = user?.role === 'admin' || user?.role === 'gerente' || user?.role === 'operator' || user?.role === 'operador';
 
   // PWA Installation prompt states
@@ -190,6 +195,33 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
   const [passwordInput, setPasswordInput] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
   const [biometricType, setBiometricType] = useState<'faceid' | 'touchid'>('faceid');
+
+  const [isPassengerApkModalOpen, setIsPassengerApkModalOpen] = useState(false);
+  const [passengerApkQrUrl, setPassengerApkQrUrl] = useState<string>('');
+  const [apkConfig, setApkConfig] = useState<any>({
+    version: '6.0.0',
+    passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
+    passengerAppSize: '16.8 MB'
+  });
+
+  useEffect(() => {
+    const unsubApk = onSnapshot(doc(db, 'settings', 'apk_distribution'), (snap) => {
+      if (snap.exists()) {
+        setApkConfig(snap.data());
+      }
+    }, (err) => console.warn("Staff APK config sync error:", err));
+    return () => unsubApk();
+  }, []);
+
+  useEffect(() => {
+    if (isPassengerApkModalOpen) {
+      const rawUrl = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
+      const fullUrl = rawUrl.startsWith('http') ? rawUrl : `${window.location.origin}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+      QRCode.toDataURL(fullUrl, { width: 280, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } })
+        .then(url => setPassengerApkQrUrl(url))
+        .catch(() => setPassengerApkQrUrl(`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(fullUrl)}`));
+    }
+  }, [isPassengerApkModalOpen, apkConfig.passengerAppUrl]);
 
   // Trigger actual WebAuthn device biometric or rich simulation
   const triggerBiometricScan = async () => {
@@ -929,6 +961,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
     { icon: Truck, label: 'Gestão de Frota', group: 'Navegação', onClick: () => { setActiveTab('fleet'); setFleetSubTab('vehicles'); } },
     { icon: CalendarIcon, label: 'Escalas & Turnos', group: 'Navegação', onClick: () => { setActiveTab('fleet'); setFleetSubTab('scales'); } },
     { icon: Wallet, label: 'Contas & Rendas', group: 'Navegação', onClick: () => setActiveTab('wallet') },
+    { icon: Smartphone, label: 'Download APK Passageiro & QR', group: 'Navegação', onClick: () => setIsPassengerApkModalOpen(true) },
     ...((user?.role === 'admin' || user?.role === 'gerente' || user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com') ? [{ icon: UserPlus, label: 'Portal de Recrutamento', group: 'Navegação', onClick: () => setIsRecruitmentOpen(true) }] : []),
 
     { icon: Activity, label: 'Gateway Console', group: 'Monitores Live', onClick: () => setIsGatewayOpen(true) },
@@ -942,6 +975,13 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
       onClick: () => setIsComplaintsOpen(true)
     },
 
+    ...(onEditProfile ? [{
+      icon: User,
+      label: 'Meu Perfil de Gestão',
+      group: 'Configuração',
+      onClick: onEditProfile,
+      color: 'text-brand-primary'
+    }] : []),
     {
       icon: Fingerprint,
       label: `Biometria (Face/Touch): ${isBiometricEnabled ? 'LIGADA' : 'DESLIGADA'}`,
@@ -2505,11 +2545,41 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               exit={{ x: 300 }}
               className="fixed top-0 right-0 h-full w-4/5 max-w-[320px] bg-slate-900 z-[70] shadow-2xl p-8 flex flex-col border-l border-slate-800 text-white"
             >
-              <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center justify-between mb-6">
                  <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">Definições</h3>
-                 <button onClick={() => setIsMenuOpen(false)} className="p-2 bg-slate-800 rounded-full text-white">
+                 <button onClick={() => setIsMenuOpen(false)} className="p-2 bg-slate-800 rounded-full text-white cursor-pointer hover:bg-slate-700 transition-colors">
                    <X size={18} />
                  </button>
+              </div>
+
+              {/* User Profile Summary Card */}
+              <div 
+                onClick={() => {
+                  if (onEditProfile) {
+                    onEditProfile();
+                    setIsMenuOpen(false);
+                  }
+                }}
+                className="mb-6 p-4 bg-slate-800/80 hover:bg-slate-800 rounded-2xl border border-slate-700/60 cursor-pointer group transition-all"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-primary to-blue-700 flex items-center justify-center text-white font-black overflow-hidden relative shadow-lg shrink-0">
+                    {user?.photoURL ? (
+                      <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <User size={22} className="text-white" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-black text-white uppercase tracking-tight truncate group-hover:text-brand-primary transition-colors">
+                      {user?.name || 'Gestor'}
+                    </p>
+                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      {(user?.role || 'GERENTE').toUpperCase()}
+                    </span>
+                    <p className="text-[8px] text-slate-400 font-mono truncate mt-0.5">{user?.email}</p>
+                  </div>
+                </div>
               </div>
 
               <div className="flex-1 overflow-y-auto pr-1 space-y-6">
@@ -2929,7 +2999,7 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
               <div className="w-16 h-16 bg-brand-primary rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand-primary/25 rotate-6 mb-4">
                 <span className="text-xl font-black italic tracking-tighter">JIS</span>
               </div>
-              <h2 className="text-xl font-black text-white uppercase tracking-tight">SUPER Taxi</h2>
+              <h2 className="text-xl font-black text-white uppercase tracking-tight">PSM Táxi</h2>
               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-1">SISTEMA INTEGRADO DE SEGURANÇA</p>
             </div>
 
@@ -3067,6 +3137,73 @@ export default function StaffMobileView({ user, onLogout, onExitMobile }: StaffM
         isOpen={isTeamChatOpen}
         onClose={() => setIsTeamChatOpen(false)}
       />
+
+      {/* PASSENGER APK DOWNLOAD & QR CODE MODAL IN STAFF VIEW */}
+      <AnimatePresence>
+        {isPassengerApkModalOpen && (
+          <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-slate-900 border-2 border-emerald-500/60 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-center relative overflow-hidden"
+            >
+              <button
+                onClick={() => setIsPassengerApkModalOpen(false)}
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-800 rounded-full transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+
+              <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/30">
+                <Smartphone size={24} />
+              </div>
+
+              <div>
+                <h3 className="text-base font-black text-white uppercase tracking-tight italic">SUPER Táxi Passageiro</h3>
+                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-0.5">Versão Oficial • Android APK</p>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl w-48 h-48 mx-auto flex items-center justify-center shadow-inner border border-slate-700">
+                {passengerApkQrUrl ? (
+                  <img src={passengerApkQrUrl} alt="QR Code APK Passageiro" className="w-full h-full object-contain" />
+                ) : (
+                  <div className="animate-spin text-slate-400 text-xs font-bold">A gerar QR...</div>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-1">
+                <p className="text-[9px] text-slate-400 font-bold leading-relaxed px-2">
+                  Aponte a câmara do telemóvel para o QR Code ou utilize o botão direto abaixo para descarregar o APK do passageiro.
+                </p>
+
+                <div className="flex gap-2 pt-2">
+                  <a
+                    href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <Download size={14} />
+                    <span>Descarregar .APK</span>
+                  </a>
+                  <button
+                    onClick={() => {
+                      const url = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
+                      navigator.clipboard.writeText(url);
+                      alert("Link copiado para a área de transferência!");
+                    }}
+                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Copiar Link"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

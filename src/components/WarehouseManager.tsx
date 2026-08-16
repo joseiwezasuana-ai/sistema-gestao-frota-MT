@@ -17,8 +17,23 @@ import {
   Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+// Utilitários locais
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, deleteDoc, serverTimestamp, writeBatch } from '@/src/lib/firebase';
+
+// SDK Oficial do Firestore
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  doc, 
+  deleteDoc, 
+  serverTimestamp, 
+  writeBatch 
+} from 'firebase/firestore';
+
 import { cn } from '../lib/utils';
 import QrScannerModal from './QrScannerModal';
 

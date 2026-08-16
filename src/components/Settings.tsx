@@ -1,41 +1,59 @@
 import React, { useState, useEffect } from 'react';
+
+// Ícones do lucide-react
 import { 
   Key, 
   Plus, 
   Copy, 
   Check, 
   Trash2, 
-  UserPlus,
-  Loader2,
-  Database,
-  Bell,
-  Zap,
-  Info,
+  UserPlus, 
+  Loader2, 
+  Database, 
+  Bell, 
+  Zap, 
+  Info, 
   Share2, 
   Smartphone, 
   AlertCircle, 
-  AlertTriangle,
-  UserCheck,
-  Building,
-  Phone,
-  MapPin,
-  MessageSquare,
-  Image as ImageIcon,
-  Globe,
-  Terminal,
-  BookOpen,
-  Lock,
-  Sun,
-  Moon
+  AlertTriangle, 
+  UserCheck, 
+  Building, 
+  Phone, 
+  MapPin, 
+  MessageSquare, 
+  Image as ImageIcon, 
+  Globe, 
+  Terminal, 
+  BookOpen, 
+  Lock, 
+  Sun, 
+  Moon 
 } from 'lucide-react';
-import { collection, addDoc, setDoc, onSnapshot, query, orderBy, deleteDoc, doc, Timestamp, serverTimestamp, getDocs, writeBatch } from '@/src/lib/firebase';
+
+// Métodos nativos do Firebase Firestore
+import { 
+  collection, 
+  addDoc, 
+  setDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  deleteDoc, 
+  doc, 
+  Timestamp, 
+  serverTimestamp, 
+  getDocs, 
+  writeBatch 
+} from 'firebase/firestore';
+
+// Utilitários locais do seu projeto
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import ThresholdSettings from './ThresholdSettings';
 import WhatsAppWebhookConfig from './WhatsAppWebhookConfig';
 import FirebaseSetupHelper from './FirebaseSetupHelper';
 import BackupManager from './BackupManager';
-import ApkDistributionHub from './ApkDistributionHub';
 import { useTheme } from '../context/ThemeContext';
 
 export default function Settings() {
@@ -304,12 +322,9 @@ export default function Settings() {
       <div className="flex items-center justify-between bg-white px-6 py-4 rounded-lg border border-slate-200">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">Configurações do Sistema</h2>
-          <p className="text-xs text-slate-500 font-medium uppercase tracking-widest">Gestão de acessos, segurança e alojamento APK</p>
+          <p className="text-xs text-slate-500 font-medium uppercase tracking-widest">Gestão de acessos, filiais corporativas e segurança</p>
         </div>
       </div>
-
-      {/* Direct APK Distribution & Hosting Hub */}
-      <ApkDistributionHub isEmbedded={true} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="lg:col-span-1 space-y-6">
@@ -322,7 +337,7 @@ export default function Settings() {
               <div className="space-y-2">
                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Atribuir Função</label>
                  <div className="grid grid-cols-2 gap-2">
-                   {['operator', 'driver', 'mecanico', 'contabilista'].map(role => (
+                   {['gerente', 'operator', 'contabilista', 'mecanico', 'driver'].map(role => (
                      <button 
                       key={role}
                       onClick={() => setNewRole(role as any)}
@@ -500,9 +515,9 @@ export default function Settings() {
           </span>
         </div>
 
-        <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 text-left">
+        <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 text-left items-start">
           {/* Registo de Companhia Form */}
-          <div className="lg:col-span-1 bg-slate-50/55 p-5 rounded-xl border border-slate-150 relative">
+          <div className="lg:col-span-1 bg-slate-50/55 p-5 rounded-xl border border-slate-150 relative h-fit">
             <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-4 flex items-center gap-1.5">
               <Plus size={14} className="text-brand-primary" />
               Registar Nova Companhia

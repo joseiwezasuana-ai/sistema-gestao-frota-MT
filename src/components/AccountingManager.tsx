@@ -60,20 +60,25 @@ import {
   Pie,
 } from "recharts";
 import { db, handleFirestoreError, OperationType, getActiveTenantId } from "../lib/firebase";
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  doc,
-  updateDoc,
-  where,
-  getDocs,
-  addDoc,
-  serverTimestamp,
-  deleteDoc,
-  writeBatch,
-} from '@/src/lib/firebase';
+
+// SDK Oficial do Firestore
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  doc, 
+  getDocs, 
+  serverTimestamp, 
+  deleteDoc, 
+  writeBatch 
+} from 'firebase/firestore';
+
+// Utilitários locais (MANTENHA APENAS ISSO DO FIREBASE LOCAL)
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { cn } from "../lib/utils";
 import RevenueManagement from "./RevenueManagement";
 import InvoiceDrafting from "./InvoiceDrafting";

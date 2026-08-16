@@ -14,10 +14,14 @@ import {
   getDoc,
   doc,
   setDoc,
+  updateDoc,
+  serverTimestamp,
   where,
   getDocs
 } from '@/src/lib/firebase';
 import { auth, db, googleProvider, setActiveTenantId, getActiveTenantId } from './lib/firebase';
+import { cn } from './lib/utils';
+import { getFcmMessaging, requestDriverFcmToken, listenToFcmForegroundMessages } from './lib/fcmService';
 import Layout from './components/Layout';
 import Login from './components/Login';
 import ProfileSetup from './components/ProfileSetup';
@@ -80,41 +84,110 @@ const CURRENT_SYSTEM_VERSION = '6.0.0';
 
 const MandatoryUpdateModal = ({
   versionDiscrepancy,
-  onDismiss
+  onDismiss,
+  user
 }: {
-  versionDiscrepancy: { runningVersion: string; requiredVersion: string; apkDetails: any };
+  versionDiscrepancy: { 
+    runningVersion: string; 
+    requiredVersion: string; 
+    isRealDiscrepancy: boolean;
+    shouldNotify: boolean;
+    isCritical: boolean;
+    apkDetails: any 
+  };
   onDismiss: () => void;
+  user?: any;
 }) => {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const isMasterOrAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com' || user?.role === 'admin' || user?.role === 'gerente';
+
+  const handleAdminSyncAndClear = async () => {
+    setIsSyncing(true);
+    try {
+      await updateDoc(doc(db, 'settings', 'apk_distribution'), {
+        version: CURRENT_SYSTEM_VERSION,
+        isCriticalUpdate: false,
+        notifyOnStartup: false,
+        forceUpdate: false,
+        updatedAt: serverTimestamp(),
+        updatedBy: user?.name || user?.email || 'José Iweza Suana'
+      });
+      sessionStorage.setItem('jis_dismissed_update_version', CURRENT_SYSTEM_VERSION);
+      onDismiss();
+    } catch (e) {
+      console.warn("Could not sync apk_distribution in firestore:", e);
+      onDismiss();
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleClearCacheAndReload = async () => {
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(key => caches.delete(key)));
+      }
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          await registration.unregister();
+        }
+      }
+    } catch (e) {
+      console.warn("Cache clear notice:", e);
+    }
+    sessionStorage.setItem('jis_dismissed_update_version', CURRENT_SYSTEM_VERSION);
+    window.location.reload();
+  };
+
+  const isDiscrepant = versionDiscrepancy.isRealDiscrepancy;
+
   return (
     <div className="fixed inset-0 z-[99999] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto font-sans">
-      <div className="bg-white dark:bg-slate-900 border border-red-500/30 dark:border-red-500/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative text-slate-900 dark:text-white my-auto animate-in fade-in zoom-in duration-200">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative text-slate-900 dark:text-white my-auto animate-in fade-in zoom-in duration-200">
         
         {/* Header Badge */}
         <div className="flex items-center justify-between mb-4">
-          <div className="bg-red-500/10 dark:bg-red-500/20 border border-red-500/30 text-red-600 dark:text-red-400 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 animate-bounce" />
-            <span>Atualização Obrigatória</span>
+          <div className={cn(
+            "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border",
+            isDiscrepant ? "bg-red-500/10 dark:bg-red-500/20 border-red-500/30 text-red-600 dark:text-red-400" : "bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/30 text-amber-600 dark:text-amber-400"
+          )}>
+            <AlertTriangle className={cn("w-3.5 h-3.5", isDiscrepant ? "animate-bounce" : "")} />
+            <span>{isDiscrepant ? "Atualização Obrigatória" : "Aviso Oficial de Lançamento"}</span>
           </div>
           <span className="text-[10px] font-mono font-bold text-slate-400">JIS ANGOLA • TAXICONTROL</span>
         </div>
 
         {/* Title */}
         <h3 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-          Discrepância de Versão Detetada
+          {isDiscrepant ? "Discrepância de Versão Detetada" : "Nova Distribuição Oficial v" + versionDiscrepancy.requiredVersion}
         </h3>
         <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">
-          A versão do sistema em execução no seu dispositivo (<span className="font-mono font-bold text-red-500">v{versionDiscrepancy.runningVersion}</span>) difere da versão oficial guardada no servidor (<span className="font-mono font-bold text-emerald-500">v{versionDiscrepancy.requiredVersion}</span>). Por motivos de estabilidade e segurança da frota, é necessário atualizar.
+          {isDiscrepant ? (
+            <>
+              A versão do sistema em execução no seu dispositivo (<span className="font-mono font-bold text-red-500">v{versionDiscrepancy.runningVersion}</span>) difere da versão oficial guardada no servidor (<span className="font-mono font-bold text-emerald-500">v{versionDiscrepancy.requiredVersion}</span>). Por motivos de estabilidade e segurança da frota, é necessário atualizar.
+            </>
+          ) : (
+            <>
+              O seu sistema está atualizado (<span className="font-mono font-bold text-emerald-500">v{versionDiscrepancy.runningVersion}</span>). O alerta foi ativado no painel de distribuição oficial de APK para notificar os colaboradores.
+            </>
+          )}
         </p>
 
         {/* Version Compare Cards */}
         <div className="grid grid-cols-2 gap-3 my-5 p-3.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/50 text-center">
-          <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-red-200 dark:border-red-900/50">
+          <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
             <span className="text-[9px] font-black uppercase text-slate-400 block mb-1">Versão em Execução</span>
-            <span className="text-sm font-mono font-black text-red-600 dark:text-red-400">v{versionDiscrepancy.runningVersion}</span>
-            <span className="text-[8px] font-bold text-red-500 block uppercase mt-0.5">⚠️ Desatualizada</span>
+            <span className={cn("text-sm font-mono font-black", isDiscrepant ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400")}>
+              v{versionDiscrepancy.runningVersion}
+            </span>
+            <span className="text-[8px] font-bold text-slate-400 block uppercase mt-0.5">
+              {isDiscrepant ? "⚠️ Requer Update" : "✓ Instalada"}
+            </span>
           </div>
           <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-900/50">
-            <span className="text-[9px] font-black uppercase text-slate-400 block mb-1">Versão Guardada Servidor</span>
+            <span className="text-[9px] font-black uppercase text-slate-400 block mb-1">Versão no Servidor</span>
             <span className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400">v{versionDiscrepancy.requiredVersion}</span>
             <span className="text-[8px] font-bold text-emerald-500 block uppercase mt-0.5">✓ Requerida</span>
           </div>
@@ -177,21 +250,36 @@ const MandatoryUpdateModal = ({
             )}
           </div>
 
-          {/* Refresh App Button */}
+          {/* Refresh App Button with cache flush */}
           <button
-            onClick={() => window.location.reload()}
+            type="button"
+            onClick={handleClearCacheAndReload}
             className="w-full mt-3 py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
           >
             <RefreshCw className="w-4 h-4 animate-spin-slow" />
-            <span>Recarregar Aplicação Agora</span>
+            <span>Limpar Cache & Recarregar Aplicação</span>
           </button>
+
+          {/* Admin Fast Sync Button */}
+          {isMasterOrAdmin && (
+            <button
+              type="button"
+              onClick={handleAdminSyncAndClear}
+              disabled={isSyncing}
+              className="w-full py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 mt-2"
+            >
+              <CheckCircle2 size={13} />
+              <span>{isSyncing ? "A sincronizar..." : "Sincronizar Servidor com v6.0.0 & Desativar Alertas (Admin)"}</span>
+            </button>
+          )}
 
           {/* Dismiss button */}
           <button
+            type="button"
             onClick={onDismiss}
             className="w-full py-2 px-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] font-bold uppercase tracking-wider transition-all mt-1 cursor-pointer"
           >
-            Continuar em Modo de Inspeção
+            Entendido, Continuar na Aplicação
           </button>
         </div>
 
@@ -211,10 +299,28 @@ export default function App() {
   const [versionDiscrepancy, setVersionDiscrepancy] = useState<{
     runningVersion: string;
     requiredVersion: string;
+    isRealDiscrepancy: boolean;
+    shouldNotify: boolean;
+    isCritical: boolean;
     apkDetails: any;
   } | null>(null);
-  const [dismissedUpdateNotice, setDismissedUpdateNotice] = useState(false);
+  const [dismissedUpdateNotice, setDismissedUpdateNotice] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('jis_dismissed_update_notice') === 'true';
+    }
+    return false;
+  });
   const startTimeRef = useRef<number>(Date.now());
+
+  const handleDismissUpdateNotice = useCallback(() => {
+    setDismissedUpdateNotice(true);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('jis_dismissed_update_notice', 'true');
+      if (versionDiscrepancy) {
+        sessionStorage.setItem('jis_dismissed_version', versionDiscrepancy.requiredVersion);
+      }
+    }
+  }, [versionDiscrepancy]);
 
   const finishLoading = useCallback(() => {
     const MIN_SPLASH_TIME = 5000; // Min 5 seconds requested by José Iweza Suana (JIS)
@@ -266,6 +372,57 @@ export default function App() {
 
   const [isProfileEditOpen, setIsProfileEditOpen] = useState(false);
   const [globalSettings, setGlobalSettings] = useState<any>(null);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [inactivityNoticeModal, setInactivityNoticeModal] = useState(false);
+  const inactivityTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    const handleReqLogout = () => {
+      setShowLogoutConfirm(true);
+    };
+    window.addEventListener('jis-request-logout', handleReqLogout);
+    return () => window.removeEventListener('jis-request-logout', handleReqLogout);
+  }, []);
+
+  // 30 Minutes Inactivity Auto-Logout Timer (Security requirement for shared fleet devices)
+  useEffect(() => {
+    if (!user && !userProfile) {
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      return;
+    }
+
+    const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes
+
+    const resetInactivityTimer = () => {
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = setTimeout(async () => {
+        console.warn("Auto-logout triggered due to 30 minutes inactivity.");
+        try {
+          localStorage.removeItem('local_user_session');
+          await signOut(auth);
+        } catch (e) {
+          console.warn(e);
+        }
+        setUser(null);
+        setUserProfile(null);
+        setInactivityNoticeModal(true);
+      }, INACTIVITY_LIMIT);
+    };
+
+    const events = ['mousemove', 'mousedown', 'keypress', 'scroll', 'touchstart', 'click'];
+    events.forEach(event => {
+      window.addEventListener(event, resetInactivityTimer, { passive: true });
+    });
+
+    resetInactivityTimer();
+
+    return () => {
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      events.forEach(event => {
+        window.removeEventListener(event, resetInactivityTimer);
+      });
+    };
+  }, [user, userProfile]);
 
   useEffect(() => {
     // Safety timeout for global settings - expanded to 15s
@@ -313,8 +470,8 @@ export default function App() {
             version: CURRENT_SYSTEM_VERSION,
             releaseDate: '2026-08-10',
             buildNumber: '60021',
-            isCriticalUpdate: true,
-            notifyOnStartup: true,
+            isCriticalUpdate: false,
+            notifyOnStartup: false,
             minAndroidVersion: 'Android 8.0+ (API 26)',
             storageProvider: 'Alojamento Próprio (JIS Angola Cloud Server)',
             releaseNotes: 'Versão 6.0 Enterprise com suporte a Módulos Offline, Telemetria GPS 24h, Chat de Equipa com Alertas SOS, e Integração Contabilística em Tempo Real.',
@@ -331,12 +488,24 @@ export default function App() {
         setVersionDiscrepancy(null);
       } else {
         const data = docSnap.data();
-        const savedVersion = (data?.version || '').trim();
-        if (savedVersion && savedVersion !== CURRENT_SYSTEM_VERSION) {
-          console.warn(`[VersionCheck] Discrepancy: Running v${CURRENT_SYSTEM_VERSION} vs Firestore v${savedVersion}`);
+        const rawSavedVersion = (data?.version || '').trim();
+        const normSaved = rawSavedVersion.replace(/^v/i, '').trim();
+        const normRunning = CURRENT_SYSTEM_VERSION.replace(/^v/i, '').trim();
+        const isRealDiscrepancy = Boolean(normSaved && normSaved !== normRunning);
+        const isCritical = data?.isCriticalUpdate === true || data?.forceUpdate === true;
+        const shouldNotify = data?.notifyOnStartup === true || isCritical;
+        
+        const dismissedVersion = typeof window !== 'undefined' ? sessionStorage.getItem('jis_dismissed_version') : null;
+        const isDismissedThisSession = typeof window !== 'undefined' && sessionStorage.getItem('jis_dismissed_update_notice') === 'true' && (dismissedVersion === (rawSavedVersion || CURRENT_SYSTEM_VERSION));
+
+        if ((isRealDiscrepancy || shouldNotify) && (!isDismissedThisSession || isCritical)) {
+          console.warn(`[VersionCheck] Update Notice Active: Running v${CURRENT_SYSTEM_VERSION}, Server v${rawSavedVersion || CURRENT_SYSTEM_VERSION}, isRealDiscrepancy=${isRealDiscrepancy}`);
           setVersionDiscrepancy({
             runningVersion: CURRENT_SYSTEM_VERSION,
-            requiredVersion: savedVersion,
+            requiredVersion: rawSavedVersion || CURRENT_SYSTEM_VERSION,
+            isRealDiscrepancy,
+            shouldNotify,
+            isCritical,
             apkDetails: data
           });
         } else {
@@ -428,19 +597,23 @@ export default function App() {
           }
 
           // Generate fallback based on email pattern
-          const email = firebaseUser.email || '';
+          const email = (firebaseUser.email || '').toLowerCase();
           const name = firebaseUser.displayName || email.split('@')[0] || 'Utilizador';
-          const isMaster = email.toLowerCase() === 'joseiwezasuana@gmail.com';
+          const isMaster = email === 'joseiwezasuana@gmail.com';
           
-          let resolvedRole = 'operator';
+          let resolvedRole = 'driver'; // Default to driver for vehicle logins
           if (isMaster) {
             resolvedRole = 'admin';
-          } else if (email.includes('motorista') || email.includes('driver')) {
-            resolvedRole = 'driver';
-          } else if (email.includes('mecanico') || email.includes('mechanic')) {
+          } else if (email.includes('admin') || email.includes('gerente') || email.includes('gestor') || email.includes('manager')) {
+            resolvedRole = 'gerente';
+          } else if (email.includes('operador') || email.includes('central') || email.includes('operator')) {
+            resolvedRole = 'operator';
+          } else if (email.includes('mecanico') || email.includes('mechanic') || email.includes('oficina')) {
             resolvedRole = 'mecanico';
-          } else if (email.includes('contabilista') || email.includes('finance')) {
+          } else if (email.includes('contabilista') || email.includes('finance') || email.includes('financas')) {
             resolvedRole = 'contabilista';
+          } else {
+            resolvedRole = (email.startsWith('tx-') || email.startsWith('mot-')) ? 'driver' : 'gerente';
           }
 
           const fallbackProfile = {
@@ -448,10 +621,14 @@ export default function App() {
             email: email,
             name: isMaster ? 'José Iweza Suana (Admin)' : name,
             role: resolvedRole,
+            tenantId: getActiveTenantId() || 'psm',
             createdAt: new Date().toISOString()
           };
           
           setUserProfile(fallbackProfile);
+          if (resolvedRole === 'driver') {
+            setActiveTab('driver_dashboard');
+          }
           finishLoading();
           clearTimeout(safetyTimeout);
           return;
@@ -461,10 +638,35 @@ export default function App() {
         
         if (profileSnap.exists()) {
           const profile = profileSnap.data();
+          const userEmail = (firebaseUser.email || '').toLowerCase();
+          
+          // Check if this profile was accidentally flagged as 'driver' or missing role, but belongs to a staff/manager
+          let staffRole: string | null = null;
+          try {
+            const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', userEmail));
+            const staffSnap = await getDocs(staffQ);
+            if (!staffSnap.empty) {
+              staffRole = staffSnap.docs[0].data().role || 'gerente';
+            }
+          } catch (staffErr) {
+            console.warn("Staff cross check error in App.tsx:", staffErr);
+          }
+
+          if (staffRole && (profile.role === 'driver' || !profile.role)) {
+            profile.role = staffRole;
+            setDoc(profileRef, { role: staffRole }, { merge: true }).catch(console.warn);
+          }
+
+          // If email has manager/admin keywords, ensure role is not driver
+          if ((userEmail.includes('gerente') || userEmail.includes('admin') || userEmail.includes('gestor') || userEmail.includes('manager')) && profile.role === 'driver') {
+            profile.role = 'gerente';
+            setDoc(profileRef, { role: 'gerente' }, { merge: true }).catch(console.warn);
+          }
+
           if (profile && profile.role === 'operador') {
             profile.role = 'operator';
           }
-          const isAdminRole = isMaster || profile.role === 'admin' || profile.role === 'gerente' || profile.role === 'operator';
+          const isAdminRole = isMaster || profile.role === 'admin' || profile.role === 'gerente' || profile.role === 'manager' || profile.role === 'operator';
           const preSelectedTenant = getActiveTenantId();
           
           if (isAdminRole && preSelectedTenant) {
@@ -502,8 +704,53 @@ export default function App() {
           setDoc(doc(db, 'users', firebaseUser.uid), adminProfile).catch(console.error);
           return;
         } else {
-          console.warn("User logged in but no profile found in Firestore.");
-          setUserProfile(null);
+          // User exists in Firebase Auth but not in users collection: check if it's a driver or staff
+          const userEmail = (firebaseUser.email || '').toLowerCase();
+          let autoRole = 'driver';
+          let autoName = firebaseUser.displayName || userEmail.split('@')[0] || 'Utilizador';
+
+          try {
+            const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', userEmail));
+            const staffSnap = await getDocs(staffQ);
+            if (!staffSnap.empty) {
+              const sData = staffSnap.docs[0].data();
+              autoRole = sData.role || 'gerente';
+              autoName = sData.name || autoName;
+            }
+          } catch (staffErr) {
+            console.warn("Error cross-checking staff during auto-profile:", staffErr);
+          }
+
+          if (autoRole === 'driver') {
+            const isExplicitAdmin = userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager');
+            const isExplicitOp = userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator');
+            const isExplicitMec = userEmail.includes('mecanico') || userEmail.includes('mechanic');
+            const isExplicitFin = userEmail.includes('contabilista') || userEmail.includes('finance');
+            
+            if (isExplicitAdmin) autoRole = 'gerente';
+            else if (isExplicitOp) autoRole = 'operator';
+            else if (isExplicitMec) autoRole = 'mecanico';
+            else if (isExplicitFin) autoRole = 'contabilista';
+            else if (!userEmail.startsWith('tx-') && !userEmail.startsWith('mot-')) {
+              autoRole = 'gerente';
+            }
+          }
+          
+          const autoProfile = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: autoName,
+            role: autoRole,
+            tenantId: getActiveTenantId() || 'psm',
+            createdAt: new Date().toISOString()
+          };
+          
+          setUserProfile(autoProfile);
+          if (autoRole === 'driver') {
+            setActiveTab('driver_dashboard');
+          }
+          // Persist user doc so subsequent logins are instant and accurate
+          setDoc(profileRef, autoProfile, { merge: true }).catch(console.warn);
         }
       } catch (err: any) {
         console.error("Auth State Error:", err);
@@ -530,6 +777,31 @@ export default function App() {
       clearTimeout(safetyTimeout);
     };
   }, []);
+
+  // Firebase Cloud Messaging (FCM) and Background Service Worker Push Notifications Setup
+  useEffect(() => {
+    // 1. Initialize FCM & Service Worker
+    getFcmMessaging().catch(err => console.warn("[FCM] Init warning:", err));
+
+    // 2. If user is logged in, register device push token
+    if (userProfile || user) {
+      requestDriverFcmToken(userProfile || user).catch(err => 
+        console.warn("[FCM] Token sync warning:", err)
+      );
+    }
+
+    // 3. Listen to foreground push messages & Service Worker notifications
+    listenToFcmForegroundMessages((payload: any) => {
+      console.log("[FCM App] Push notification received in App:", payload);
+      const data = payload?.data || payload?.payload?.data || payload?.payload || payload;
+      const isCall = data?.type === 'call_received' || data?.type === 'new_call' || data?.callId;
+
+      if (isCall && (userProfile?.role === 'driver' || activeTab === 'driver_dashboard')) {
+        // Ensure driver view is active
+        setActiveTab('driver_dashboard');
+      }
+    });
+  }, [user, userProfile, activeTab]);
 
   const configError = (window as any)._firebaseConfigError;
 
@@ -642,12 +914,13 @@ export default function App() {
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={() => setDismissedUpdateNotice(true)} 
+            onDismiss={handleDismissUpdateNotice}
+            user={userProfile || user}
           />
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen relative w-full bg-slate-950 flex flex-col items-center justify-center">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] relative w-full bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
             <React.Suspense fallback={
               <div className="flex flex-col items-center justify-center gap-4 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -672,7 +945,8 @@ export default function App() {
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={() => setDismissedUpdateNotice(true)} 
+            onDismiss={handleDismissUpdateNotice}
+            user={userProfile || user}
           />
         )}
         <PullToRefresh>
@@ -696,7 +970,8 @@ export default function App() {
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={() => setDismissedUpdateNotice(true)} 
+            onDismiss={handleDismissUpdateNotice}
+            user={userProfile || user}
           />
         )}
         <PullToRefresh>
@@ -707,12 +982,13 @@ export default function App() {
     );
   }
 
+  const userRole = (userProfile?.role || '').toLowerCase().trim();
   const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
-  const isAdmin = isMasterAdmin || userProfile?.role === 'admin' || userProfile?.role === 'gerente';
-  const isDriver = userProfile?.role === 'driver';
-  const isMecanico = userProfile?.role === 'mecanico';
-  const isContabilista = userProfile?.role === 'contabilista';
-  const isOperator = isAdmin || userProfile?.role === 'operator';
+  const isAdmin = isMasterAdmin || userRole === 'admin' || userRole === 'gerente' || userRole === 'manager' || userRole === 'gestor' || userRole === 'administrator' || userRole === 'administrador';
+  const isDriver = userRole === 'driver' || userRole === 'motorista';
+  const isMecanico = userRole === 'mecanico' || userRole === 'mechanic' || userRole === 'oficina';
+  const isContabilista = userRole === 'contabilista' || userRole === 'finance' || userRole === 'accountant' || userRole === 'financas';
+  const isOperator = isAdmin || userRole === 'operator' || userRole === 'operador' || userRole === 'central';
   const shouldNotifyAlert = !!userProfile;
 
   // Admin, Operators, and Accounting roles get a specialized Mobile View on small screens
@@ -726,23 +1002,31 @@ export default function App() {
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={() => setDismissedUpdateNotice(true)} 
+            onDismiss={handleDismissUpdateNotice}
+            user={userProfile || user}
           />
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
             {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
             <React.Suspense fallback={
-              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar portal...</span>
               </div>
             }>
               <StaffMobileView 
                 user={userProfile} 
-                onLogout={() => signOut(auth)} 
+                onLogout={() => window.dispatchEvent(new CustomEvent('jis-request-logout'))} 
                 onExitMobile={() => setViewPreference('desktop')}
+                onEditProfile={() => setIsProfileEditOpen(true)}
+              />
+              <ProfileEdit 
+                user={userProfile} 
+                isOpen={isProfileEditOpen} 
+                onClose={() => setIsProfileEditOpen(false)}
+                onUpdate={setUserProfile}
               />
             </React.Suspense>
           </div>
@@ -758,15 +1042,16 @@ export default function App() {
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={() => setDismissedUpdateNotice(true)} 
+            onDismiss={handleDismissUpdateNotice}
+            user={userProfile || user}
           />
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
             {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
             <React.Suspense fallback={
-              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel mecânico...</span>
               </div>
@@ -785,15 +1070,16 @@ export default function App() {
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={() => setDismissedUpdateNotice(true)} 
+            onDismiss={handleDismissUpdateNotice}
+            user={userProfile || user}
           />
         )}
         <PullToRefresh>
           <ConnectivityBanner user={userProfile || user} />
-          <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
             {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
             <React.Suspense fallback={
-              <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
                 <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel motorista...</span>
               </div>
@@ -811,7 +1097,8 @@ export default function App() {
       {versionDiscrepancy && !dismissedUpdateNotice && (
         <MandatoryUpdateModal 
           versionDiscrepancy={versionDiscrepancy} 
-          onDismiss={() => setDismissedUpdateNotice(true)} 
+          onDismiss={handleDismissUpdateNotice}
+          user={userProfile || user}
         />
       )}
       <PullToRefresh>
@@ -823,12 +1110,7 @@ export default function App() {
             globalSettings={globalSettings}
             activeTab={activeTab} 
             onTabChange={setActiveTab}
-            onLogout={async () => {
-              localStorage.removeItem('local_user_session');
-              await signOut(auth);
-              setUser(null);
-              setUserProfile(null);
-            }}
+            onLogout={() => window.dispatchEvent(new CustomEvent('jis-request-logout'))}
             onToggleMobile={() => setViewPreference('mobile')}
             onEditProfile={() => setIsProfileEditOpen(true)}
           >
@@ -881,11 +1163,96 @@ export default function App() {
               {activeTab === 'baileys_gateway' && <WhatsAppMonitor isAdmin={isAdmin} />}
               {activeTab === 'system_logs' && (isAdmin ? <SystemErrorLogs user={userProfile} /> : <Dashboard user={userProfile} />)}
               {activeTab === 'shift_monitor' && (isAdmin || isOperator || isMecanico ? <RealTimeMonitor user={userProfile} initialSubTab="shifts" /> : <Dashboard user={userProfile} />)}
+              {activeTab === 'companies' && (isAdmin ? <CompanyManagement user={userProfile} /> : <Dashboard user={userProfile} />)}
               {activeTab === 'apk_distribution' && <ApkDistributionHub user={userProfile} />}
             </React.Suspense>
           </Layout>
         </div>
       </PullToRefresh>
+
+      {/* Logout Confirmation Modal ("Desejas realmente sair da sua conta?") */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 text-white shadow-2xl"
+          >
+            <div className="flex items-center gap-3 mb-4 text-amber-500">
+              <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black tracking-tight uppercase">Terminar Sessão</h3>
+                <p className="text-xs text-slate-400">Segurança do Sistema SUPER Táxi</p>
+              </div>
+            </div>
+            
+            <p className="text-sm font-medium text-slate-200 mb-6 bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
+              Desejas realmente sair da sua conta?
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all uppercase tracking-wider"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    localStorage.removeItem('local_user_session');
+                    await signOut(auth);
+                  } catch (e) {
+                    console.warn(e);
+                  }
+                  setUser(null);
+                  setUserProfile(null);
+                  setShowLogoutConfirm(false);
+                }}
+                className="px-5 py-2.5 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 transition-all uppercase tracking-wider"
+              >
+                Sim, Sair
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Inactivity Notice Modal (30 mins auto-logout) */}
+      {inactivityNoticeModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 text-white shadow-2xl"
+          >
+            <div className="flex items-center gap-3 mb-4 text-blue-500">
+              <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                <AlertCircle size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black tracking-tight uppercase">Sessão Terminada</h3>
+                <p className="text-xs text-slate-400">Inatividade Superior a 30 Minutos</p>
+              </div>
+            </div>
+            
+            <p className="text-sm font-medium text-slate-200 mb-6 bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 leading-relaxed">
+              A sua sessão foi encerrada automaticamente após 30 minutos sem atividade para garantir a segurança dos dados sensíveis da frota em dispositivos compartilhados.
+            </p>
+
+            <div className="flex items-center justify-end">
+              <button
+                onClick={() => setInactivityNoticeModal(false)}
+                className="w-full py-3 rounded-xl text-xs font-black bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 transition-all uppercase tracking-wider"
+              >
+                Entendido / Fazer Login
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </ThemeProvider>
   );
 }

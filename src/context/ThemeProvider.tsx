@@ -1,0 +1,1 @@
+import React, { createContext, useContext } from 'react'; const Context = createContext({ theme: 'light' }); export const ThemeProvider = ({ children }: { children: React.ReactNode }) => <Context.Provider value={{ theme: 'light' }}>{children}</Context.Provider>; export const useTheme = () => useContext(Context); export default ThemeProvider;

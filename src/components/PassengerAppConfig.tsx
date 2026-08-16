@@ -911,7 +911,7 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
                   <p className="text-[13px] font-black tracking-tight leading-tight pt-1">
                     {customWelcomeMsg || 'Olá! Como o podemos ajudar por Luena hoje?'}
                   </p>
-                  <p className="text-[9px] text-slate-405 dark:text-slate-450 font-medium">Bandeirada Base para serviços públicos: <strong className="text-slate-905 dark:text-white font-extrabold">{baseFareKz} Kz</strong></p>
+                  <p className="text-[9px] text-slate-405 dark:text-slate-450 font-medium">bandeira base super taxi: <strong className="text-slate-905 dark:text-white font-extrabold">{baseFareKz} Kz</strong></p>
                 </div>
 
                 {/* Simulated Map placeholder */}

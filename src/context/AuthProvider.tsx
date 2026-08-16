@@ -1,0 +1,1 @@
+import React, { createContext, useContext } from 'react'; const Context = createContext({ user: null }); export const AuthProvider = ({ children }: { children: React.ReactNode }) => <Context.Provider value={{ user: null }}>{children}</Context.Provider>; export const useAuth = () => useContext(Context); export default AuthProvider;

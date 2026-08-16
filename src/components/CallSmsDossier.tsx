@@ -930,10 +930,10 @@ export default function CallSmsDossier() {
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white text-xs font-black uppercase italic">
-                            {driver.name.charAt(0)}
+                            {driver.name?.charAt(0) || 'M'}
                           </div>
                           <div>
-                            <p className="text-sm font-black text-slate-950 uppercase tracking-tight group-hover:text-brand-primary transition-colors italic">{driver.name}</p>
+                            <p className="text-sm font-black text-slate-950 uppercase tracking-tight group-hover:text-brand-primary transition-colors italic">{driver.name || 'Motorista'}</p>
                             <p className="text-[9px] font-mono text-slate-400 mt-0.5 uppercase">Carta: {driver.licenseNumber || 'Indisponível'}</p>
                           </div>
                         </div>
@@ -1302,11 +1302,11 @@ export default function CallSmsDossier() {
                 
                 <div className="flex items-center gap-6 relative z-10">
                   <div className="w-14 h-14 bg-white/10 rounded-[1rem] flex items-center justify-center text-brand-primary text-xl font-black italic border border-white/10">
-                    {selectedDriver.name.charAt(0)}
+                    {selectedDriver.name?.charAt(0) || 'M'}
                   </div>
                   <div>
                     <div className="flex items-center gap-3">
-                      <h3 className="text-2xl font-black tracking-tight uppercase italic">{selectedDriver.name}</h3>
+                      <h3 className="text-2xl font-black tracking-tight uppercase italic">{selectedDriver.name || 'Motorista'}</h3>
                       <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${
                         selectedDriver.status === 'Ativo' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'
                       }`}>{selectedDriver.status}</span>

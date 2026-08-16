@@ -771,9 +771,9 @@ export default function DriverSubsidiesAudit({
                     </td>
                     <td className="px-6 py-4 font-bold text-slate-900 flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 font-black flex items-center justify-center text-[10px]">
-                        {log.driverName.charAt(0)}
+                        {log.driverName?.charAt(0) || 'M'}
                       </div>
-                      {log.driverName}
+                      {log.driverName || 'Motorista'}
                     </td>
                     <td className="px-6 py-4">
                       <span

@@ -149,6 +149,78 @@ async function startServer() {
     }
   });
 
+  // Endpoint to send Firebase Cloud Messaging (FCM) Push Notifications to Drivers / Dispatch
+  app.post("/api/fcm/send-driver-push", async (req, res) => {
+    try {
+      const { fcmToken, title, body, callId, driverId, notificationType } = req.body;
+      
+      if (!title || !body) {
+        return res.status(400).json({ error: "Title and body are required" });
+      }
+
+      console.log(`[FCM Push Driver] Processing driver push '${title}' (type: ${notificationType}) for call: ${callId}, driver: ${driverId}`);
+
+      let fcmMessageId: string | null = null;
+
+      if (fcmToken && typeof fcmToken === "string" && fcmToken.length > 10) {
+        try {
+          fcmMessageId = await admin.messaging().send({
+            token: fcmToken,
+            notification: {
+              title: title,
+              body: body,
+            },
+            data: {
+              callId: callId || "",
+              driverId: driverId || "",
+              type: notificationType || "call_received",
+              title: title,
+              body: body,
+              click_action: "/?tab=dashboard",
+            },
+            webpush: {
+              headers: {
+                Urgency: "high"
+              },
+              notification: {
+                title: title,
+                body: body,
+                icon: "/icon-192.png",
+                badge: "/icon-192.png",
+                vibrate: [500, 250, 500, 250, 500, 250, 800],
+                requireInteraction: true,
+                tag: callId ? `call_${callId}` : `driver_alert_${Date.now()}`,
+              },
+              fcmOptions: {
+                link: "/?tab=dashboard"
+              }
+            },
+            android: {
+              priority: "high",
+              notification: {
+                sound: "default",
+                priority: "max",
+                channelId: "supertaxi_calls_channel"
+              }
+            }
+          });
+          console.log(`[FCM Push Driver] Driver FCM message sent successfully. ID: ${fcmMessageId}`);
+        } catch (fcmErr: any) {
+          console.warn("[FCM Push Driver] Firebase Admin Messaging send warning:", fcmErr?.message || fcmErr);
+        }
+      }
+
+      return res.json({ 
+        success: true, 
+        fcmMessageId,
+        message: "Notificação push do motorista enviada com sucesso!"
+      });
+    } catch (err: any) {
+      console.error("[FCM Push Driver] Error in send-driver-push route:", err);
+      return res.status(500).json({ error: err?.message || "Internal server error" });
+    }
+  });
+
   // Create User Route (Admin only)
   app.post("/api/admin/create-user", async (req, res) => {
     console.log("[Admin] >>> Starting Create User sequence");

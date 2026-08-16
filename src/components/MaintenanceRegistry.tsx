@@ -16,13 +16,30 @@ import {
   Trash2,
   Filter,
   QrCode,
-  Camera
+  Camera,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+// Utilitários locais
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, writeBatch, serverTimestamp, getDocs } from '@/src/lib/firebase';
+
+// SDK Oficial do Firestore
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  updateDoc, 
+  writeBatch, 
+  serverTimestamp, 
+  getDocs 
+} from 'firebase/firestore';
 import { cn } from '../lib/utils';
 import QrScannerModal from './QrScannerModal';
 
@@ -962,32 +979,36 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
       {/* Modal Overlay */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsModalOpen(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
+              className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col my-auto border border-slate-100 z-10"
             >
-              <div className="px-8 py-6 bg-slate-900 text-white flex items-center justify-between">
+              <div className="px-6 sm:px-8 py-5 bg-slate-900 text-white flex items-center justify-between shrink-0">
                 <div>
-                   <h3 className="text-lg font-black uppercase tracking-tighter">{editingLog ? 'Editar Manutenção' : 'Registar Manutenção'}</h3>
+                   <h3 className="text-base sm:text-lg font-black uppercase tracking-tighter">{editingLog ? 'Editar Manutenção' : 'Registar Manutenção'}</h3>
                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{editingLog ? 'Atualização de intervenção técnica' : 'Início de intervenção técnica'}</p>
                 </div>
-                <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                  <Search className="rotate-45" size={20} />
+                <button 
+                  type="button"
+                  onClick={() => setIsModalOpen(false)} 
+                  className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X size={20} />
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="p-8 space-y-5">
-                <div className="grid grid-cols-2 gap-4">
+              <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5 overflow-y-auto flex-1 custom-scrollbar">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between ml-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Viatura (Prefixo)</label>
@@ -1044,7 +1065,7 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Quilometragem (KM)</label>
                     <input 
@@ -1069,7 +1090,7 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label>
                     <input 
@@ -1181,17 +1202,17 @@ export default function MaintenanceRegistry({ user }: { user?: any }) {
                   )}
                 </div>
 
-                <div className="pt-4 flex gap-3">
+                <div className="pt-4 pb-2 flex gap-3 sticky bottom-0 bg-white/95 backdrop-blur-sm -mx-2 px-2">
                    <button 
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-6 py-4 rounded-xl text-[11px] font-black text-slate-400 uppercase tracking-widest hover:bg-slate-50 transition-colors"
+                    className="flex-1 px-4 sm:px-6 py-3.5 rounded-xl text-[11px] font-black text-slate-500 uppercase tracking-widest hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
                    >
                      Cancelar
                    </button>
                    <button 
                     type="submit"
-                    className="flex-2 bg-brand-primary text-white py-4 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-brand-primary/20 hover:bg-brand-secondary transition-all active:scale-95"
+                    className="flex-2 bg-brand-primary text-white py-3.5 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-brand-primary/20 hover:bg-brand-secondary transition-all active:scale-95 cursor-pointer"
                    >
                      Guardar Registo
                    </button>

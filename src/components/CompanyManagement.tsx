@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building, 
+  Building2,
   Plus, 
   Trash2, 
   Phone, 
@@ -14,6 +15,7 @@ import {
   CornerDownRight,
   Edit,
   X,
+  ArrowLeft,
   Image as ImageIcon,
   MessageSquare
 } from 'lucide-react';
@@ -22,9 +24,10 @@ import { db, handleFirestoreError, OperationType, auth, getActiveTenantId, setAc
 
 interface CompanyManagementProps {
   user: any;
+  onBack?: () => void;
 }
 
-export default function CompanyManagement({ user }: CompanyManagementProps) {
+export default function CompanyManagement({ user, onBack }: CompanyManagementProps) {
   const [registeredTenants, setRegisteredTenants] = useState<any[]>([]);
   const [newTenantName, setNewTenantName] = useState('');
   const [newTenantSlug, setNewTenantSlug] = useState('');
@@ -259,49 +262,72 @@ export default function CompanyManagement({ user }: CompanyManagementProps) {
   const otherBranches = registeredTenants.filter(t => t.id !== 'psm');
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full max-w-7xl mx-auto pb-12">
       {/* Upper informational bar */}
-      <div className="bg-[#0f172a] rounded-2xl p-6 text-white relative overflow-hidden">
-        <div className="absolute right-0 top-0 h-40 w-41 bg-brand-primary/10 rounded-full blur-3xl" />
-        <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="text-left">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] bg-brand-primary text-white font-black uppercase px-2 py-0.5 rounded-md tracking-wider">
-                Módulo Multi-Tenant Autónomo
-              </span>
-              <span className="text-[10px] bg-indigo-500/20 text-indigo-400 font-bold border border-indigo-500/30 px-2 py-0.5 rounded-md">
-                Pillar 6 Database Isolation
-              </span>
+      <div className="bg-[#0f172a] rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden shadow-xl border border-slate-800">
+        <div className="absolute right-0 top-0 h-48 w-48 bg-brand-primary/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="text-left flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-brand-primary/15 border border-brand-primary/30 flex items-center justify-center text-brand-primary shrink-0 shadow-inner">
+              <Building2 size={24} />
             </div>
-            <h1 className="text-xl font-black uppercase tracking-tight">Gestão de Companhias & Filiais</h1>
-            <p className="text-xs text-slate-400 font-medium mt-1">
-              Olá, <strong className="text-brand-primary">José Iweza Suana (JIS)</strong>. Crie, customize e faça a gestão de entidades totalmente estanques e autónomas para as frotas de Táxi de Luena-Moxico.
-            </p>
+            <div>
+              <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                <span className="text-[9px] bg-brand-primary text-slate-950 font-black uppercase px-2.5 py-0.5 rounded-md tracking-wider">
+                  Módulo Multi-Tenant Autónomo
+                </span>
+                <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  Pillar 6 Database Isolation
+                </span>
+                <span className="text-[9px] bg-white/10 text-slate-300 font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  JIS ANGOLA
+                </span>
+              </div>
+              <h1 className="text-lg sm:text-xl font-black uppercase tracking-tight text-white">
+                Gestão de Companhias & Filiais
+              </h1>
+              <p className="text-xs text-slate-400 font-medium mt-0.5 max-w-2xl leading-relaxed">
+                Olá, <strong className="text-brand-primary font-bold">José Iweza Suana (JIS)</strong>. Crie, personalize e administre entidades estanques e autónomas para as frotas de Táxi de Luena-Moxico.
+              </p>
+            </div>
           </div>
           
-          {isMasterAdmin && (
-            <div className="flex items-center gap-3 px-4 py-3 bg-white/5 border border-white/10 rounded-xl">
-              <Building size={16} className="text-brand-primary shrink-0" />
-              <div className="flex flex-col text-left">
-                <span className="text-[9px] font-black uppercase text-slate-400">Selecionar Entidade Ativa</span>
-                <select 
-                  value={activeTenant}
-                  onChange={(e) => handleSwitchTenant(e.target.value)}
-                  className="bg-transparent text-xs font-bold uppercase text-white outline-none ring-0 border-none cursor-pointer mt-0.5 pr-6"
-                >
-                  {registeredTenants.map(t => (
-                    <option key={t.id} value={t.id} className="bg-slate-900 text-white font-bold uppercase">{t.name}</option>
-                  ))}
-                </select>
+          <div className="flex flex-wrap items-center gap-3 self-start lg:self-center shrink-0">
+            {isMasterAdmin && (
+              <div className="flex items-center gap-3 px-3.5 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl shadow-sm">
+                <Building size={16} className="text-brand-primary shrink-0" />
+                <div className="flex flex-col text-left">
+                  <span className="text-[8.5px] font-black uppercase text-slate-400 tracking-wider">Entidade Ativa</span>
+                  <select 
+                    value={activeTenant}
+                    onChange={(e) => handleSwitchTenant(e.target.value)}
+                    className="bg-transparent text-xs font-bold uppercase text-white outline-none ring-0 border-none cursor-pointer mt-0.5 pr-4"
+                  >
+                    {registeredTenants.map(t => (
+                      <option key={t.id} value={t.id} className="bg-slate-900 text-white font-bold uppercase">{t.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {onBack && (
+              <button 
+                type="button"
+                onClick={onBack}
+                className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all font-black text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95 border border-white/15 shadow-sm"
+              >
+                <ArrowLeft size={15} className="text-brand-primary" />
+                <span>Voltar ao Início</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-left">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 text-left items-start">
         {/* Registration & Edit form */}
-        <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl p-6 flex flex-col justify-between">
+        <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 flex flex-col h-fit shadow-sm border border-slate-100 dark:border-slate-800 lg:sticky lg:top-4 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar">
           <div>
             <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">

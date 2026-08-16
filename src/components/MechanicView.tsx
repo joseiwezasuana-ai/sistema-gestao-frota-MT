@@ -26,9 +26,25 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+// Utilitários locais
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
-import { collection, query, orderBy, onSnapshot, addDoc, where, limit, doc, updateDoc, writeBatch, serverTimestamp } from '@/src/lib/firebase';
+
+// Métodos nativos do SDK oficial do Firestore
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  where, 
+  limit, 
+  doc, 
+  updateDoc, 
+  writeBatch, 
+  serverTimestamp 
+} from 'firebase/firestore';
+
 import { format } from 'date-fns';
 import RealTimeMap from './RealTimeMap';
 import { WhatsAppMonitor } from './WhatsAppMonitor'; // Added import
@@ -366,7 +382,7 @@ export default function MechanicView({ user }: MechanicViewProps) {
   const menuItems = [
     { icon: SettingsIcon, label: 'Definições', onClick: () => setIsSettingsOpen(true) },
     { icon: FileText, label: 'Documentação', onClick: () => setIsManualOpen(true) },
-    { icon: LogOut, label: 'Sair do Sistema', onClick: () => signOut(auth), color: 'text-red-500' },
+    { icon: LogOut, label: 'Sair do Sistema', onClick: () => window.dispatchEvent(new CustomEvent('jis-request-logout')), color: 'text-red-500' },
   ];
 
   return (

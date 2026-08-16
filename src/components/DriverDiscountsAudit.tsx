@@ -780,10 +780,10 @@ export default function DriverDiscountsAudit({
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center font-black text-xs shrink-0">
-                          {log.driverName.charAt(0)}
+                          {log.driverName?.charAt(0) || 'M'}
                         </div>
                         <span className="font-bold text-slate-900 dark:text-white uppercase tracking-tight">
-                          {log.driverName}
+                          {log.driverName || 'Motorista'}
                         </span>
                       </div>
                     </td>

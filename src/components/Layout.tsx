@@ -34,6 +34,7 @@ import {
   CheckCircle2,
   X,
   Building,
+  Building2,
   MoreHorizontal,
   ChevronDown,
   Menu,
@@ -120,7 +121,7 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
   }, [user?.role, user?.email]);
 
   // Collapsible Administration Menu state (representing "três pontinhos na pasta Administração")
-  const ADMIN_TAB_IDS = ['settings', 'baileys_gateway', 'call_sms_dossier', 'manual', 'apk_distribution'];
+  const ADMIN_TAB_IDS = ['companies', 'settings', 'baileys_gateway', 'call_sms_dossier', 'manual', 'apk_distribution', 'system_logs'];
   const [isAdminFolderOpen, setIsAdminFolderOpen] = useState(false);
   const [activeTenantData, setActiveTenantData] = useState<any>(null);
 
@@ -149,31 +150,34 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
 
   const primaryMenuItems = [
     { id: 'dashboard', label: 'Painel Geral', icon: LayoutDashboard },
-    { id: 'fleet', label: 'Frota & Escalas 24h', icon: Truck, roles: ['admin', 'operator', 'mecanico', 'contabilista'] },
-    { id: 'recruitment', label: 'Portal de Recrutamento', icon: UserPlus, roles: ['admin', 'operator', 'mecanico'] },
-    { id: 'monitors', label: 'Monitores de Campo', icon: Activity, roles: ['admin', 'operator', 'contabilista', 'mecanico'] },
-    { id: 'revenue', label: 'Validação de Rendas', icon: Wallet, roles: ['operator', 'contabilista', 'admin'] },
-    { id: 'passengers', label: 'Gestão de Passageiros', icon: Users, roles: ['admin', 'operator'] },
-    { id: 'maintenance', label: 'Gestão de Oficinas', icon: Wrench, roles: ['admin', 'operator', 'mecanico', 'contabilista'] },
-    { id: 'accounting', label: 'Hub Contabilidade', icon: Calculator, roles: ['admin', 'contabilista'] },
-    { id: 'messages', label: 'Hub de Comunicações', icon: MessageSquare, roles: ['admin', 'operator'] },
+    { id: 'fleet', label: 'Frota & Escalas 24h', icon: Truck, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador', 'mecanico', 'contabilista'] },
+    { id: 'recruitment', label: 'Portal de Recrutamento', icon: UserPlus, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'mecanico'] },
+    { id: 'monitors', label: 'Monitores de Campo', icon: Activity, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador', 'contabilista', 'mecanico'] },
+    { id: 'revenue', label: 'Validação de Rendas', icon: Wallet, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador', 'contabilista'] },
+    { id: 'passengers', label: 'Gestão de Passageiros', icon: Users, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador'] },
+    { id: 'maintenance', label: 'Gestão de Oficinas', icon: Wrench, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador', 'mecanico', 'contabilista'] },
+    { id: 'accounting', label: 'Hub Contabilidade', icon: Calculator, roles: ['admin', 'gerente', 'manager', 'gestor', 'contabilista'] },
+    { id: 'messages', label: 'Hub de Comunicações', icon: MessageSquare, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador'] },
+    { id: 'apk_distribution', label: 'Central de APKs', icon: Smartphone, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador'] },
   ];
 
   const adminMenuItems = [
-    { id: 'apk_distribution', label: 'Central de APKs (Alojamento)', icon: Smartphone },
-    { id: 'baileys_gateway', label: 'Gateway Baileys', icon: MessageCircle, roles: ['admin', 'operator'] },
-    { id: 'call_sms_dossier', label: 'Dossiê Comunicações', icon: FileText, roles: ['admin', 'operator'] },
-    { id: 'system_logs', label: 'Logs de Erros (Admin)', icon: ShieldAlert, roles: ['admin'] },
-    { id: 'settings', label: 'Configurações', icon: SettingsIcon, roles: ['admin'] },
-    { id: 'manual', label: 'Manual & Guia', icon: BookOpen, roles: ['admin', 'operator', 'contabilista', 'mecanico'] },
+    { id: 'companies', label: 'Companhias & Filiais', icon: Building2, roles: ['admin', 'gerente', 'manager', 'gestor'] },
+    { id: 'baileys_gateway', label: 'Gateway Baileys', icon: MessageCircle, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador'] },
+    { id: 'call_sms_dossier', label: 'Dossiê Comunicações', icon: FileText, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador'] },
+    { id: 'system_logs', label: 'Logs de Erros (Admin)', icon: ShieldAlert, roles: ['admin', 'gerente', 'manager', 'gestor'] },
+    { id: 'settings', label: 'Configurações', icon: SettingsIcon, roles: ['admin', 'gerente', 'manager', 'gestor'] },
+    { id: 'manual', label: 'Manual & Guia', icon: BookOpen, roles: ['admin', 'gerente', 'manager', 'gestor', 'operator', 'operador', 'contabilista', 'mecanico'] },
   ];
 
   const filterByRole = (items: any[]) => {
     return items.filter(item => {
       if (!item.roles) return true;
       const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
-      if (isMasterAdmin || user?.role === 'admin' || user?.role === 'gerente') return true;
-      return item.roles.includes(user?.role);
+      const normalizedRole = (user?.role || '').toLowerCase().trim();
+      const isFullAdmin = isMasterAdmin || ['admin', 'gerente', 'manager', 'gestor', 'administrator', 'administrador'].includes(normalizedRole);
+      if (isFullAdmin) return true;
+      return item.roles.some((r: string) => r.toLowerCase().trim() === normalizedRole);
     });
   };
 
@@ -189,19 +193,18 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
       )}>
         <div className="p-8 pb-10 flex flex-col items-center text-center">
           <div className="relative mb-4 group cursor-pointer" onClick={() => onTabChange('dashboard')}>
-            <div className="w-16 h-16 bg-white/5 rounded-[20px] flex items-center justify-center text-white shadow-xl shadow-brand-primary/10 rotate-3 group-hover:rotate-0 transition-all duration-300 border border-white/5 p-2 overflow-hidden">
+            <div className="w-16 h-16 rounded-[22px] flex items-center justify-center text-white shadow-xl shadow-brand-primary/15 transition-all duration-300 overflow-hidden bg-transparent group-hover:scale-105">
                <img 
                  src={activeTenantData?.logoUrl || "/logo.svg"} 
-                 alt={activeTenantData?.name || "SUPER Taxi"} 
-                 className="w-full h-full object-contain"
+                 alt={activeTenantData?.name || "PSM Táxi"} 
+                 className="w-full h-full object-contain filter drop-shadow-md"
                  onError={(e) => {
                    (e.target as HTMLImageElement).src = "/logo.svg";
                  }}
                />
-               <span className="hidden text-3xl font-black italic text-brand-primary">PSM</span>
             </div>
             <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#0f172a] z-10" />
-            <div className="absolute inset-0 bg-brand-primary blur-xl opacity-20 animate-pulse" />
+            <div className="absolute inset-0 bg-brand-primary blur-xl opacity-25 animate-pulse -z-10" />
           </div>
           <div className="overflow-hidden w-full px-2">
             <h1 className="font-black text-xs tracking-[0.1em] uppercase leading-snug text-white italic truncate" title={activeTenantData?.name || globalSettings?.appName || 'PS MOREIRA'}>
@@ -317,7 +320,9 @@ export default function Layout({ children, user, globalSettings, activeTab, onTa
               <p className="text-[11px] font-black truncate text-white uppercase tracking-tight group-hover:text-brand-primary transition-colors">{user?.name}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                  <div className="w-1.5 h-1.5 bg-brand-primary rounded-full" />
-                 <p className="text-[9px] text-brand-primary uppercase font-black tracking-widest leading-none">{user?.role}</p>
+                 <p className="text-[9px] text-brand-primary uppercase font-black tracking-widest leading-none">
+                   {(user?.role || '').toLowerCase() === 'admin' || user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com' ? 'ADMINISTRADOR' : (user?.role || '').toLowerCase() === 'gerente' || (user?.role || '').toLowerCase() === 'manager' || (user?.role || '').toLowerCase() === 'gestor' ? 'GERENTE GERAL' : (user?.role || 'COLABORADOR')}
+                 </p>
               </div>
             </div>
           </div>

@@ -1,0 +1,1 @@
+import React, { createContext, useContext } from 'react'; const Context = createContext({}); export const NotificationProvider = ({ children }: { children: React.ReactNode }) => <Context.Provider value={{}}>{children}</Context.Provider>; export const useNotification = () => useContext(Context); export default NotificationProvider;

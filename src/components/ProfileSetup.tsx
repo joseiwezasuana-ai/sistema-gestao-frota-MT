@@ -34,7 +34,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [validationRole, setValidationRole] = useState<string | null>(isAdminEmail ? 'admin' : null);
 
   const handleLogout = () => {
-    signOut(auth);
+    window.dispatchEvent(new CustomEvent('jis-request-logout'));
   };
 
   // Fetch available tenants globally

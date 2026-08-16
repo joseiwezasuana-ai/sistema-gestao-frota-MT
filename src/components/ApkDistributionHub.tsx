@@ -47,9 +47,11 @@ import {
   Tooltip, 
   ResponsiveContainer, 
   Legend, 
-  CartesianGrid 
+  CartesianGrid,
+  AreaChart,
+  Area
 } from 'recharts';
-import { doc, onSnapshot, setDoc, serverTimestamp, collection, addDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, serverTimestamp, collection, addDoc, query, orderBy, limit, increment } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { cn } from '../lib/utils';
 
@@ -89,17 +91,15 @@ export default function ApkDistributionHub({ user, isEmbedded = false }: ApkDist
     staffAppSize: '21.2 MB',
     passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
     passengerAppSize: '16.8 MB',
-    isCriticalUpdate: true,
-    notifyOnStartup: true
+    isCriticalUpdate: false,
+    notifyOnStartup: false
   });
 
-  // Download Stats Data State (Recharts Bar Chart)
-  const [versionStats, setVersionStats] = useState<any[]>([
-    { version: 'v5.0.1', motorista: 35, staff: 8, passageiro: 110, total: 153 },
-    { version: 'v5.5.0', motorista: 95, staff: 22, passageiro: 280, total: 397 },
-    { version: 'v5.8.2', motorista: 240, staff: 45, passageiro: 590, total: 875 },
-    { version: 'v6.0.0 (Atual)', motorista: 680, staff: 135, passageiro: 1420, total: 2235 }
-  ]);
+  // Dynamic Real-Time Download Logs and Analytics State
+  const [downloadLogs, setDownloadLogs] = useState<any[]>([]);
+  const [chartViewMode, setChartViewMode] = useState<'versions' | 'daily' | 'apps'>('versions');
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simulatedMsg, setSimulatedMsg] = useState<string | null>(null);
 
   // Subscribe to Firestore APK Settings
   useEffect(() => {
@@ -112,6 +112,127 @@ export default function ApkDistributionHub({ user, isEmbedded = false }: ApkDist
     });
     return () => unsub();
   }, []);
+
+  // Subscribe to Real-Time Download Event Logs from Firestore
+  useEffect(() => {
+    const q = query(
+      collection(db, 'apk_download_logs'), 
+      orderBy('timestamp', 'desc'), 
+      limit(250)
+    );
+    const unsubLogs = onSnapshot(q, (snapshot) => {
+      const logs: any[] = [];
+      snapshot.forEach(docSnap => {
+        logs.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setDownloadLogs(logs);
+    }, (err) => {
+      console.warn("Real-time download logs subscription notice:", err);
+    });
+    return () => unsubLogs();
+  }, []);
+
+  // Dynamically compute download stats per version strictly from live Firestore logs (Zero mock data)
+  const versionStats = React.useMemo(() => {
+    if (downloadLogs.length === 0) {
+      return [];
+    }
+
+    const map: Record<string, { motorista: number; staff: number; passageiro: number }> = {};
+
+    downloadLogs.forEach(log => {
+      const rawVer = log.version || apkConfig.version || '6.0.0';
+      const verKey = rawVer.startsWith('v') ? rawVer : `v${rawVer}`;
+      if (!map[verKey]) {
+        map[verKey] = { motorista: 0, staff: 0, passageiro: 0 };
+      }
+      const type = log.appType === 'driver' ? 'motorista' : (log.appType === 'staff' ? 'staff' : 'passageiro');
+      map[verKey][type] = (map[verKey][type] || 0) + 1;
+    });
+
+    return Object.keys(map).map(version => ({
+      version,
+      motorista: map[version].motorista,
+      staff: map[version].staff,
+      passageiro: map[version].passageiro,
+      total: map[version].motorista + map[version].staff + map[version].passageiro
+    }));
+  }, [downloadLogs, apkConfig.version]);
+
+  // Dynamically compute daily trend data for the last 7 days strictly from Firestore logs
+  const dailyTrendData = React.useMemo(() => {
+    const days: { date: string; motorista: number; staff: number; passageiro: number; total: number }[] = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      const dateStr = d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
+      
+      let motorista = 0;
+      let staff = 0;
+      let passageiro = 0;
+
+      // Add real-time logs matching this date strictly
+      downloadLogs.forEach(log => {
+        if (log.timestamp) {
+          const logDate = log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp);
+          if (logDate.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }) === dateStr) {
+            if (log.appType === 'driver') motorista++;
+            else if (log.appType === 'staff') staff++;
+            else passageiro++;
+          }
+        }
+      });
+
+      days.push({
+        date: dateStr,
+        motorista,
+        staff,
+        passageiro,
+        total: motorista + staff + passageiro
+      });
+    }
+    return days;
+  }, [downloadLogs]);
+
+  // Compute App Distribution strictly from live logs
+  const appDistributionData = React.useMemo(() => {
+    let motorista = 0;
+    let staff = 0;
+    let passageiro = 0;
+
+    downloadLogs.forEach(log => {
+      if (log.appType === 'driver') motorista++;
+      else if (log.appType === 'staff') staff++;
+      else passageiro++;
+    });
+
+    return [
+      { name: 'Motorista', value: motorista, fill: '#f59e0b', color: 'text-amber-500' },
+      { name: 'Staff / Gestão', value: staff, fill: '#6366f1', color: 'text-indigo-500' },
+      { name: 'Passageiro', value: passageiro, fill: '#0284c7', color: 'text-sky-500' }
+    ];
+  }, [downloadLogs]);
+
+  // Key Dynamic Metrics strictly from live logs
+  const totalDownloads = downloadLogs.length;
+
+  const currentVersionTotal = React.useMemo(() => {
+    const curVer = apkConfig.version || '6.0.0';
+    return downloadLogs.filter(l => (l.version || '6.0.0').includes(curVer)).length;
+  }, [downloadLogs, apkConfig.version]);
+
+  const currentVersionPercent = React.useMemo(() => {
+    return totalDownloads > 0 ? ((currentVersionTotal / totalDownloads) * 100).toFixed(1) : '0';
+  }, [currentVersionTotal, totalDownloads]);
+
+  const currentDriverDownloads = React.useMemo(() => {
+    return downloadLogs.filter(l => l.appType === 'driver').length;
+  }, [downloadLogs]);
+
+  // Latest Download Log details
+  const latestLog = downloadLogs[0] || null;
 
   // Save Config function (Admin)
   const handleSaveConfig = async (e: React.FormEvent) => {
@@ -171,18 +292,6 @@ export default function ApkDistributionHub({ user, isEmbedded = false }: ApkDist
         userName: user?.displayName || user?.name || 'Motorista de Campo',
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Desconhecido'
       });
-
-      // Update live chart state
-      setVersionStats(prev => prev.map(item => {
-        if (item.version.includes(apkConfig.version)) {
-          return {
-            ...item,
-            [appType]: item[appType] + 1,
-            total: item.total + 1
-          };
-        }
-        return item;
-      }));
     } catch (err) {
       console.warn("Download log error:", err);
     }
@@ -390,7 +499,7 @@ service firebase.storage {
               Central de Distribuição APK (Sem Play Store)
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 max-w-3xl leading-relaxed">
-              Descarregue e instale diretamente as aplicações de campo da frota **SUPER Taxi / TaxiControl** sem necessitar da Google Play Store. Alojamento próprio de alta velocidade em servidores Nginx / Firebase da JIS ANGOLA.
+              Descarregue e instale diretamente as aplicações de campo da frota **PSM Táxi / TaxiControl** sem necessitar da Google Play Store. Alojamento próprio de alta velocidade em servidores Nginx / Firebase da JIS ANGOLA.
             </p>
           </div>
 
@@ -704,16 +813,16 @@ service firebase.storage {
       {/* TAB 2: RECHARTS DOWNLOAD STATS & ADOPTION */}
       {activeTab === 'stats' && (
         <div className="space-y-6">
-          {/* Summary Metric Cards */}
+          {/* Summary Metric Cards (100% Dynamic Calculated from Live Database) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Total de Downloads</span>
                 <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-                  {versionStats.reduce((acc, curr) => acc + curr.total, 0).toLocaleString()}
+                  {totalDownloads.toLocaleString()}
                 </p>
                 <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1 mt-1">
-                  <TrendingUp size={12} /> +18.4% este mês
+                  <Activity size={12} className="animate-pulse" /> Sincronizado em tempo real
                 </span>
               </div>
               <div className="p-3 bg-amber-500/10 text-amber-500 rounded-xl">
@@ -725,10 +834,10 @@ service firebase.storage {
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Adoção da Versão 6.0.0</span>
                 <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                  {((versionStats.find(v => v.version.includes('6.0.0'))?.total || 0) / Math.max(1, versionStats.reduce((acc, curr) => acc + curr.total, 0)) * 100).toFixed(1)}%
+                  {currentVersionPercent}%
                 </p>
                 <span className="text-[10px] font-bold text-slate-400 mt-1">
-                  2,235 de 3,660 instalações
+                  {currentVersionTotal.toLocaleString()} de {totalDownloads.toLocaleString()} instalações
                 </span>
               </div>
               <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl">
@@ -740,7 +849,7 @@ service firebase.storage {
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Motoristas Atualizados</span>
                 <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                  {versionStats.find(v => v.version.includes('6.0.0'))?.motorista || 680}
+                  {currentDriverDownloads.toLocaleString()}
                 </p>
                 <span className="text-[10px] font-bold text-amber-500 mt-1">
                   Luena, Moxico & Saurimo
@@ -753,12 +862,12 @@ service firebase.storage {
 
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Servidor de Origem</span>
-                <p className="text-base font-black text-slate-900 dark:text-white mt-1 truncate max-w-[140px]">
-                  JIS Cloud Server
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Último Registo em Direto</span>
+                <p className="text-sm font-black text-slate-900 dark:text-white mt-1 truncate max-w-[150px]">
+                  {latestLog ? (latestLog.userName || latestLog.appType?.toUpperCase()) : 'JIS Cloud Server'}
                 </p>
-                <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1 mt-1">
-                  <CheckCircle2 size={12} /> Nginx HTTP/2 Online
+                <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1 mt-1 truncate max-w-[150px]">
+                  <CheckCircle2 size={12} /> {latestLog?.timestamp ? 'Registo Ativo' : 'Nginx HTTP/2 Online'}
                 </span>
               </div>
               <div className="p-3 bg-sky-500/10 text-sky-500 rounded-xl">
@@ -767,51 +876,264 @@ service firebase.storage {
             </div>
           </div>
 
-          {/* Recharts Bar Chart Card */}
+          {/* Recharts Card with Dynamic View Selector and Live Test Action */}
           <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h2 className="text-lg font-black tracking-tight italic uppercase flex items-center gap-2">
                   <BarChart3 className="text-amber-500" size={20} />
-                  Número de Downloads por Versão do APK (Controlo de Frota)
+                  Estatísticas Dinâmicas de Downloads (Recharts Firestore)
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Acompanhamento estatístico para a gestão JIS ANGOLA controlar quais versões do APK os motoristas e equipas de campo estão a utilizar ativamente.
+                  Métricas calculadas em tempo real com base nos acessos e descarregamentos de ficheiros APK na infraestrutura PSM Taxi.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Aplicações:</span>
-                <span className="px-2.5 py-1 bg-amber-500 text-slate-950 font-black text-[10px] rounded-full">Motorista</span>
-                <span className="px-2.5 py-1 bg-indigo-600 text-white font-black text-[10px] rounded-full">Staff / Gestão</span>
-                <span className="px-2.5 py-1 bg-sky-500 text-slate-950 font-black text-[10px] rounded-full">Passageiro</span>
+              {/* View Selector and Live Test Actions */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="p-1 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center gap-1">
+                  <button
+                    onClick={() => setChartViewMode('versions')}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer",
+                      chartViewMode === 'versions' ? "bg-amber-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                    )}
+                  >
+                    Por Versão
+                  </button>
+                  <button
+                    onClick={() => setChartViewMode('daily')}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer",
+                      chartViewMode === 'daily' ? "bg-amber-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                    )}
+                  >
+                    Últimos 7 Dias
+                  </button>
+                  <button
+                    onClick={() => setChartViewMode('apps')}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer",
+                      chartViewMode === 'apps' ? "bg-amber-500 text-slate-950 shadow-md" : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                    )}
+                  >
+                    Por Tipo de App
+                  </button>
+                </div>
+
+                {isAdmin && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={async () => {
+                        setIsSimulating(true);
+                        setSimulatedMsg(null);
+                        try {
+                          await addDoc(collection(db, 'apk_download_logs'), {
+                            appType: 'driver',
+                            version: apkConfig.version || '6.0.0',
+                            timestamp: serverTimestamp(),
+                            userEmail: user?.email || 'motorista.luena@taxicontrol.co.ao',
+                            userName: 'Motorista de Campo (Luena Frota 07)',
+                            userAgent: 'Android 14 / APK Installer'
+                          });
+                          setSimulatedMsg('Download de teste gravado no Firestore! Gráfico atualizado.');
+                          setTimeout(() => setSimulatedMsg(null), 3000);
+                        } catch (e) {
+                          console.warn(e);
+                        } finally {
+                          setIsSimulating(false);
+                        }
+                      }}
+                      disabled={isSimulating}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
+                      title="Gravar um evento real no Firestore para testar a reatividade do Recharts"
+                    >
+                      <Zap size={13} className={isSimulating ? "animate-spin text-amber-400" : "text-amber-400"} />
+                      <span>{isSimulating ? "A registar..." : "+ Testar Download"}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="h-80 w-full pt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={versionStats} margin={{ top: 15, right: 15, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="version" tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#0f172a',
-                      borderColor: '#334155',
-                      borderRadius: '16px',
-                      color: '#ffffff',
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
-                  <Bar dataKey="motorista" name="APK Motorista" fill="#f59e0b" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="staff" name="APK Staff / Gestão" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="passageiro" name="APK Passageiro" fill="#0284c7" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+            {simulatedMsg && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                <CheckCircle2 size={16} />
+                <span>{simulatedMsg}</span>
+              </div>
+            )}
+
+            {/* Dynamic Recharts Chart Rendering */}
+            <div className="h-80 w-full pt-2 relative">
+              {totalDownloads === 0 ? (
+                <div className="h-full w-full flex flex-col items-center justify-center text-center p-6 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <div className="w-12 h-12 bg-amber-500/10 text-amber-500 rounded-2xl flex items-center justify-center mb-3">
+                    <BarChart3 size={24} />
+                  </div>
+                  <h4 className="text-sm font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide">
+                    Quadro Estatístico Limpo (Zero Dados Estáticos)
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md">
+                    O gráfico está pronto e à espera de transferências reais. Qualquer descarregamento na aba "Aplicações de Campo" ou via QR Code será imediatamente refletido aqui via Firestore em tempo real.
+                  </p>
+                  {isAdmin && (
+                    <div className="mt-4">
+                      <span className="text-[11px] text-amber-500 font-bold bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full">
+                        Dica: Pode carregar em "+ Testar Download" acima para gerar um evento real de teste
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  {chartViewMode === 'versions' ? (
+                    <BarChart data={versionStats} margin={{ top: 15, right: 15, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                      <XAxis dataKey="version" tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
+                      <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          borderRadius: '16px',
+                          color: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 'bold',
+                          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                      <Bar dataKey="motorista" name="APK Motorista" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="staff" name="APK Staff / Gestão" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="passageiro" name="APK Passageiro" fill="#0284c7" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  ) : chartViewMode === 'daily' ? (
+                    <AreaChart data={dailyTrendData} margin={{ top: 15, right: 15, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorMotorista" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                        </linearGradient>
+                        <linearGradient id="colorPassageiro" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#0284c7" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#0284c7" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                      <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
+                      <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          borderRadius: '16px',
+                          color: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                      <Area type="monotone" dataKey="motorista" name="Motoristas (Diário)" stroke="#f59e0b" fillOpacity={1} fill="url(#colorMotorista)" />
+                      <Area type="monotone" dataKey="passageiro" name="Passageiros (Diário)" stroke="#0284c7" fillOpacity={1} fill="url(#colorPassageiro)" />
+                      <Area type="monotone" dataKey="staff" name="Staff / Gestão" stroke="#6366f1" fill="#6366f1" fillOpacity={0.3} />
+                    </AreaChart>
+                  ) : (
+                    <BarChart data={appDistributionData} margin={{ top: 15, right: 15, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                      <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} />
+                      <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          borderRadius: '16px',
+                          color: '#ffffff',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}
+                      />
+                      <Bar dataKey="value" name="Total Acumulado" fill="#f59e0b" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  )}
+                </ResponsiveContainer>
+              )}
             </div>
+          </div>
+
+          {/* Real-time Activity Feed / Table of Download Events */}
+          <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black italic uppercase flex items-center gap-2">
+                  <Activity className="text-emerald-500" size={18} />
+                  Histórico de Descarregamentos em Direto (Firestore Logs)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Registo em tempo real das transferências efetuadas pelos utilizadores da frota e passageiros.
+                </p>
+              </div>
+              <span className="text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/20">
+                {downloadLogs.length} Registos Recentes
+              </span>
+            </div>
+
+            {downloadLogs.length === 0 ? (
+              <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+                <Download className="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-bold text-slate-600 dark:text-slate-300">Nenhum descarregamento registado nesta sessão</p>
+                <p className="text-xs text-slate-400 mt-1">Ao carregar em qualquer botão de download ou escanear o QR Code, o evento surgirá aqui automaticamente.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-bold uppercase text-[10px]">
+                      <th className="pb-3 px-3">Aplicação</th>
+                      <th className="pb-3 px-3">Versão</th>
+                      <th className="pb-3 px-3">Utilizador / Origem</th>
+                      <th className="pb-3 px-3">Data & Hora</th>
+                      <th className="pb-3 px-3 text-right">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {downloadLogs.slice(0, 8).map((log, idx) => {
+                      const dateObj = log.timestamp?.toDate ? log.timestamp.toDate() : (log.timestamp ? new Date(log.timestamp) : new Date());
+                      const isDriver = log.appType === 'driver';
+                      const isStaff = log.appType === 'staff';
+
+                      return (
+                        <tr key={log.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3 px-3 font-bold">
+                            <span className={cn(
+                              "px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase inline-block",
+                              isDriver ? "bg-amber-500/10 text-amber-600 border border-amber-500/20" :
+                              isStaff ? "bg-indigo-500/10 text-indigo-600 border border-indigo-500/20" :
+                              "bg-sky-500/10 text-sky-600 border border-sky-500/20"
+                            )}>
+                              {isDriver ? 'Motorista' : isStaff ? 'Staff' : 'Passageiro'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-300">
+                            v{log.version || '6.0.0'}
+                          </td>
+                          <td className="py-3 px-3 font-semibold text-slate-800 dark:text-slate-200">
+                            {log.userName || log.userEmail || 'Utilizador de Campo'}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-slate-400">
+                            {dateObj.toLocaleDateString('pt-PT')} {dateObj.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="py-3 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                            <span className="inline-flex items-center gap-1">
+                              <CheckCircle2 size={12} /> Concluído
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

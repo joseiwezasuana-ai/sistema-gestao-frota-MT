@@ -1,0 +1,1 @@
+export const CURRENT_SYSTEM_VERSION = '6.0.0'; 

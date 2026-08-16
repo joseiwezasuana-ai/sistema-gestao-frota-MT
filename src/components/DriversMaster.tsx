@@ -27,7 +27,24 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, limit, getDocs, where, writeBatch, updateDoc } from '@/src/lib/firebase';
+
+// Métodos nativos do SDK oficial do Firestore
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  orderBy, 
+  limit, 
+  getDocs, 
+  where, 
+  writeBatch, 
+  updateDoc 
+} from 'firebase/firestore';
+
+// Utilitários locais
 import { db, handleFirestoreError, OperationType, getActiveTenantId } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { geminiService } from '../services/geminiService';
@@ -1027,9 +1044,9 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold">
-                        {driver.name.charAt(0)}
+                        {driver.name?.charAt(0) || 'M'}
                       </div>
-                      <span className="font-bold text-slate-900">{driver.name}</span>
+                      <span className="font-bold text-slate-900">{driver.name || 'Motorista'}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4 font-mono text-slate-600 font-bold uppercase">{driver.licenseNumber}</td>
@@ -1369,7 +1386,7 @@ export default function DriversMaster({ embedded = false }: { embedded?: boolean
                 
                 <div className="flex items-center gap-5 relative z-10">
                   <div className="w-12 h-12 bg-white/10 rounded-[1.25rem] flex items-center justify-center text-[#fbbf24] text-xl font-black italic border border-white/10 shrink-0">
-                    {selectedDriverForReport.name.charAt(0)}
+                    {selectedDriverForReport.name?.charAt(0) || 'M'}
                   </div>
                   <div>
                     <div className="flex items-center gap-3">
