@@ -22,24 +22,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
-// Utilitários locais
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-
-// SDK Oficial do Firestore
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  updateDoc, 
-  writeBatch, 
-  serverTimestamp, 
-  getDocs 
-} from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, writeBatch, serverTimestamp, getDocs } from '@/src/lib/firebase';
 import { cn } from '../lib/utils';
 import QrScannerModal from './QrScannerModal';
 

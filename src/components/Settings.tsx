@@ -1,53 +1,34 @@
 import React, { useState, useEffect } from 'react';
-
-// Ícones do lucide-react
 import { 
   Key, 
   Plus, 
   Copy, 
   Check, 
   Trash2, 
-  UserPlus, 
-  Loader2, 
-  Database, 
-  Bell, 
-  Zap, 
-  Info, 
+  UserPlus,
+  Loader2,
+  Database,
+  Bell,
+  Zap,
+  Info,
   Share2, 
   Smartphone, 
   AlertCircle, 
-  AlertTriangle, 
-  UserCheck, 
-  Building, 
-  Phone, 
-  MapPin, 
-  MessageSquare, 
-  Image as ImageIcon, 
-  Globe, 
-  Terminal, 
-  BookOpen, 
-  Lock, 
-  Sun, 
-  Moon 
+  AlertTriangle,
+  UserCheck,
+  Building,
+  Phone,
+  MapPin,
+  MessageSquare,
+  Image as ImageIcon,
+  Globe,
+  Terminal,
+  BookOpen,
+  Lock,
+  Sun,
+  Moon
 } from 'lucide-react';
-
-// Métodos nativos do Firebase Firestore
-import { 
-  collection, 
-  addDoc, 
-  setDoc, 
-  onSnapshot, 
-  query, 
-  orderBy, 
-  deleteDoc, 
-  doc, 
-  Timestamp, 
-  serverTimestamp, 
-  getDocs, 
-  writeBatch 
-} from 'firebase/firestore';
-
-// Utilitários locais do seu projeto
+import { collection, addDoc, setDoc, onSnapshot, query, orderBy, deleteDoc, doc, Timestamp, serverTimestamp, getDocs, writeBatch } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import ThresholdSettings from './ThresholdSettings';

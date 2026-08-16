@@ -7,6 +7,7 @@ import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
+import { executeWeeklyStorageBackup, initWeeklyBackupScheduler } from "./server/storageBackupService";
 
 // Load Firebase Config
 const configPath = path.join(process.cwd(), "firebase-applet-config.json");
@@ -17,12 +18,14 @@ if (!admin.apps.length) {
   if (firebaseConfig) {
     admin.initializeApp({
       projectId: firebaseConfig.projectId,
+      storageBucket: firebaseConfig.storageBucket || `${firebaseConfig.projectId}.firebasestorage.app`,
     });
-    console.log(`[Firebase] Admin initialized for project: ${firebaseConfig.projectId}`);
+    console.log(`[Firebase] Admin initialized for project: ${firebaseConfig.projectId} (Storage: ${firebaseConfig.storageBucket || firebaseConfig.projectId})`);
   } else {
     // Mock initialization for development if config is missing
     admin.initializeApp({
       projectId: "mock-project",
+      storageBucket: "mock-project.firebasestorage.app",
     });
     console.warn("[Firebase] No config found. Using mock project ID.");
   }
@@ -70,6 +73,81 @@ async function startServer() {
       timestamp: new Date().toISOString(),
       env: process.env.NODE_ENV
     });
+  });
+
+  // =========================================================================
+  // Automated Weekly Redundancy & Firebase Storage Backup Endpoints
+  // =========================================================================
+
+  // Run weekly backup on demand or triggered by admin
+  app.post("/api/backup/run-weekly", async (req, res) => {
+    try {
+      const { userEmail, triggerType } = req.body || {};
+      console.log(`[API Backup] Triggered backup execution by: ${userEmail || 'anonymous'}`);
+
+      const result = await executeWeeklyStorageBackup(db, {
+        triggerType: triggerType === "scheduled" ? "scheduled" : "manual",
+        triggeredBy: userEmail || "Painel de Administração (JIS)",
+      });
+
+      res.json({
+        success: true,
+        message: "Cópia de segurança semanal da frota e logs exportada com sucesso para o Firebase Storage.",
+        result
+      });
+    } catch (err: any) {
+      console.error("[API Backup] Error running storage backup:", err);
+      res.status(500).json({ 
+        success: false, 
+        error: err.message || "Falha ao executar backup semanal para Firebase Storage." 
+      });
+    }
+  });
+
+  // Get backup history and metrics
+  app.get("/api/backup/history", async (req, res) => {
+    try {
+      const snap = await db.collection("system_backups").orderBy("timestamp", "desc").limit(30).get();
+      const backups = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      const scheduleDoc = await db.collection("settings").doc("backup_schedule").get();
+      const scheduleData = scheduleDoc.exists ? scheduleDoc.data() : null;
+
+      res.json({
+        success: true,
+        backups,
+        schedule: scheduleData,
+        storageBucket: firebaseConfig?.storageBucket || "joseiwezasuana-org.firebasestorage.app"
+      });
+    } catch (err: any) {
+      console.error("[API Backup] Error fetching history:", err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Download local backup copy
+  app.get("/api/backup/download-local", (req, res) => {
+    try {
+      const { week, filename } = req.query;
+      if (!week || !filename || typeof week !== "string" || typeof filename !== "string") {
+        return res.status(400).json({ error: "week and filename are required" });
+      }
+
+      const sanitizedFilename = path.basename(filename);
+      const sanitizedWeek = path.basename(week);
+      const filePath = path.join(process.cwd(), ".data", "backups", sanitizedWeek, sanitizedFilename);
+
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Ficheiro de backup não encontrado localmente." });
+      }
+
+      const contentType = sanitizedFilename.endsWith(".json") ? "application/json" : "text/csv";
+      res.setHeader("Content-Disposition", `attachment; filename="${sanitizedFilename}"`);
+      res.setHeader("Content-Type", contentType);
+      fs.createReadStream(filePath).pipe(res);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Endpoint to send Firebase Cloud Messaging (FCM) Push Notifications to Passengers
@@ -1972,10 +2050,19 @@ async function startServer() {
     console.log(`[Server] SUPER Taxi running on http://0.0.0.0:${PORT}`);
     console.log(`[Server] Routes:
       - GET /api/health
+      - POST /api/backup/run-weekly
+      - GET /api/backup/history
       - POST /api/admin/create-user
       - POST /api/auth/register
       - Webhooks: /api/webhooks/*
     `);
+
+    // Initialize automated weekly backup scheduler
+    try {
+      initWeeklyBackupScheduler(db);
+    } catch (schedErr) {
+      console.warn("[Server] Could not initialize weekly backup scheduler:", schedErr);
+    }
   });
 
   server.on('error', (err: any) => {

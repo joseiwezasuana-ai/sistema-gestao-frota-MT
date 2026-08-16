@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// Ícones do lucide-react
 import { 
   Users, 
   Car, 
@@ -30,31 +29,11 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-
-// Animações
 import { motion, AnimatePresence } from 'motion/react';
-
-// Métodos nativos do Firebase Firestore
-import { 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  orderBy, 
-  serverTimestamp, 
-  updateDoc, 
-  arrayRemove, 
-  limit, 
-  getDocs, 
-  where, 
-  writeBatch 
-} from 'firebase/firestore';
-
-// Utilitários locais do seu projeto
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, serverTimestamp, updateDoc, arrayRemove, limit, getDocs, where, writeBatch } from '@/src/lib/firebase';
 import { db, handleFirestoreError, OperationType, withTimeout } from '../lib/firebase';
-import { formatSafe } from '../lib/dateUtils';import { cn } from '../lib/utils';
+import { formatSafe } from '../lib/dateUtils';
+import { cn } from '../lib/utils';
 
 import { geminiService } from '../services/geminiService';
 import ShiftScheduler from './ShiftScheduler';

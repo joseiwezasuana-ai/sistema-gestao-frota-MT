@@ -1,8 +1,304 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // =========================================================================
+    // Core Security & Role Helper Functions
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMasterAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'joseiwezasuana@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // =========================================================================
+    // System Users & Administrators Collection
+    // =========================================================================
+
+    match /users/{userId} {
+      // Authenticated users can view registered collaborator profiles
+      allow read: if isSignedIn();
+      // Users can only create and update their own document, or Master Admin can manage all
+      allow create: if isSignedIn() && (isOwner(userId) || isMasterAdmin());
+      allow update: if isSignedIn() && (isOwner(userId) || isMasterAdmin());
+      allow delete: if isMasterAdmin();
+    }
+
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isMasterAdmin();
+    }
+
+    // =========================================================================
+    // Global & Tenant Configuration Settings
+    // =========================================================================
+
+    match /settings/{docId} {
+      // Branding and general setup can be read publicly (e.g. for login branding)
+      allow read: if true;
+      // Only Master Admin can modify global system configurations
+      allow write: if isMasterAdmin();
+    }
+
+    // =========================================================================
+    // Activation & Registration Codes
+    // =========================================================================
+
+    match /access_codes/{codeId} {
+      // Must allow lookup during unauthenticated account registration
+      allow read: if true;
+      // Registration flow marks code as used; Admins can generate or delete codes
+      allow update: if true;
+      allow create, delete: if isMasterAdmin();
+    }
+
+    // =========================================================================
+    // Public Taxi & Passenger Requests
+    // =========================================================================
+
+    match /taxi_requests/{requestId} {
+      allow read: if true;
+      allow create: if request.resource.data.pickup is string && request.resource.data.destination is string;
+      allow update, delete: if isSignedIn();
+    }
+
+    // =========================================================================
+    // Multi-Tenant Hierarchy (PSM, SuperTaxi, Partner Fleets)
+    // =========================================================================
+
+    match /tenants/{tenantId} {
+      // Allow reading company tenant directory (used for company switcher & profile setup)
+      allow read: if true;
+      allow create, update: if isMasterAdmin();
+      allow delete: if isMasterAdmin();
+
+      // Tenant-specific Subcollections
+      match /settings/{docId} {
+        allow read: if true;
+        allow write: if isMasterAdmin();
+      }
+
+      match /access_codes/{codeId} {
+        allow read: if true;
+        allow update: if true;
+        allow create, delete: if isMasterAdmin();
+      }
+
+      match /taxi_requests/{requestId} {
+        allow read: if true;
+        allow create: if request.resource.data.pickup is string && request.resource.data.destination is string;
+        allow update, delete: if isSignedIn();
+      }
+
+      match /drivers/{driverId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /calls/{callId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /shifts/{shiftId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /master_vehicles/{vehicleId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /messages/{messageId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /revenue_logs/{revenueId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /administrative_staff/{staffId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /chat_messages/{messageId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /driver_scales/{scaleId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /maintenance_logs/{logId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /panic_alerts/{alertId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /accident_logs/{accidentId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /rac_contracts/{contractId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /salary_sheets/{sheetId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /psm_phones/{phoneId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /warehouse_inventory/{itemId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /warehouse_logs/{logId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /internal_contracts/{contractId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /contract_attendance/{logId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /{allSubcollections=**} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // =========================================================================
+    // Operational Fleet Management Collections (Root Level)
+    // =========================================================================
+
+    match /drivers/{driverId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /drivers_master/{driverId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /master_vehicles/{vehicleId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /calls/{callId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /shifts/{shiftId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /messages/{messageId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /sms_logs/{logId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /interaction_logs/{logId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /gps_history/{logId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /driver_scales/{scaleId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /maintenance_logs/{logId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /panic_alerts/{alertId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /revenue_logs/{revenueId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /internal_contracts/{contractId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /contract_attendance/{logId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /salary_sheets/{sheetId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /administrative_staff/{staffId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /psm_phones/{phoneId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /warehouse_inventory/{itemId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /warehouse_logs/{logId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /accident_logs/{accidentId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /rac_contracts/{contractId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /chat_messages/{messageId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /notifications/{notificationId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /fcm_tokens/{tokenId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /system_backups/{backupId} {
+      allow read: if isSignedIn();
+      allow write: if isMasterAdmin();
+    }
+
+    // =========================================================================
+    // Default Deny Rule for any unspecified routes
+    // =========================================================================
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

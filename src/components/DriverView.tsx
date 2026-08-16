@@ -1,46 +1,98 @@
-
-  // @ts-nocheck
+// @ts-nocheck
 import React, { useState, useEffect, useRef } from "react";
 import QRCode from "qrcode";
-import { signOut } from "firebase/auth";
-import { MapContainer, TileLayer, Marker, useMap, Popup } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import { motion, AnimatePresence } from "motion/react";
-import { format } from "date-fns";
-
-// Ícones
 import {
-  Smartphone, Power, MapPin, Navigation, Menu, Bell, Star, DollarSign,
-  Clock, CheckCircle2, Plus, XCircle, Phone, PhoneIncoming, PhoneCall,
-  MessageCircle, MoreVertical, ChevronRight, ChevronDown, ChevronUp, Shield,
-  Activity, History, AlertTriangle, Wallet, Wrench, Settings, FileSignature,
-  X, Users, Loader2, ExternalLink, RefreshCw, Zap, MessageSquare, Layout,
-  AlertCircle, Lock, ArrowLeft, Gift, Download, Copy, Car, Palette, Music,
-  Upload, Trash2, Volume2, Play, Pause
+  Smartphone,
+  Power,
+  MapPin,
+  Navigation,
+  Menu,
+  Bell,
+  Star,
+  DollarSign,
+  Clock,
+  CheckCircle2,
+  Plus,
+  XCircle,
+  Phone,
+  PhoneIncoming,
+  PhoneCall,
+  MessageCircle,
+  MoreVertical,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+  Activity,
+  History,
+  AlertTriangle,
+  Wallet,
+  Wrench,
+  Settings,
+  FileSignature,
+  X,
+  Users,
+  Loader2,
+  ExternalLink,
+  RefreshCw,
+  Zap,
+  MessageSquare,
+  Layout,
+  AlertCircle,
+  Lock,
+  ArrowLeft,
+  Gift,
+  Download,
+  Copy,
+  Car,
+  Palette,
+  Music,
+  Upload,
+  Trash2,
+  Volume2,
+  Play,
+  Pause,
 } from "lucide-react";
-
-// Firestore Oficial (com todas as funções unificadas)
-import { 
-  collection, onSnapshot, doc, query, orderBy, where, or, and, limit,
-  setDoc, updateDoc, serverTimestamp, arrayUnion, addDoc, getDocs, getDoc
-} from 'firebase/firestore';
-
-// Utilitários e Serviços
-import { db, auth, handleFirestoreError, OperationType, withTimeout } from '../lib/firebase';
 import { customConfirm } from "../lib/customConfirm";
-import { cn } from "../lib/utils";
-import { useUnreadTeamChat } from "../lib/useUnreadTeamChat";
-import { geminiService } from "../services/geminiService";
-import { sendPassengerPushNotification } from "../lib/fcmService";
-
-// Componentes
 import RevenueManagement from "./RevenueManagement";
 import PermissionManager from "./PermissionManager";
 import { WhatsAppMonitor } from "./WhatsAppMonitor";
 import { WebRTCAudioCall } from "./WebRTCAudioCall";
 import { TeamCollaborativeChat } from "./TeamCollaborativeChat";
+import { useUnreadTeamChat } from "../lib/useUnreadTeamChat";
 import WaitingTimer from './WaitingTimer';
+import { motion, AnimatePresence } from "motion/react";
+import { cn } from "../lib/utils";
+import { format } from "date-fns";
+import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import {
+  collection,
+  query,
+  where,
+  or,
+  and,
+  onSnapshot,
+  orderBy,
+  limit,
+  doc,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
+  arrayUnion,
+  addDoc,
+  getDocs,
+  getDoc,
+} from '@/src/lib/firebase';
+
+import { auth } from "../lib/firebase";
+import { signOut } from "firebase/auth";
+
+import { MapContainer, TileLayer, Marker, useMap, Popup } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+import { geminiService } from "../services/geminiService";
+import { sendPassengerPushNotification } from "../lib/fcmService";
 
 // Fix for Leaflet default icon issues safely
 try {

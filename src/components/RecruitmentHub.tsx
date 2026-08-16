@@ -39,24 +39,19 @@ import {
 } from 'lucide-react';
 import CompanyPhones from './CompanyPhones';
 import WarehouseManager from './WarehouseManager';
-// SDK Oficial do Firestore
 import { 
   collection, 
+  addDoc, 
   query, 
   where, 
   onSnapshot, 
-  addDoc, 
-  updateDoc, 
   deleteDoc, 
   doc, 
-  serverTimestamp, 
-  orderBy, 
-  getDocs, 
-  writeBatch 
-} from 'firebase/firestore';
-
-// Utilitários locais
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+  serverTimestamp,
+  orderBy,
+  getDocs,
+  writeBatch
+} from '@/src/lib/firebase';
 
 const ROLES = [
   { id: 'gerente', label: 'Gerente', icon: ShieldCheck, color: 'text-rose-500', bg: 'bg-rose-50' },

@@ -76,7 +76,6 @@ import {
   Car
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { ThemeProvider } from './context/ThemeContext';
 import { ConnectivityBanner } from './components/ConnectivityBanner';
 import { PullToRefresh } from './components/PullToRefresh';
 
@@ -645,8 +644,8 @@ export default function App() {
           try {
             const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', userEmail));
             const staffSnap = await getDocs(staffQ);
-            if (!staffSnap.empty) {
-              staffRole = staffSnap.docs[0].data().role || 'gerente';
+            if (staffSnap && !staffSnap.empty && Array.isArray(staffSnap.docs) && staffSnap.docs.length > 0) {
+              staffRole = staffSnap.docs[0].data()?.role || 'gerente';
             }
           } catch (staffErr) {
             console.warn("Staff cross check error in App.tsx:", staffErr);
@@ -712,10 +711,10 @@ export default function App() {
           try {
             const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', userEmail));
             const staffSnap = await getDocs(staffQ);
-            if (!staffSnap.empty) {
+            if (staffSnap && !staffSnap.empty && Array.isArray(staffSnap.docs) && staffSnap.docs.length > 0) {
               const sData = staffSnap.docs[0].data();
-              autoRole = sData.role || 'gerente';
-              autoName = sData.name || autoName;
+              autoRole = sData?.role || 'gerente';
+              autoName = sData?.name || autoName;
             }
           } catch (staffErr) {
             console.warn("Error cross-checking staff during auto-profile:", staffErr);
@@ -807,7 +806,7 @@ export default function App() {
 
   if (configError) {
     return (
-      <ThemeProvider>
+      <>
         <ConnectivityBanner user={userProfile || user} />
         <div className="flex min-h-screen w-full flex-col items-center justify-center bg-slate-950 p-8 text-center text-white font-sans">
           <div className="w-20 h-20 bg-rose-500 rounded-3xl flex items-center justify-center mb-6 shadow-2xl shadow-rose-500/20">
@@ -832,14 +831,14 @@ export default function App() {
             Recarregar Sistema
           </button>
         </div>
-      </ThemeProvider>
+      </>
     );
   }
 
   if (loading) {
     const letters = "TAXICONTROL".split("");
     return (
-      <ThemeProvider>
+      <>
         <ConnectivityBanner user={userProfile || user} />
         <div key="loading-state" className="flex h-screen w-full items-center justify-center bg-slate-950 text-white overflow-hidden relative selection:bg-amber-500 selection:text-slate-950">
           {/* Ambient background glow */}
@@ -904,13 +903,13 @@ export default function App() {
             </motion.div>
           </div>
         </div>
-      </ThemeProvider>
+      </>
     );
   }
 
   if (showPublicPassengerFlow) {
     return (
-      <ThemeProvider>
+      <>
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
@@ -931,7 +930,7 @@ export default function App() {
             </React.Suspense>
           </div>
         </PullToRefresh>
-      </ThemeProvider>
+      </>
     );
   }
 
@@ -941,7 +940,7 @@ export default function App() {
       return signInWithPopup(auth, googleProvider);
     };
     return (
-      <ThemeProvider>
+      <>
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
@@ -960,13 +959,13 @@ export default function App() {
             }} 
           />
         </PullToRefresh>
-      </ThemeProvider>
+      </>
     );
   }
 
   if (!userProfile) {
     return (
-      <ThemeProvider>
+      <>
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
@@ -978,7 +977,7 @@ export default function App() {
           <ConnectivityBanner user={userProfile || user} />
           <ProfileSetup key="setup-view" user={user} onComplete={setUserProfile} />
         </PullToRefresh>
-      </ThemeProvider>
+      </>
     );
   }
 
@@ -998,7 +997,7 @@ export default function App() {
 
   if (shouldShowMobile && isAdminOrStaff) {
     return (
-      <ThemeProvider>
+      <>
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
@@ -1031,14 +1030,14 @@ export default function App() {
             </React.Suspense>
           </div>
         </PullToRefresh>
-      </ThemeProvider>
+      </>
     );
   }
 
   // Drivers and Mechanics get a full-screen mobile-style view
   if (isMecanico) {
     return (
-      <ThemeProvider>
+      <>
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
@@ -1060,13 +1059,13 @@ export default function App() {
             </React.Suspense>
           </div>
         </PullToRefresh>
-      </ThemeProvider>
+      </>
     );
   }
 
   if (isDriver) {
     return (
-      <ThemeProvider>
+      <>
         {versionDiscrepancy && !dismissedUpdateNotice && (
           <MandatoryUpdateModal 
             versionDiscrepancy={versionDiscrepancy} 
@@ -1088,12 +1087,12 @@ export default function App() {
             </React.Suspense>
           </div>
         </PullToRefresh>
-      </ThemeProvider>
+      </>
     );
   }
 
   return (
-    <ThemeProvider>
+    <>
       {versionDiscrepancy && !dismissedUpdateNotice && (
         <MandatoryUpdateModal 
           versionDiscrepancy={versionDiscrepancy} 
@@ -1253,7 +1252,7 @@ export default function App() {
           </motion.div>
         </div>
       )}
-    </ThemeProvider>
+    </>
   );
 }
 

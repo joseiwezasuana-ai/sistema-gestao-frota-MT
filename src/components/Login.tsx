@@ -3,7 +3,7 @@ import { LogIn, Car, User, Key, ArrowRight, Shield, AlertCircle, Loader2, CheckC
 import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithRedirect } from 'firebase/auth';
 import { db, auth, googleProvider, withTimeout, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, setDoc, serverTimestamp, orderBy, getDoc } from '@/src/lib/firebase';
+import { collection, query, where, getDocs, updateDoc, doc, setDoc, serverTimestamp, orderBy, getDoc, originalCollection } from '@/src/lib/firebase';
 import CompanyManagement from './CompanyManagement';
 
 interface LoginProps {
@@ -57,9 +57,15 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
       try {
         const snap = await getDocs(collection(db, 'tenants'));
         const list: { id: string, name: string }[] = [];
-        snap.forEach(docSnap => {
-          list.push({ id: docSnap.id, name: docSnap.data().name || docSnap.id });
-        });
+        if (snap && typeof snap.forEach === 'function') {
+          snap.forEach(docSnap => {
+            list.push({ id: docSnap.id, name: docSnap.data()?.name || docSnap.id });
+          });
+        } else if (snap && Array.isArray(snap.docs)) {
+          snap.docs.forEach(docSnap => {
+            list.push({ id: docSnap.id, name: docSnap.data()?.name || docSnap.id });
+          });
+        }
         if (!list.some(c => c.id === 'psm')) {
           list.unshift({ 
             id: 'psm', 
@@ -215,8 +221,9 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
             where('status', '==', 'Ativo')
           );
           const staffSnap = await withTimeout(getDocs(staffQuery));
-          results = staffSnap.docs
-            .filter(doc => doc.data().name)
+          const staffDocs = staffSnap?.docs || [];
+          results = staffDocs
+            .filter(doc => doc.data()?.name)
             .map(doc => ({ id: doc.id, name: doc.data().name }));
         } else if (validationRole === 'driver') {
           const driversQuery = query(
@@ -224,12 +231,13 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
             where('status', '==', 'Ativo')
           );
           const driversSnap = await withTimeout(getDocs(driversQuery));
-          results = driversSnap.docs
-            .filter(doc => doc.data().name)
+          const driverDocs = driversSnap?.docs || [];
+          results = driverDocs
+            .filter(doc => doc.data()?.name)
             .map(doc => ({ id: doc.id, name: doc.data().name }));
         }
         
-        results.sort((a, b) => a.name.localeCompare(b.name));
+        results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         setCollaborators(results);
       } catch (err) {
         console.error("Error fetching collaborators, loading fallback staff/drivers:", err);
@@ -370,29 +378,35 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         ? `${normalizedCode.substring(0, 4)}-${normalizedCode.substring(4)}`
         : normalizedCode;
 
-      let foundCodeDoc = null;
-      let foundCodeData = null;
-      let targetTenantId = selectedTenant;
+      let foundCodeDoc: any = null;
+      let foundCodeData: any = null;
+      let targetTenantId = selectedTenant || 'psm';
 
-      const q = query(
-        collection(db, 'access_codes'), 
-        where('code', '==', finalCode)
-      );
-      let querySnapshot = await withTimeout(getDocs(q));
+      // 1. Check in currently selected tenant's collection
+      try {
+        const q = query(
+          collection(db, 'access_codes'), 
+          where('code', '==', finalCode)
+        );
+        const querySnapshot = await withTimeout(getDocs(q));
 
-      if (!querySnapshot.empty) {
-        foundCodeDoc = querySnapshot.docs[0];
-        foundCodeData = foundCodeDoc.data();
-      } else {
-        // Search across all other companies/tenants as a fallback
+        if (querySnapshot && !querySnapshot.empty && Array.isArray(querySnapshot.docs) && querySnapshot.docs.length > 0) {
+          foundCodeDoc = querySnapshot.docs[0];
+          foundCodeData = foundCodeDoc.data();
+        }
+      } catch (errQ) {
+        console.warn("Primary access_codes query failed, trying alternatives:", errQ);
+      }
+
+      // 2. Search across all registered tenant collections if not found yet
+      if (!foundCodeDoc && companies && Array.isArray(companies)) {
         for (const comp of companies) {
           if (comp.id === selectedTenant) continue;
           try {
-            // query using the collection method which handles tenant paths
             const specificColl = collection(db, 'tenants', comp.id, 'access_codes');
             const specificQ = query(specificColl, where('code', '==', finalCode));
             const specSnap = await withTimeout(getDocs(specificQ));
-            if (!specSnap.empty) {
+            if (specSnap && !specSnap.empty && Array.isArray(specSnap.docs) && specSnap.docs.length > 0) {
               foundCodeDoc = specSnap.docs[0];
               foundCodeData = foundCodeDoc.data();
               targetTenantId = comp.id;
@@ -408,8 +422,23 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         }
       }
 
+      // 3. Search root global access_codes collection as ultimate fallback
+      if (!foundCodeDoc) {
+        try {
+          const rootColl = originalCollection(db, 'access_codes');
+          const rootQ = query(rootColl, where('code', '==', finalCode));
+          const rootSnap = await withTimeout(getDocs(rootQ));
+          if (rootSnap && !rootSnap.empty && Array.isArray(rootSnap.docs) && rootSnap.docs.length > 0) {
+            foundCodeDoc = rootSnap.docs[0];
+            foundCodeData = foundCodeDoc.data();
+          }
+        } catch (rootErr) {
+          console.warn("Root access_codes search error:", rootErr);
+        }
+      }
+
       if (!foundCodeDoc || !foundCodeData) {
-        throw new Error(`Código de ativação inválido ou não pertence a nenhuma filial registrada. Verifique se digitou corretamente (por exemplo: ${finalCode}).`);
+        throw new Error(`Código de ativação "${finalCode}" não foi encontrado ou é inválido. Verifique se digitou corretamente.`);
       }
 
       if (foundCodeData.used) {
@@ -456,19 +485,67 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         ? `${normalizedCode.substring(0, 4)}-${normalizedCode.substring(4)}`
         : normalizedCode;
 
-      // 1. Validate Access Code (Double check for security)
-      const q = query(
-        collection(db, 'access_codes'), 
-        where('code', '==', finalCode)
-      );
-      const querySnapshot = await withTimeout(getDocs(q));
+      // 1. Validate Access Code (Double check for security with multi-source fallback)
+      let foundCodeDoc: any = null;
+      let foundCodeData: any = null;
 
-      if (querySnapshot.empty) {
-        throw new Error("Código de ativação inválido ou já utilizado.");
+      try {
+        const q = query(
+          collection(db, 'access_codes'), 
+          where('code', '==', finalCode)
+        );
+        const querySnapshot = await withTimeout(getDocs(q));
+
+        if (querySnapshot && !querySnapshot.empty && Array.isArray(querySnapshot.docs) && querySnapshot.docs.length > 0) {
+          foundCodeDoc = querySnapshot.docs[0];
+          foundCodeData = foundCodeDoc.data();
+        }
+      } catch (qErr) {
+        console.warn("Primary access_codes lookup error in register:", qErr);
       }
 
-      const codeDoc = querySnapshot.docs[0];
-      const codeData = codeDoc.data();
+      // Check other tenants if not found in active tenant
+      if (!foundCodeDoc && companies && Array.isArray(companies)) {
+        for (const comp of companies) {
+          if (comp.id === selectedTenant) continue;
+          try {
+            const specificColl = collection(db, 'tenants', comp.id, 'access_codes');
+            const specificQ = query(specificColl, where('code', '==', finalCode));
+            const specSnap = await withTimeout(getDocs(specificQ));
+            if (specSnap && !specSnap.empty && Array.isArray(specSnap.docs) && specSnap.docs.length > 0) {
+              foundCodeDoc = specSnap.docs[0];
+              foundCodeData = foundCodeDoc.data();
+              setSelectedTenant(comp.id);
+              setActiveTenantId(comp.id);
+              break;
+            }
+          } catch (tenantErr) {
+            console.warn(`Could not lookup code in tenant ${comp.id}:`, tenantErr);
+          }
+        }
+      }
+
+      // Check root access_codes collection as fallback
+      if (!foundCodeDoc) {
+        try {
+          const rootColl = originalCollection(db, 'access_codes');
+          const rootQ = query(rootColl, where('code', '==', finalCode));
+          const rootSnap = await withTimeout(getDocs(rootQ));
+          if (rootSnap && !rootSnap.empty && Array.isArray(rootSnap.docs) && rootSnap.docs.length > 0) {
+            foundCodeDoc = rootSnap.docs[0];
+            foundCodeData = rootSnap.docs[0].data();
+          }
+        } catch (rootErr) {
+          console.warn("Root access_codes lookup error in register:", rootErr);
+        }
+      }
+
+      if (!foundCodeDoc || !foundCodeData) {
+        throw new Error("Código de ativação inválido ou não encontrado.");
+      }
+
+      const codeDoc = foundCodeDoc;
+      const codeData = foundCodeData;
 
       if (codeData.used) {
         throw new Error("Este código de ativação já foi utilizado por outro colaborador.");
@@ -491,29 +568,37 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
       }
 
       try {
-        // 2. Create Auth Account (Client-side bypasses Admin API errors)
+        // 2. Create Auth Account in Firebase Auth (Secure hash managed by Firebase Auth)
         const userCredential = await withTimeout(createUserWithEmailAndPassword(auth, email, password), 15000); // 15s for auth
         const user = userCredential.user;
 
-        // 3. Update Profile & Sync Firestore
+        // 3. Update Profile & Sync Firestore (Without sensitive password stored)
         await updateProfile(user, { displayName: name });
         
         await withTimeout(setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
           name: name,
-          email: email,
-          role: codeData.role,
-          password: password, // Store for compatibility fallback
+          email: email.toLowerCase(),
+          role: codeData.role || 'driver',
+          tenantId: selectedTenant || 'psm',
           createdAt: serverTimestamp(),
           syncedAt: serverTimestamp()
         }));
 
         // 4. Mark code as used
-        await withTimeout(updateDoc(doc(db, 'access_codes', codeDoc.id), {
-          used: true,
-          usedBy: user.uid,
-          usedAt: serverTimestamp()
-        }));
+        if (codeDoc.ref) {
+          await withTimeout(updateDoc(codeDoc.ref, {
+            used: true,
+            usedBy: user.uid,
+            usedAt: serverTimestamp()
+          })).catch(async () => {
+            await updateDoc(doc(db, 'access_codes', codeDoc.id), {
+              used: true,
+              usedBy: user.uid,
+              usedAt: serverTimestamp()
+            });
+          });
+        }
 
         setSuccess('Conta ativada com sucesso! Já pode navegar no painel.');
       } catch (authErr: any) {
@@ -524,8 +609,8 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         if (isEmailInUse) {
           throw authErr;
         } else {
-          // Use hybrid local activation fallback for any standard authentication issues (like operation-not-allowed)
-          await RichmondLocalRegister(sanitizedId, email, name, codeData.role, codeDoc.id);
+          // Use hybrid local activation fallback for standard authentication issues (without saving password to Firestore)
+          await RichmondLocalRegister(sanitizedId, email, name, codeData.role || 'driver', codeDoc.id, codeDoc.ref);
         }
       }
     } catch (err: any) {
@@ -540,35 +625,49 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     }
   };
 
-  const RichmondLocalRegister = async (sanitizedId: string, email: string, name: string, role: string, codeDocId: string) => {
+  const RichmondLocalRegister = async (sanitizedId: string, email: string, name: string, role: string, codeDocId: string, codeDocRef?: any) => {
     const localUid = `local_${sanitizedId}`;
     
-    // Create local user document directly in Firestore users collection
+    // Create local user document directly in Firestore users collection without sensitive password
     await withTimeout(setDoc(doc(db, 'users', localUid), {
       uid: localUid,
       name: name,
-      email: email,
+      email: email.toLowerCase(),
       role: role,
-      password: password,
+      tenantId: selectedTenant || 'psm',
       isLocal: true,
       createdAt: new Date().toISOString(),
       syncedAt: new Date().toISOString()
     }));
 
     // Mark the activation code as used
-    await withTimeout(updateDoc(doc(db, 'access_codes', codeDocId), {
-      used: true,
-      usedBy: localUid,
-      usedAt: new Date().toISOString()
-    }));
+    if (codeDocRef) {
+      await withTimeout(updateDoc(codeDocRef, {
+        used: true,
+        usedBy: localUid,
+        usedAt: new Date().toISOString()
+      })).catch(async () => {
+        await updateDoc(doc(db, 'access_codes', codeDocId), {
+          used: true,
+          usedBy: localUid,
+          usedAt: new Date().toISOString()
+        });
+      });
+    } else {
+      await withTimeout(updateDoc(doc(db, 'access_codes', codeDocId), {
+        used: true,
+        usedBy: localUid,
+        usedAt: new Date().toISOString()
+      }));
+    }
 
     // Store session locally and reload to trigger session hook in App.tsx
     const sessionData = {
       uid: localUid,
       name: name,
-      email: email,
+      email: email.toLowerCase(),
       role: role,
-      tenantId: 'psm',
+      tenantId: selectedTenant || 'psm',
       isLocal: true
     };
     localStorage.setItem('local_user_session', JSON.stringify(sessionData));
@@ -585,153 +684,119 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     setError(null);
     
     const rawId = id.trim();
+    if (!rawId || !password.trim()) {
+      setError("Por favor, preencha o ID e a Palavra-passe.");
+      setLoading(false);
+      return;
+    }
+
     const sanitizedId = rawId.toLowerCase().replace(/\s+/g, '-');
-    const email = rawId.includes('@') ? rawId.toLowerCase() : `${sanitizedId}@taxicontrol.ao`;
+    const primaryEmail = rawId.includes('@') ? rawId.toLowerCase() : `${sanitizedId}@taxicontrol.ao`;
+    const alternativeEmail = !rawId.includes('@') ? `${rawId.toLowerCase().replace(/[^a-z0-9]/g, '')}@taxicontrol.ao` : null;
 
     try {
-      // First try standard Firebase authentication
+      let userCred: any = null;
+      let usedEmail = primaryEmail;
+
+      // 1. Authenticate securely with Firebase Auth
       try {
-        const userCred = await signInWithEmailAndPassword(auth, email, password);
-        
-        if (userCred.user) {
-          const uRef = doc(db, 'users', userCred.user.uid);
-          const uSnap = await getDoc(uRef).catch(() => null);
-
-          // Check if this user is a registered staff member in administrative_staff
-          let staffRole: string | null = null;
-          let staffName: string | null = null;
-
+        userCred = await signInWithEmailAndPassword(auth, primaryEmail, password);
+      } catch (authErr: any) {
+        // If user not found and there's an alternative virtual email format, try that
+        if ((authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential') && alternativeEmail && alternativeEmail !== primaryEmail) {
           try {
-            const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', email.toLowerCase()));
-            const staffSnap = await getDocs(staffQ);
-            if (!staffSnap.empty) {
-              const sData = staffSnap.docs[0].data();
-              staffRole = sData.role || 'gerente';
-              staffName = sData.name || null;
-            } else {
-              // Try searching by name or ID
-              const staffByNameQ = query(collection(db, 'administrative_staff'), where('name', '==', rawId));
-              const staffByNameSnap = await getDocs(staffByNameQ);
-              if (!staffByNameSnap.empty) {
-                const sData = staffByNameSnap.docs[0].data();
-                staffRole = sData.role || 'gerente';
-                staffName = sData.name || null;
-              }
-            }
-          } catch (staffErr) {
-            console.warn("Staff lookup on login error:", staffErr);
+            userCred = await signInWithEmailAndPassword(auth, alternativeEmail, password);
+            usedEmail = alternativeEmail;
+          } catch (secondAuthErr: any) {
+            throw secondAuthErr;
           }
+        } else {
+          throw authErr;
+        }
+      }
 
-          const userEmail = email.toLowerCase();
-          const isMaster = userEmail === 'joseiwezasuana@gmail.com';
-          const isExplicitAdmin = isMaster || userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager');
-          const isExplicitOp = userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator');
-          const isExplicitMec = userEmail.includes('mecanico') || userEmail.includes('mechanic');
-          const isExplicitFin = userEmail.includes('contabilista') || userEmail.includes('finance');
+      if (userCred?.user) {
+        const uRef = doc(db, 'users', userCred.user.uid);
+        const uSnap = await getDoc(uRef).catch(() => null);
 
-          let resolvedRole: string | null = staffRole;
-          if (!resolvedRole) {
-            if (isExplicitAdmin) resolvedRole = 'gerente';
-            else if (isExplicitOp) resolvedRole = 'operator';
-            else if (isExplicitMec) resolvedRole = 'mecanico';
-            else if (isExplicitFin) resolvedRole = 'contabilista';
-          }
+        // Check if this user is a registered staff member in administrative_staff
+        let staffRole: string | null = null;
+        let staffName: string | null = null;
 
-          if (!uSnap || !uSnap.exists()) {
-            // Profile document does not exist yet: create it preserving staff/manager role!
-            const defaultRole = resolvedRole || (userEmail.startsWith('tx-') || userEmail.startsWith('mot-') ? 'driver' : 'gerente');
-            await setDoc(uRef, {
-              uid: userCred.user.uid,
-              email: email,
-              name: staffName || rawId.toUpperCase(),
-              role: defaultRole,
-              tenantId: 'psm',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            }, { merge: true }).catch(console.warn);
+        try {
+          const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', usedEmail.toLowerCase()));
+          const staffSnap = await getDocs(staffQ);
+          if (staffSnap && !staffSnap.empty && Array.isArray(staffSnap.docs) && staffSnap.docs.length > 0) {
+            const sData = staffSnap.docs[0].data();
+            staffRole = sData?.role || 'gerente';
+            staffName = sData?.name || null;
           } else {
-            const currentProfile = uSnap.data();
-            // If the user is a manager or staff member, but their profile role was accidentally saved as 'driver' or empty, auto-repair it!
-            if (resolvedRole && currentProfile?.role !== resolvedRole && (currentProfile?.role === 'driver' || !currentProfile?.role)) {
-              await setDoc(uRef, {
-                role: resolvedRole,
-                updatedAt: new Date().toISOString()
-              }, { merge: true }).catch(console.warn);
+            // Try searching by name or ID
+            const staffByNameQ = query(collection(db, 'administrative_staff'), where('name', '==', rawId));
+            const staffByNameSnap = await getDocs(staffByNameQ);
+            if (staffByNameSnap && !staffByNameSnap.empty && Array.isArray(staffByNameSnap.docs) && staffByNameSnap.docs.length > 0) {
+              const sData = staffByNameSnap.docs[0].data();
+              staffRole = sData?.role || 'gerente';
+              staffName = sData?.name || null;
             }
           }
+        } catch (staffErr) {
+          console.warn("Staff lookup on login error:", staffErr);
+        }
+
+        const userEmail = usedEmail.toLowerCase();
+        const isMaster = userEmail === 'joseiwezasuana@gmail.com';
+        const isExplicitAdmin = isMaster || userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager');
+        const isExplicitOp = userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator');
+        const isExplicitMec = userEmail.includes('mecanico') || userEmail.includes('mechanic');
+        const isExplicitFin = userEmail.includes('contabilista') || userEmail.includes('finance');
+
+        let resolvedRole: string | null = staffRole;
+        if (!resolvedRole) {
+          if (isExplicitAdmin) resolvedRole = 'gerente';
+          else if (isExplicitOp) resolvedRole = 'operator';
+          else if (isExplicitMec) resolvedRole = 'mecanico';
+          else if (isExplicitFin) resolvedRole = 'contabilista';
+        }
+
+        if (!uSnap || !uSnap.exists()) {
+          // Profile document does not exist yet: create it preserving staff/manager role (NO password stored)
+          const defaultRole = resolvedRole || (userEmail.startsWith('tx-') || userEmail.startsWith('mot-') ? 'driver' : 'gerente');
+          await setDoc(uRef, {
+            uid: userCred.user.uid,
+            email: usedEmail,
+            name: staffName || rawId.toUpperCase(),
+            role: defaultRole,
+            tenantId: selectedTenant || 'psm',
+            lastLoginAt: serverTimestamp(),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          }, { merge: true }).catch(console.warn);
+        } else {
+          const currentProfile = uSnap.data();
+          const updatePayload: any = {
+            lastLoginAt: serverTimestamp()
+          };
+          if (resolvedRole && currentProfile?.role !== resolvedRole && (currentProfile?.role === 'driver' || !currentProfile?.role)) {
+            updatePayload.role = resolvedRole;
+            updatePayload.updatedAt = serverTimestamp();
+          }
+          await updateDoc(uRef, updatePayload).catch(console.warn);
         }
 
         localStorage.removeItem('local_user_session'); // clear local if standard worked
-      } catch (authErr: any) {
-        console.warn("Standard Auth login failed. Trying local database fallback...", authErr);
-        
-        // Attempt local login fallback using several common formats of the ID to be highly bulletproof:
-        const candidateUids = [
-          `local_${sanitizedId}`, // e.g., local_tx-104
-          `local_${sanitizedId.replace(/[^a-z0-9]/g, '')}`, // e.g., local_tx104
-          `local_${rawId.toLowerCase()}` // exact lowercase, e.g., local_tx-104 or local_tx104
-        ];
-
-        let foundUserData = null;
-
-        // 1. Try finding by document ID using our candidate UID list
-        for (const uid of candidateUids) {
-          const userDocRef = doc(db, 'users', uid);
-          const userSnap = await getDoc(userDocRef);
-          if (userSnap.exists()) {
-            foundUserData = userSnap.data();
-            break;
-          }
-        }
-
-        // 2. Fallback to searching by email or standard UID
-        if (!foundUserData) {
-          const q = query(collection(db, 'users'), where('email', '==', email));
-          const qSnap = await getDocs(q);
-          if (!qSnap.empty) {
-            foundUserData = qSnap.docs[0].data();
-          }
-        }
-
-        // 3. Fallback to searching by a broader email match (case-insensitive or alternative emails)
-        if (!foundUserData && !rawId.includes('@')) {
-          const alternativeEmail = `${rawId.toLowerCase().replace(/[^a-z0-9]/g, '')}@taxicontrol.ao`;
-          const qAlt = query(collection(db, 'users'), where('email', '==', alternativeEmail));
-          const qAltSnap = await getDocs(qAlt);
-          if (!qAltSnap.empty) {
-            foundUserData = qAltSnap.docs[0].data();
-          }
-        }
-
-        // Verify password and establish local session if found
-        if (foundUserData) {
-          if (foundUserData.password === password) {
-            const sessionData = {
-              uid: foundUserData.uid,
-              name: foundUserData.name,
-              email: foundUserData.email,
-              role: foundUserData.role,
-              tenantId: foundUserData.tenantId || 'psm',
-              isLocal: true
-            };
-            localStorage.setItem('local_user_session', JSON.stringify(sessionData));
-            window.location.reload();
-            return;
-          } else {
-            throw new Error('Palavra-passe incorreta para este ID.');
-          }
-        }
-
-        // If the user isn't found anywhere:
-        if (authErr.code === 'auth/operation-not-allowed') {
-          throw new Error('A autenticação do Firebase está desativada ou restrita. Não conseguimos encontrar este utilizador localmente com este ID e Palavra-passe. Por favor, crie uma conta primeiro com o seu Código de Ativação.');
-        } else {
-          throw new Error('ID ou Palavra-passe incorretos.');
-        }
       }
     } catch (err: any) {
       console.error('Login error:', err);
-      setError(err.message || 'Erro ao autenticar. Verifique sua conexão.');
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found') {
+        setError('ID/E-mail ou Palavra-passe incorretos. Verifique os dados introduzidos.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setError('Acesso bloqueado temporariamente por excesso de tentativas incorretas. Aguarde alguns minutos ou redefina a palavra-passe.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError('A autenticação por E-mail/Senha precisa estar ativada no Console do Firebase.');
+      } else {
+        setError(err.message || 'Erro ao autenticar. Verifique sua conexão à internet.');
+      }
     } finally {
       setLoading(false);
     }

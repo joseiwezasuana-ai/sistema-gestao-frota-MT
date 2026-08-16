@@ -1,16 +1,13 @@
 {
   "name": "super-taxi-control",
   "private": true,
-  "version": "6.0.1",
+  "version": "6.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "clean": "powershell -Command \"Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist, build, android/app/build, dist-apks\"",
-    "build:all": "powershell -Command \"npm run clean; npm run build; npx cap sync android; Set-Location android; .\\gradlew assembleDebug; Set-Location ..; New-Item -ItemType Directory -Force -Path dist-apks; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-driver-v6.0.1.apk' -Force; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-passenger-v6.0.1.apk' -Force; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-staff-v6.0.1.apk' -Force; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-v6.0.1.apk' -Force; Get-ChildItem -Path dist-apks\"",
-    "build:apks": "powershell -Command \"npm run build; npx cap sync android; Set-Location android; .\\gradlew assembleDebug; Set-Location ..; New-Item -ItemType Directory -Force -Path dist-apks; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-driver-v6.0.1.apk' -Force; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-passenger-v6.0.1.apk' -Force; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-staff-v6.0.1.apk' -Force; Copy-Item 'android\\app\\build\\outputs\\apk\\debug\\app-debug.apk' 'dist-apks\\supertaxi-v6.0.1.apk' -Force; Get-ChildItem -Path dist-apks\"",
     "start": "node dist/server.cjs",
+    "clean": "rm -rf dist build",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

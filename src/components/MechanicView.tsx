@@ -26,25 +26,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-// Utilitários locais
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
-
-// Métodos nativos do SDK oficial do Firestore
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  addDoc, 
-  where, 
-  limit, 
-  doc, 
-  updateDoc, 
-  writeBatch, 
-  serverTimestamp 
-} from 'firebase/firestore';
-
+import { collection, query, orderBy, onSnapshot, addDoc, where, limit, doc, updateDoc, writeBatch, serverTimestamp } from '@/src/lib/firebase';
 import { format } from 'date-fns';
 import RealTimeMap from './RealTimeMap';
 import { WhatsAppMonitor } from './WhatsAppMonitor'; // Added import

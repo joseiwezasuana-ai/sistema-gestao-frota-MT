@@ -43,10 +43,6 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ user }) 
 
   const canSeeSyncConsole = isMasterAdmin || isAuthorizedRole;
 
-  if (!canSeeSyncConsole) {
-    return null;
-  }
-
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showStatus, setShowStatus] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -137,6 +133,10 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ user }) 
   };
 
   const totalPending = gpsPendingCount + staffCachedCount;
+
+  if (!canSeeSyncConsole) {
+    return null;
+  }
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[9999] pointer-events-none">

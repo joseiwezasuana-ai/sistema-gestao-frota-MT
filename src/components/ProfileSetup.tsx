@@ -143,7 +143,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
       );
       const querySnapshot = await withTimeout(getDocs(q));
 
-      if (querySnapshot.empty) {
+      if (!querySnapshot || querySnapshot.empty || !Array.isArray(querySnapshot.docs) || querySnapshot.docs.length === 0) {
         throw new Error("Código de acesso inválido ou já utilizado nesta empresa.");
       }
 
@@ -272,7 +272,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
           return;
         }
 
-        if (codeSnap.empty) {
+        if (!codeSnap || codeSnap.empty || !Array.isArray(codeSnap.docs) || codeSnap.docs.length === 0) {
           setError('Código de acesso inválido ou já utilizado.');
           setIsSubmitting(false);
           return;

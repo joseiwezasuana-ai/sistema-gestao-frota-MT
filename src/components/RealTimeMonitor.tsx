@@ -1,46 +1,50 @@
 import React, { useState, useEffect } from 'react';
-
-// Animações
-import { motion, AnimatePresence } from 'motion/react';
-
-// Ícones do lucide-react (mantenha os ícones que seu arquivo utiliza)
 import { 
-  Activity, 
-  Car, 
-  Users, 
-  MapPin, 
+  PhoneIncoming, 
+  MessageSquare, 
   Clock, 
-  Search, 
-  Filter, 
-  RefreshCw, 
-  AlertCircle, 
-  CheckCircle, 
-  XCircle, 
-  MoreVertical, 
-  Trash2, 
-  Edit3 
+  User, 
+  MapPin, 
+  Activity,
+  Trash2,
+  Phone,
+  Radio,
+  Wifi,
+  MoreVertical,
+  Search,
+  Filter,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  RefreshCcw,
+  Download,
+  Calendar,
+  Map as MapIcon,
+  History as HistoryIcon,
+  ShieldAlert,
+  Shield,
+  PhoneCall,
+  AlertTriangle,
+  Send
 } from 'lucide-react';
-
-// Métodos nativos do Firebase Firestore (AQUI ESTAVA O ERRO)
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   collection, 
   onSnapshot, 
-  doc, 
   query, 
   orderBy, 
-  limit, 
-  where, 
-  getDocs, 
-  writeBatch, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  serverTimestamp 
-} from 'firebase/firestore';
-
-// Instância e utilitários locais do seu projeto
-import { db, handleFirestoreError, OperationType, withTimeout } from '../lib/firebase';
-import { formatSafe } from '../lib/dateUtils';
+  limit,
+  deleteDoc,
+  doc,
+  where,
+  getDocs,
+  writeBatch,
+  addDoc,
+  updateDoc,
+  serverTimestamp
+} from '@/src/lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { format } from 'date-fns';
 import WaitingTimer from './WaitingTimer';
 import { cn } from '../lib/utils';
 import RealTimeMap from './RealTimeMap';

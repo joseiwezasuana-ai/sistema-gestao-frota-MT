@@ -21,6 +21,7 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 // Export everything from firebase/firestore so our file acts as a drop-in replacement
 export * from 'firebase/firestore';
+export { originalCollection, originalDoc };
 
 // Ensure app is only initialized once
 let app: any;
