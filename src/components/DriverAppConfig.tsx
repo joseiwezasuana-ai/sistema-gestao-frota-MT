@@ -26,7 +26,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
-import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from '@/src/lib/firebase';
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from '../lib/firebase';
 
 interface DriverAppConfigProps {
   tenantId?: string;

@@ -50,7 +50,7 @@ import {
   BarChart,
   LineChart
 } from 'recharts';
-import { collection, onSnapshot, query, orderBy, limit, where, doc, updateDoc, addDoc } from '@/src/lib/firebase';
+import { collection, onSnapshot, query, orderBy, limit, where, doc, updateDoc, addDoc } from '../lib/firebase';
 import { db, getActiveTenantId } from '../lib/firebase';
 import { geminiService } from '../services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';

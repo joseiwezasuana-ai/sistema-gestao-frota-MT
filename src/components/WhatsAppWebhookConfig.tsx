@@ -20,7 +20,7 @@ import {
   Copy,
   Info
 } from 'lucide-react';
-import { doc, onSnapshot, setDoc, serverTimestamp } from '@/src/lib/firebase';
+import { doc, onSnapshot, setDoc, serverTimestamp } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { cn } from '../lib/utils';
 

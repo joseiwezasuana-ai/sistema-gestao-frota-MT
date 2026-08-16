@@ -11,7 +11,7 @@ import {
   serverTimestamp,
   getDocs,
   where
-} from '@/src/lib/firebase';
+} from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   Calendar as CalendarIcon, 

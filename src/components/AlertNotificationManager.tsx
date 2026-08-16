@@ -19,7 +19,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, addDoc, serverTimestamp, deleteDoc, doc } from '@/src/lib/firebase';
+import { collection, onSnapshot, query, orderBy, limit, Timestamp, where, addDoc, serverTimestamp, deleteDoc, doc } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { format } from 'date-fns';
 import WaitingTimer from './WaitingTimer';

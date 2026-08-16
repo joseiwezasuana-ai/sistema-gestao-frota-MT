@@ -17,49 +17,67 @@ import {
   updateDoc,
   serverTimestamp,
   where,
-  getDocs
-} from '@/src/lib/firebase';
-import { auth, db, googleProvider, setActiveTenantId, getActiveTenantId } from './lib/firebase';
+  getDocs,
+  auth,
+  db,
+  googleProvider,
+  setActiveTenantId,
+  getActiveTenantId
+} from './lib/firebase';
 import { cn } from './lib/utils';
 import { getFcmMessaging, requestDriverFcmToken, listenToFcmForegroundMessages } from './lib/fcmService';
+import { presenceService } from './services/presenceService';
+import { isIdLike, resolveDriverName } from './utils/driverResolver';
 import Layout from './components/Layout';
 import Login from './components/Login';
 import ProfileSetup from './components/ProfileSetup';
 import AlertNotificationManager from './components/AlertNotificationManager';
 import ProfileEdit from './components/ProfileEdit';
 import KeyboardShortcutManager from './components/KeyboardShortcutManager';
+import Dashboard from './components/Dashboard';
 
-// Code splitting / Lazy-loaded subcomponents for improved initial bundle size and performance
-const Dashboard = React.lazy(() => import('./components/Dashboard'));
-const FleetManagement = React.lazy(() => import('./components/FleetManagement'));
-const RealTimeMap = React.lazy(() => import('./components/RealTimeMap'));
-const History = React.lazy(() => import('./components/History'));
-const Settings = React.lazy(() => import('./components/Settings'));
-const CompanyManagement = React.lazy(() => import('./components/CompanyManagement'));
-const Messages = React.lazy(() => import('./components/Messages'));
-const WhatsAppMonitor = React.lazy(() => import('./components/WhatsAppMonitor').then(m => ({ default: m.WhatsAppMonitor })));
-const RealTimeMonitor = React.lazy(() => import('./components/RealTimeMonitor'));
-const GPSTimeline = React.lazy(() => import('./components/GPSTimeline'));
-const DriverView = React.lazy(() => import('./components/DriverView'));
-const MechanicView = React.lazy(() => import('./components/MechanicView'));
-const StaffMobileView = React.lazy(() => import('./components/StaffMobileView'));
-const MaintenanceRegistry = React.lazy(() => import('./components/MaintenanceRegistry'));
-const RevenueManagement = React.lazy(() => import('./components/RevenueManagement'));
-const RecruitmentHub = React.lazy(() => import('./components/RecruitmentHub'));
-const AccountingManager = React.lazy(() => import('./components/AccountingManager'));
-const WarehouseManager = React.lazy(() => import('./components/WarehouseManager'));
-const InternalClients = React.lazy(() => import('./components/InternalClients'));
-const RentACar = React.lazy(() => import('./components/RentACar'));
-const CompanyPhones = React.lazy(() => import('./components/CompanyPhones'));
-const UserManual = React.lazy(() => import('./components/UserManual'));
-const CallSmsDossier = React.lazy(() => import('./components/CallSmsDossier'));
-const PassengerFlow = React.lazy(() => import('./components/PassengerFlow'));
-const PassengerManagement = React.lazy(() => import('./components/PassengerManagement'));
-const SystemErrorLogs = React.lazy(() => import('./components/SystemErrorLogs'));
-const ShiftMonitor = React.lazy(() => import('./components/ShiftMonitor'));
-const DriverDashboard = React.lazy(() => import('./components/DriverDashboard'));
-const InvoiceDrafting = React.lazy(() => import('./components/InvoiceDrafting'));
-const ApkDistributionHub = React.lazy(() => import('./components/ApkDistributionHub'));
+// Resilient dynamic loader with automatic retry
+const lazyRetry = (importFn: () => Promise<any>) =>
+  React.lazy(async () => {
+    try {
+      return await importFn();
+    } catch (error) {
+      console.warn("Retrying dynamic module load...", error);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return await importFn();
+    }
+  });
+
+// Code splitting / Lazy-loaded subcomponents with retry resilience
+const FleetManagement = lazyRetry(() => import('./components/FleetManagement'));
+const RealTimeMap = lazyRetry(() => import('./components/RealTimeMap'));
+const History = lazyRetry(() => import('./components/History'));
+const Settings = lazyRetry(() => import('./components/Settings'));
+const CompanyManagement = lazyRetry(() => import('./components/CompanyManagement'));
+const Messages = lazyRetry(() => import('./components/Messages'));
+const WhatsAppMonitor = lazyRetry(() => import('./components/WhatsAppMonitor').then(m => ({ default: m.WhatsAppMonitor })));
+const RealTimeMonitor = lazyRetry(() => import('./components/RealTimeMonitor'));
+const GPSTimeline = lazyRetry(() => import('./components/GPSTimeline'));
+const DriverView = lazyRetry(() => import('./components/DriverView'));
+const MechanicView = lazyRetry(() => import('./components/MechanicView'));
+const StaffMobileView = lazyRetry(() => import('./components/StaffMobileView'));
+const MaintenanceRegistry = lazyRetry(() => import('./components/MaintenanceRegistry'));
+const RevenueManagement = lazyRetry(() => import('./components/RevenueManagement'));
+const RecruitmentHub = lazyRetry(() => import('./components/RecruitmentHub'));
+const AccountingManager = lazyRetry(() => import('./components/AccountingManager'));
+const WarehouseManager = lazyRetry(() => import('./components/WarehouseManager'));
+const InternalClients = lazyRetry(() => import('./components/InternalClients'));
+const RentACar = lazyRetry(() => import('./components/RentACar'));
+const CompanyPhones = lazyRetry(() => import('./components/CompanyPhones'));
+const UserManual = lazyRetry(() => import('./components/UserManual'));
+const CallSmsDossier = lazyRetry(() => import('./components/CallSmsDossier'));
+const PassengerFlow = lazyRetry(() => import('./components/PassengerFlow'));
+const PassengerManagement = lazyRetry(() => import('./components/PassengerManagement'));
+const SystemErrorLogs = lazyRetry(() => import('./components/SystemErrorLogs'));
+const ShiftMonitor = lazyRetry(() => import('./components/ShiftMonitor'));
+const DriverDashboard = lazyRetry(() => import('./components/DriverDashboard'));
+const InvoiceDrafting = lazyRetry(() => import('./components/InvoiceDrafting'));
+const ApkDistributionHub = lazyRetry(() => import('./components/ApkDistributionHub'));
 
 import { 
   AlertCircle, 
@@ -665,6 +683,29 @@ export default function App() {
           if (profile && profile.role === 'operador') {
             profile.role = 'operator';
           }
+
+          // Auto-heal Driver Names if missing or replaced by ID/email prefix
+          if (profile.role === 'driver' || isIdLike(profile.name)) {
+            try {
+              const [masterSnap, vehiclesSnap, usersSnap] = await Promise.all([
+                getDocs(collection(db, 'drivers_master')),
+                getDocs(collection(db, 'drivers')),
+                getDocs(collection(db, 'users'))
+              ]);
+              const masterDocs = masterSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+              const vehicleDocs = vehiclesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+              const userDocs = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+              const resolved = resolveDriverName(profile.name || userEmail.split('@')[0] || firebaseUser.uid, masterDocs, vehicleDocs, userDocs);
+              if (resolved && !isIdLike(resolved) && resolved !== profile.name) {
+                profile.name = resolved;
+                setDoc(profileRef, { name: resolved }, { merge: true }).catch(console.warn);
+              }
+            } catch (dErr) {
+              console.warn("Driver master name check error:", dErr);
+            }
+          }
+
           const isAdminRole = isMaster || profile.role === 'admin' || profile.role === 'gerente' || profile.role === 'manager' || profile.role === 'operator';
           const preSelectedTenant = getActiveTenantId();
           
@@ -677,6 +718,7 @@ export default function App() {
             setActiveTenantId('psm');
           }
           setUserProfile(profile);
+          presenceService.startHeartbeat({ uid: firebaseUser.uid, ...profile });
           // If driver, reset tab or handle specific view
           if (profile.role === 'driver') {
             setActiveTab('driver_dashboard');
@@ -698,6 +740,7 @@ export default function App() {
           };
           setActiveTenantId(preSelectedTenant);
           setUserProfile(adminProfile);
+          presenceService.startHeartbeat(adminProfile);
           clearTimeout(safetyTimeout);
           finishLoading();
           setDoc(doc(db, 'users', firebaseUser.uid), adminProfile).catch(console.error);
@@ -733,6 +776,25 @@ export default function App() {
             else if (!userEmail.startsWith('tx-') && !userEmail.startsWith('mot-')) {
               autoRole = 'gerente';
             }
+
+            // Auto-resolve driver name from drivers_master, drivers, and users
+            try {
+              const [masterSnap, vehiclesSnap, usersSnap] = await Promise.all([
+                getDocs(collection(db, 'drivers_master')),
+                getDocs(collection(db, 'drivers')),
+                getDocs(collection(db, 'users'))
+              ]);
+              const masterDocs = masterSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+              const vehicleDocs = vehiclesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+              const userDocs = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+              const resolved = resolveDriverName(autoName || userEmail.split('@')[0] || firebaseUser.uid, masterDocs, vehicleDocs, userDocs);
+              if (resolved && !isIdLike(resolved)) {
+                autoName = resolved;
+              }
+            } catch (dErr) {
+              console.warn("Driver master autoName resolution error:", dErr);
+            }
           }
           
           const autoProfile = {
@@ -745,6 +807,7 @@ export default function App() {
           };
           
           setUserProfile(autoProfile);
+          presenceService.startHeartbeat(autoProfile);
           if (autoRole === 'driver') {
             setActiveTab('driver_dashboard');
           }
@@ -995,111 +1058,72 @@ export default function App() {
   const shouldShowMobile = (viewPreference === 'mobile') || (viewPreference === 'auto' && isMobile);
   const isAdminOrStaff = (isAdmin || isOperator || isContabilista);
 
+  let mainContent: React.ReactNode = null;
+
   if (shouldShowMobile && isAdminOrStaff) {
-    return (
-      <>
-        {versionDiscrepancy && !dismissedUpdateNotice && (
-          <MandatoryUpdateModal 
-            versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={handleDismissUpdateNotice}
-            user={userProfile || user}
-          />
-        )}
-        <PullToRefresh>
-          <ConnectivityBanner user={userProfile || user} />
-          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
-            {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-            <React.Suspense fallback={
-              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
-                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar portal...</span>
-              </div>
-            }>
-              <StaffMobileView 
-                user={userProfile} 
-                onLogout={() => window.dispatchEvent(new CustomEvent('jis-request-logout'))} 
-                onExitMobile={() => setViewPreference('desktop')}
-                onEditProfile={() => setIsProfileEditOpen(true)}
-              />
-              <ProfileEdit 
-                user={userProfile} 
-                isOpen={isProfileEditOpen} 
-                onClose={() => setIsProfileEditOpen(false)}
-                onUpdate={setUserProfile}
-              />
-            </React.Suspense>
-          </div>
-        </PullToRefresh>
-      </>
+    mainContent = (
+      <PullToRefresh>
+        <ConnectivityBanner user={userProfile || user} />
+        <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
+          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
+          <React.Suspense fallback={
+            <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar portal...</span>
+            </div>
+          }>
+            <StaffMobileView 
+              user={userProfile} 
+              onLogout={() => setShowLogoutConfirm(true)} 
+              onExitMobile={() => setViewPreference('desktop')}
+              onEditProfile={() => setIsProfileEditOpen(true)}
+            />
+            <ProfileEdit 
+              user={userProfile} 
+              isOpen={isProfileEditOpen} 
+              onClose={() => setIsProfileEditOpen(false)}
+              onUpdate={setUserProfile}
+            />
+          </React.Suspense>
+        </div>
+      </PullToRefresh>
     );
-  }
-
-  // Drivers and Mechanics get a full-screen mobile-style view
-  if (isMecanico) {
-    return (
-      <>
-        {versionDiscrepancy && !dismissedUpdateNotice && (
-          <MandatoryUpdateModal 
-            versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={handleDismissUpdateNotice}
-            user={userProfile || user}
-          />
-        )}
-        <PullToRefresh>
-          <ConnectivityBanner user={userProfile || user} />
-          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
-            {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-            <React.Suspense fallback={
-              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
-                <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel mecânico...</span>
-              </div>
-            }>
-              <MechanicView user={userProfile} />
-            </React.Suspense>
-          </div>
-        </PullToRefresh>
-      </>
+  } else if (isMecanico) {
+    mainContent = (
+      <PullToRefresh>
+        <ConnectivityBanner user={userProfile || user} />
+        <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
+          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
+          <React.Suspense fallback={
+            <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel mecânico...</span>
+            </div>
+          }>
+            <MechanicView user={userProfile} />
+          </React.Suspense>
+        </div>
+      </PullToRefresh>
     );
-  }
-
-  if (isDriver) {
-    return (
-      <>
-        {versionDiscrepancy && !dismissedUpdateNotice && (
-          <MandatoryUpdateModal 
-            versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={handleDismissUpdateNotice}
-            user={userProfile || user}
-          />
-        )}
-        <PullToRefresh>
-          <ConnectivityBanner user={userProfile || user} />
-          <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
-            {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
-            <React.Suspense fallback={
-              <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
-                <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel motorista...</span>
-              </div>
-            }>
-              <DriverView user={userProfile} />
-            </React.Suspense>
-          </div>
-        </PullToRefresh>
-      </>
+  } else if (isDriver) {
+    mainContent = (
+      <PullToRefresh>
+        <ConnectivityBanner user={userProfile || user} />
+        <div className="h-[100dvh] h-[var(--app-height,100dvh)] w-full overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
+          {shouldNotifyAlert && <AlertNotificationManager user={userProfile} />}
+          <React.Suspense fallback={
+            <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-slate-950 text-white font-sans">
+              <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar painel motorista...</span>
+            </div>
+          }>
+            <DriverView user={userProfile} />
+          </React.Suspense>
+        </div>
+      </PullToRefresh>
     );
-  }
-
-  return (
-    <>
-      {versionDiscrepancy && !dismissedUpdateNotice && (
-        <MandatoryUpdateModal 
-          versionDiscrepancy={versionDiscrepancy} 
-          onDismiss={handleDismissUpdateNotice}
-          user={userProfile || user}
-        />
-      )}
+  } else {
+    mainContent = (
       <PullToRefresh>
         <ConnectivityBanner user={userProfile || user} />
         <KeyboardShortcutManager user={userProfile} activeTab={activeTab} onTabChange={setActiveTab} />
@@ -1109,7 +1133,7 @@ export default function App() {
             globalSettings={globalSettings}
             activeTab={activeTab} 
             onTabChange={setActiveTab}
-            onLogout={() => window.dispatchEvent(new CustomEvent('jis-request-logout'))}
+            onLogout={() => setShowLogoutConfirm(true)}
             onToggleMobile={() => setViewPreference('mobile')}
             onEditProfile={() => setIsProfileEditOpen(true)}
           >
@@ -1168,6 +1192,20 @@ export default function App() {
           </Layout>
         </div>
       </PullToRefresh>
+    );
+  }
+
+  return (
+    <>
+      {versionDiscrepancy && !dismissedUpdateNotice && (
+        <MandatoryUpdateModal 
+          versionDiscrepancy={versionDiscrepancy} 
+          onDismiss={handleDismissUpdateNotice}
+          user={userProfile || user}
+        />
+      )}
+
+      {mainContent}
 
       {/* Logout Confirmation Modal ("Desejas realmente sair da sua conta?") */}
       {showLogoutConfirm && (
@@ -1201,6 +1239,10 @@ export default function App() {
               <button
                 onClick={async () => {
                   try {
+                    const uidToOffline = userProfile?.uid || user?.uid;
+                    if (uidToOffline) {
+                      await presenceService.setOffline(uidToOffline);
+                    }
                     localStorage.removeItem('local_user_session');
                     await signOut(auth);
                   } catch (e) {

@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, CircleMarker 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { renderToString } from 'react-dom/server';
-import { collection, onSnapshot, query, limit } from '@/src/lib/firebase';
+import { collection, onSnapshot, query, limit } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Truck, Crosshair, Map as MapIcon, Globe, AlertCircle, Zap, User, Phone, Route, MapPin } from 'lucide-react';
 import { animate } from 'motion/react';

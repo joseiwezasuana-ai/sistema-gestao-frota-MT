@@ -35,7 +35,7 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, getDocs, where, serverTimestamp } from '@/src/lib/firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, getDocs, where, serverTimestamp } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { smsService } from '../services/smsService';

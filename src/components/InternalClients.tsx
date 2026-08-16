@@ -29,7 +29,7 @@ import {
   orderBy,
   limit,
   where
-} from '@/src/lib/firebase';
+} from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import { cn } from '../lib/utils';

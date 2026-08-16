@@ -23,7 +23,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, writeBatch, serverTimestamp, getDocs } from '@/src/lib/firebase';
+import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, updateDoc, writeBatch, serverTimestamp, getDocs } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import QrScannerModal from './QrScannerModal';
 

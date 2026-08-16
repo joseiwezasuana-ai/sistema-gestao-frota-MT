@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy, limit, where, doc, updateDoc, deleteDoc, getDocs, addDoc, serverTimestamp } from '@/src/lib/firebase';
+import { collection, onSnapshot, query, orderBy, limit, where, doc, updateDoc, deleteDoc, getDocs, addDoc, serverTimestamp } from '../lib/firebase';
 import { 
   Users, 
   AlertCircle, 

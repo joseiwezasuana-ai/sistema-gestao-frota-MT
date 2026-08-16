@@ -73,7 +73,7 @@ import {
   serverTimestamp,
   deleteDoc,
   writeBatch,
-} from '@/src/lib/firebase';
+} from '../lib/firebase';
 import { cn } from "../lib/utils";
 import RevenueManagement from "./RevenueManagement";
 import InvoiceDrafting from "./InvoiceDrafting";

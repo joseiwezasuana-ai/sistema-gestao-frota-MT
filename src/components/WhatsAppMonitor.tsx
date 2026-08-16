@@ -42,7 +42,7 @@ import {
   Activity
 } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from '@/src/lib/firebase';
+import { collection, query, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from '../lib/firebase';
 import { cn } from '../lib/utils';
 
 interface WhatsAppMessage {

@@ -417,6 +417,144 @@ async function startServer() {
     }
   });
 
+  // Permanent Delete User Route (Admin only) - Deletes from Auth & Firestore
+  app.post("/api/admin/delete-user", async (req, res) => {
+    console.log("[Admin] >>> Starting Permanent Delete User sequence");
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      console.warn("[Admin] !!! Unauthorized: Missing Bearer token");
+      return res.status(401).json({ error: "Missing or invalid authorization" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    
+    try {
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      const requesterEmail = decodedToken.email || "no-email";
+      console.log(`[Admin] Verify delete-user requested by: ${requesterEmail}`);
+
+      const isMasterAdmin = requesterEmail === "joseiwezasuana@gmail.com";
+      let isAdmin = isMasterAdmin;
+      
+      if (!isAdmin) {
+        try {
+          const adminDoc = await db.collection("users").doc(decodedToken.uid).get();
+          if (adminDoc.exists && adminDoc.data()?.role === "admin") {
+            isAdmin = true;
+          }
+        } catch (roleError: any) {
+          console.error("[Admin] ERROR checking user role in DB:", roleError.message);
+        }
+      }
+      
+      if (!isAdmin) {
+        console.warn(`[Admin] !!! ACCESS DENIED: ${requesterEmail} is not an admin.`);
+        return res.status(403).json({ error: "Permissão negada: Apenas o Administrador pode eliminar contas permanentemente." });
+      }
+
+      const { userId, userEmail, deleteAuth = true } = req.body;
+      if (!userId && !userEmail) {
+        return res.status(400).json({ error: "ID ou email do utilizador é obrigatório." });
+      }
+
+      // Safeguard: Never delete the Master Admin
+      if (userEmail === "joseiwezasuana@gmail.com" || (userId === decodedToken.uid && isMasterAdmin)) {
+        return res.status(400).json({ error: "A conta do Administrador Principal (Master Admin) não pode ser eliminada." });
+      }
+
+      let targetUid = userId;
+      let targetEmail = userEmail;
+
+      // 1. Attempt to find UID by email if UID not provided
+      if (!targetUid && targetEmail) {
+        try {
+          const userRec = await admin.auth().getUserByEmail(targetEmail);
+          targetUid = userRec.uid;
+        } catch (e: any) {
+          console.log(`[Admin] User not found by email in Auth: ${targetEmail}`);
+        }
+      }
+
+      // 2. Fetch email by UID if targetEmail not provided
+      if (targetUid && !targetEmail) {
+        try {
+          const userRec = await admin.auth().getUser(targetUid);
+          targetEmail = userRec.email;
+        } catch (e: any) {
+          // Might not exist in Auth
+        }
+      }
+
+      if (targetEmail === "joseiwezasuana@gmail.com") {
+        return res.status(400).json({ error: "A conta do Administrador Principal não pode ser eliminada." });
+      }
+
+      let authDeleted = false;
+      let dbDeleted = false;
+
+      // 3. Delete from Firebase Auth
+      if (deleteAuth) {
+        if (targetUid) {
+          try {
+            await admin.auth().deleteUser(targetUid);
+            authDeleted = true;
+            console.log(`[Admin] Permanently deleted user from Firebase Auth: ${targetUid}`);
+          } catch (authErr: any) {
+            console.warn(`[Admin] Auth delete by UID failed: ${authErr.message}`);
+          }
+        }
+        if (!authDeleted && targetEmail) {
+          try {
+            const userRec = await admin.auth().getUserByEmail(targetEmail);
+            await admin.auth().deleteUser(userRec.uid);
+            authDeleted = true;
+            console.log(`[Admin] Permanently deleted user from Firebase Auth by email: ${targetEmail}`);
+          } catch (authErr: any) {
+            console.warn(`[Admin] Auth delete by email failed: ${authErr.message}`);
+          }
+        }
+      }
+
+      // 4. Delete from Firestore 'users' collection
+      if (targetUid) {
+        try {
+          await db.collection("users").doc(targetUid).delete();
+          dbDeleted = true;
+          console.log(`[Admin] Deleted profile document from users/${targetUid}`);
+        } catch (err: any) {
+          console.error(`[Admin] Error deleting from users collection: ${err.message}`);
+        }
+      }
+
+      // 5. Clean up auxiliary collections
+      try {
+        if (targetEmail) {
+          const staffQuery = await db.collection("administrative_staff").where("email", "==", targetEmail).get();
+          staffQuery.forEach(d => d.ref.delete());
+        }
+        if (targetUid) {
+          const staffQuery2 = await db.collection("administrative_staff").where("uid", "==", targetUid).get();
+          staffQuery2.forEach(d => d.ref.delete());
+        }
+      } catch (cleanErr) {
+        console.warn("[Admin] Aux staff cleanup warning:", cleanErr);
+      }
+
+      res.json({
+        success: true,
+        message: "Conta e perfil eliminados permanentemente com sucesso.",
+        authDeleted,
+        dbDeleted
+      });
+    } catch (error: any) {
+      console.error("[Admin] Delete user error:", error);
+      res.status(500).json({ 
+        error: error.message || "Falha ao eliminar utilizador permanentemente.",
+        code: error.code || "delete_user_failed"
+      });
+    }
+  });
+
   // ==========================================
   // --- GEMINI AI PROXY ENDPOINTS WITH CACHING & TIERED FALLBACK ---
   // ==========================================

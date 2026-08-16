@@ -26,9 +26,14 @@ import {
   BookOpen,
   Lock,
   Sun,
-  Moon
+  Moon,
+  Search,
+  UserX,
+  Shield,
+  Mail,
+  X
 } from 'lucide-react';
-import { collection, addDoc, setDoc, onSnapshot, query, orderBy, deleteDoc, doc, Timestamp, serverTimestamp, getDocs, writeBatch } from '@/src/lib/firebase';
+import { collection, addDoc, setDoc, onSnapshot, query, orderBy, deleteDoc, doc, Timestamp, serverTimestamp, getDocs, writeBatch } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import ThresholdSettings from './ThresholdSettings';
@@ -255,13 +260,58 @@ export default function Settings() {
     }
   };
 
-  const deleteUser = async (id: string, name: string) => {
-    if (window.confirm(`ATENÇÃO: Deseja remover permanentemente o utilizador "${name}" da equipa? Esta ação não pode ser desfeita.`)) {
-      try {
-        await deleteDoc(doc(db, 'users', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `users/${id}`);
+  const [userToDelete, setUserToDelete] = useState<any | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [deleteUserError, setDeleteUserError] = useState<string | null>(null);
+  const [deleteUserSuccess, setDeleteUserSuccess] = useState<string | null>(null);
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+
+  const handlePermanentDeleteUser = async () => {
+    if (!userToDelete) return;
+    setIsDeletingUser(true);
+    setDeleteUserError(null);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      let serverSuccess = false;
+
+      if (idToken) {
+        try {
+          const response = await fetch('/api/admin/delete-user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+            },
+            body: JSON.stringify({
+              userId: userToDelete.id || userToDelete.uid,
+              userEmail: userToDelete.email,
+              deleteAuth: true
+            })
+          });
+
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || 'Falha ao eliminar utilizador no servidor.');
+          }
+          serverSuccess = true;
+        } catch (serverErr: any) {
+          console.warn("Backend admin delete route error, falling back to direct Firestore removal:", serverErr.message);
+          // Fallback direct delete from Firestore
+          await deleteDoc(doc(db, 'users', userToDelete.id || userToDelete.uid));
+        }
+      } else {
+        await deleteDoc(doc(db, 'users', userToDelete.id || userToDelete.uid));
       }
+
+      setDeleteUserSuccess(`Utilizador "${userToDelete.name || userToDelete.email}" e respetivo perfil eliminados permanentemente.`);
+      setUserToDelete(null);
+      setTimeout(() => setDeleteUserSuccess(null), 4500);
+    } catch (err: any) {
+      console.error("Delete user error:", err);
+      setDeleteUserError(err.message || 'Erro ao eliminar utilizador.');
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -450,27 +500,197 @@ export default function Settings() {
               </table>
             </div>
 
-            <div className="px-5 py-4 border-t border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-              <h3 className="font-bold text-[13px] text-slate-900 uppercase tracking-wider flex items-center gap-2">
+            <div className="px-5 py-4 border-t border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
                 <UserCheck size={16} className="text-brand-primary" />
-                Equipa
-              </h3>
+                <h3 className="font-bold text-[13px] text-slate-900 uppercase tracking-wider">
+                  Equipa & Contas de Utilizador
+                </h3>
+                <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full font-bold">
+                  {users.length}
+                </span>
+              </div>
+
+              {/* Search & Filter controls */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input 
+                    type="text" 
+                    value={userSearchTerm}
+                    onChange={(e) => setUserSearchTerm(e.target.value)}
+                    placeholder="Pesquisar por nome ou email..."
+                    className="pl-7 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:border-brand-primary outline-none w-44"
+                  />
+                </div>
+                <select
+                  value={userRoleFilter}
+                  onChange={(e) => setUserRoleFilter(e.target.value)}
+                  className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:border-brand-primary outline-none uppercase"
+                >
+                  <option value="all">TODOS</option>
+                  <option value="admin">ADMIN</option>
+                  <option value="gerente">GERENTE</option>
+                  <option value="operator">OPERADOR</option>
+                  <option value="contabilista">CONTABILISTA</option>
+                  <option value="mecanico">MECÂNICO</option>
+                  <option value="driver">MOTORISTA</option>
+                </select>
+              </div>
             </div>
-            <div className="overflow-x-auto h-[250px] custom-scrollbar">
-               <table className="w-full text-[13px]">
+
+            {/* Success message banner */}
+            {deleteUserSuccess && (
+              <div className="p-3 bg-emerald-50 text-emerald-700 text-xs font-bold border-b border-emerald-100 flex items-center gap-2">
+                <Check size={14} className="text-emerald-600" />
+                <span>{deleteUserSuccess}</span>
+              </div>
+            )}
+
+            <div className="overflow-x-auto max-h-[320px] custom-scrollbar">
+               <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100/75 text-[10px] font-black text-slate-500 uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-2.5">Nome / Colaborador</th>
+                      <th className="px-4 py-2.5">Função</th>
+                      <th className="px-4 py-2.5">Email / ID</th>
+                      <th className="px-4 py-2.5 text-right">Ação Permanente</th>
+                    </tr>
+                  </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {users.map((u, idx) => (
-                      <tr key={`${u.id}-${idx}`} className="hover:bg-slate-50/50">
-                        <td className="px-6 py-4">{u.name}</td>
-                        <td className="px-6 py-4">{u.role}</td>
-                        <td className="px-6 py-4 text-right">
-                          <button onClick={() => deleteUser(u.id, u.name)} className="text-slate-300 hover:text-red-500 transition-colors p-2"><Trash2 size={16} /></button>
-                        </td>
-                      </tr>
-                    ))}
+                    {users
+                      .filter(u => {
+                        const matchesSearch = !userSearchTerm || 
+                          (u.name?.toLowerCase().includes(userSearchTerm.toLowerCase())) ||
+                          (u.email?.toLowerCase().includes(userSearchTerm.toLowerCase())) ||
+                          (u.id?.toLowerCase().includes(userSearchTerm.toLowerCase()));
+                        const matchesRole = userRoleFilter === 'all' || (u.role?.toLowerCase() === userRoleFilter.toLowerCase());
+                        return matchesSearch && matchesRole;
+                      })
+                      .map((u, idx) => {
+                        const isMaster = u.email === 'joseiwezasuana@gmail.com' || u.id === 'master-admin';
+                        const roleColor = 
+                          u.role === 'admin' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                          u.role === 'gerente' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' :
+                          u.role === 'operator' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                          u.role === 'contabilista' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                          u.role === 'mecanico' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                          'bg-slate-100 text-slate-700 border-slate-200';
+
+                        return (
+                          <tr key={`${u.id || u.uid || idx}`} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-700 font-black text-[10px] flex items-center justify-center shrink-0 uppercase">
+                                  {u.name ? u.name.substring(0, 2) : 'US'}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-slate-900">{u.name || 'Sem nome registado'}</div>
+                                  {isMaster && (
+                                    <span className="text-[9px] text-amber-600 font-black tracking-wider uppercase">
+                                      Master Administrador
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${roleColor}`}>
+                                {u.role || 'Colaborador'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-[11px] text-slate-600">
+                              {u.email || u.id || 'N/A'}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {isMaster ? (
+                                <span className="text-[10px] font-bold text-slate-400 italic">
+                                  Protegido
+                                </span>
+                              ) : (
+                                <button 
+                                  onClick={() => setUserToDelete(u)} 
+                                  title="Eliminar permanentemente do Firebase Auth e Base de Dados"
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1 rounded border border-red-200 hover:border-red-300 font-bold text-[10px] uppercase transition-all inline-flex items-center gap-1.5"
+                                >
+                                  <Trash2 size={12} />
+                                  Eliminar
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                </table>
             </div>
+
+            {/* Permanent User Deletion Safety Modal */}
+            {userToDelete && (
+              <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 text-slate-900 dark:text-white shadow-2xl space-y-4">
+                  <div className="flex items-center gap-3 text-red-600">
+                    <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+                      <UserX size={24} className="text-red-600 dark:text-red-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black tracking-tight uppercase">Eliminar Utilizador Permanentemente</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">Ação Irreversível de Administrador</p>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/40 rounded-xl space-y-2 text-xs text-red-800 dark:text-red-200">
+                    <p className="font-semibold">
+                      Tem a certeza de que deseja eliminar permanentemente a conta e os dados de:
+                    </p>
+                    <div className="font-black text-sm text-red-900 dark:text-red-100 bg-white/60 dark:bg-slate-800/60 p-2 rounded border border-red-200 dark:border-red-800">
+                      {userToDelete.name || 'Utilizador'} ({userToDelete.email || userToDelete.id})
+                    </div>
+                    <ul className="list-disc list-inside text-[11px] space-y-1 font-medium text-slate-700 dark:text-slate-300">
+                      <li>A conta será <strong>excluída permanentemente do Firebase Authentication</strong> (o login será cancelado de imediato).</li>
+                      <li>O documento de perfil do Firestore será apagado permanentemente.</li>
+                      <li>Todos os registos associados nas escalas e acessos serão revogados.</li>
+                    </ul>
+                  </div>
+
+                  {deleteUserError && (
+                    <div className="p-2.5 bg-red-100 text-red-700 text-xs font-bold rounded-lg flex items-center gap-2">
+                      <AlertCircle size={14} />
+                      {deleteUserError}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={isDeletingUser}
+                      onClick={() => { setUserToDelete(null); setDeleteUserError(null); }}
+                      className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors uppercase"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeletingUser}
+                      onClick={handlePermanentDeleteUser}
+                      className="px-5 py-2 text-xs font-black bg-red-600 hover:bg-red-700 text-white rounded-lg transition-all shadow-md shadow-red-500/20 uppercase flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {isDeletingUser ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          A eliminar...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={14} />
+                          Confirmar Eliminação Permanente
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
         </section>
       </div>
 

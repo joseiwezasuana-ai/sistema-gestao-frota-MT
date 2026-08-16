@@ -30,7 +30,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, serverTimestamp, updateDoc, arrayRemove, limit, getDocs, where, writeBatch } from '@/src/lib/firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, serverTimestamp, updateDoc, arrayRemove, limit, getDocs, where, writeBatch } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType, withTimeout } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import { cn } from '../lib/utils';

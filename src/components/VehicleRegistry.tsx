@@ -14,7 +14,7 @@ import {
   Car
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, updateDoc } from '@/src/lib/firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, updateDoc } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 export default function VehicleRegistry({ user }: { user?: any }) {

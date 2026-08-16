@@ -31,7 +31,7 @@ import {
   X
 } from 'lucide-react';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
-import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from '@/src/lib/firebase';
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from '../lib/firebase';
 import PassengerFlow from './PassengerFlow';
 
 interface PassengerAppConfigProps {

@@ -51,7 +51,7 @@ import {
   orderBy,
   getDocs,
   writeBatch
-} from '@/src/lib/firebase';
+} from '../lib/firebase';
 
 const ROLES = [
   { id: 'gerente', label: 'Gerente', icon: ShieldCheck, color: 'text-rose-500', bg: 'bg-rose-50' },

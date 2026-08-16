@@ -42,7 +42,7 @@ import {
   ChevronRight,
   TrendingUp
 } from 'lucide-react';
-import { collection, query, where, onSnapshot, doc } from '@/src/lib/firebase';
+import { collection, query, where, onSnapshot, doc } from '../lib/firebase';
 import { db, getActiveTenantId, setActiveTenantId, useSyncQueue } from '../lib/firebase';
 import { Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

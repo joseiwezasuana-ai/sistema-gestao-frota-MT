@@ -19,7 +19,7 @@ import {
   Image as ImageIcon,
   MessageSquare
 } from 'lucide-react';
-import { collection, setDoc, onSnapshot, query, deleteDoc, doc, getDocs } from '@/src/lib/firebase';
+import { collection, setDoc, onSnapshot, query, deleteDoc, doc, getDocs } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType, auth, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
 
 interface CompanyManagementProps {

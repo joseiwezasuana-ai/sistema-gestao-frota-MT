@@ -28,7 +28,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
-import { collection, query, orderBy, onSnapshot, addDoc, where, limit, doc, updateDoc, writeBatch, serverTimestamp } from '@/src/lib/firebase';
+import { collection, query, orderBy, onSnapshot, addDoc, where, limit, doc, updateDoc, writeBatch, serverTimestamp } from '../lib/firebase';
 import { format } from 'date-fns';
 import RealTimeMap from './RealTimeMap';
 import { WhatsAppMonitor } from './WhatsAppMonitor'; // Added import

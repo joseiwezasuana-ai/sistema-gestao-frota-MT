@@ -36,7 +36,7 @@ import { DriverRevenueAnalysisModal } from './DriverRevenueAnalysisModal';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, where, addDoc, getDocs, deleteDoc, limit } from '@/src/lib/firebase';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, where, addDoc, getDocs, deleteDoc, limit } from '../lib/firebase';
 import { cn } from '../lib/utils';
 
 interface RevenueLog {

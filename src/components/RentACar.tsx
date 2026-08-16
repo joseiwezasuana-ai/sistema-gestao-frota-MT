@@ -18,7 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { addDoc, collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from '@/src/lib/firebase';
+import { addDoc, collection, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import html2canvas from 'html2canvas';

@@ -70,7 +70,7 @@ import {
   Timestamp,
   where,
   doc
-} from '@/src/lib/firebase';
+} from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { smsService } from '../services/smsService';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';

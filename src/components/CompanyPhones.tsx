@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, updateDoc } from '@/src/lib/firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, updateDoc } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 

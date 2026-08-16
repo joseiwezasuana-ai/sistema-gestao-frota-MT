@@ -3,7 +3,7 @@ import { LogIn, Car, User, Key, ArrowRight, Shield, AlertCircle, Loader2, CheckC
 import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithRedirect } from 'firebase/auth';
 import { db, auth, googleProvider, withTimeout, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, setDoc, serverTimestamp, orderBy, getDoc, originalCollection } from '@/src/lib/firebase';
+import { collection, query, where, getDocs, updateDoc, doc, setDoc, serverTimestamp, orderBy, getDoc, originalCollection } from '../lib/firebase';
 import CompanyManagement from './CompanyManagement';
 
 interface LoginProps {

@@ -9,6 +9,8 @@ import { db, getActiveTenantId } from '../lib/firebase';
 import { 
   collection, query, where, onSnapshot, addDoc, serverTimestamp, getDocs, limit, deleteDoc, doc, updateDoc
 } from 'firebase/firestore';
+import { presenceService, UserPresence } from '../services/presenceService';
+import { resolveDriverName, isIdLike } from '../utils/driverResolver';
 
 interface TeamCollaborativeChatProps {
   currentUser: {
@@ -53,7 +55,9 @@ interface TeamMember {
   vehiclePrefix?: string;
   phone?: string;
   photoURL?: string;
-  online?: boolean;
+  online: boolean;
+  lastSeenText?: string;
+  lastSeenIso?: string;
 }
 
 interface MessageRowItemProps {
@@ -398,6 +402,7 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
   }, [isOpen, isEmbedded, currentUserId]);
 
   const [activeTab, setActiveTab] = useState<'general' | 'direct'>('general');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [selectedRecipient, setSelectedRecipient] = useState<TeamMember | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -779,131 +784,172 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
     }
   }, [isOpen]);
 
-  // Load team members strictly from active scheduled drivers (drivers), administrative_staff, and users
+  // Real-time Presence, Drivers, Staff, and Users directory synchronization
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen && !isEmbedded) return;
     setLoadingMembers(true);
 
-    const loadMembers = async () => {
-      try {
-        const membersMap = new Map<string, TeamMember>();
+    let masterDocs: any[] = [];
+    let vehiclesDocs: any[] = [];
+    let staffDocs: any[] = [];
+    let usersDocs: any[] = [];
+    let presenceMap = new Map<string, UserPresence>();
 
-        // 1. Fetch live active/online drivers ONLY via Firestore query filtering
-        try {
-          const activeStatuses = [
-            'available', 'Available', 
-            'ativo', 'Ativo', 
-            'disponível', 'Disponível', 
-            'disponivel', 'Disponivel', 
-            'busy', 'Busy', 
-            'ocupado', 'Ocupado', 
-            'em serviço', 'Em Serviço', 
-            'em servico', 'Em Servico', 
-            'em curso', 'Em Curso'
-          ];
-          
-          const driversQuery = query(
-            collection(db, 'drivers'),
-            where('status', 'in', activeStatuses)
-          );
-          
-          const driversSnap = await getDocs(driversQuery);
-          driversSnap.docs.forEach((docSnap) => {
-            const d = docSnap.data();
-            const dId = d.driverId || docSnap.id;
+    const activeStatusesLower = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em servico', 'em curso'];
 
-            if (dId && dId !== currentUserId) {
-              membersMap.set(dId, {
-                id: dId,
-                name: d.name || 'Motorista',
-                role: 'motorista',
-                vehiclePrefix: d.vehiclePrefix || d.prefix || 'TAX-JIS',
-                phone: d.phone || d.phoneNumber || '',
-                photoURL: d.photoURL || d.photoUrl || d.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${dId}`) || '' : ''),
-                online: true
-              });
-            }
+    const recomputeMembers = () => {
+      const membersMap = new Map<string, TeamMember>();
+      const activeDriverIds = new Set<string>();
+
+      // Active fleet drivers (from drivers collection)
+      vehiclesDocs.forEach((d) => {
+        const dId = d.driverId || d.id;
+        const status = String(d.status || '').toLowerCase();
+        const isFleetActive = d.isOnline === true || d.shiftActive === true || activeStatusesLower.includes(status);
+        if (isFleetActive && dId) {
+          activeDriverIds.add(dId);
+        }
+
+        if (dId && dId !== currentUserId) {
+          const rawName = d.name || d.driverName || dId;
+          const resolvedName = resolveDriverName(rawName, masterDocs, vehiclesDocs, usersDocs);
+          const { isOnline, lastSeenText, lastSeenIso } = presenceService.checkIsOnline(dId, presenceMap, activeDriverIds);
+          const effectiveOnline = isOnline || isFleetActive;
+
+          membersMap.set(dId, {
+            id: dId,
+            name: resolvedName,
+            role: 'motorista',
+            vehiclePrefix: d.vehiclePrefix || d.prefix || 'TAX-JIS',
+            phone: d.phone || d.phoneNumber || '',
+            photoURL: d.photoURL || d.photoUrl || d.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${dId}`) || '' : ''),
+            online: effectiveOnline,
+            lastSeenText: effectiveOnline ? 'Online no Turno' : (lastSeenText || 'Offline'),
+            lastSeenIso
           });
-        } catch (e) {
-          console.warn('Error fetching drivers with Firestore filter:', e);
-          try {
-            const fallbackSnap = await getDocs(collection(db, 'drivers'));
-            fallbackSnap.docs.forEach((docSnap) => {
-              const d = docSnap.data();
-              const dId = d.driverId || docSnap.id;
-              const status = String(d.status || '').toLowerCase();
-              const activeStatusesLower = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em servico', 'em curso'];
-              const isActive = d.isOnline === true || d.shiftActive === true || activeStatusesLower.includes(status);
+        }
+      });
 
-              if (dId && dId !== currentUserId && isActive) {
-                membersMap.set(dId, {
-                  id: dId,
-                  name: d.name || 'Motorista',
-                  role: 'motorista',
-                  vehiclePrefix: d.vehiclePrefix || d.prefix || 'TAX-JIS',
-                  phone: d.phone || d.phoneNumber || '',
-                  photoURL: d.photoURL || d.photoUrl || d.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${dId}`) || '' : ''),
-                  online: true
-                });
-              }
+      // Master Drivers directory (ensures all registered drivers are listed with their clean human name)
+      masterDocs.forEach((m) => {
+        const mId = m.id || m.uid || m.driverId;
+        if (mId && mId !== currentUserId) {
+          const { isOnline, lastSeenText, lastSeenIso } = presenceService.checkIsOnline(mId, presenceMap, activeDriverIds);
+          const existing = membersMap.get(mId);
+          const resolvedName = resolveDriverName(m.name || mId, masterDocs, vehiclesDocs, usersDocs);
+          
+          if (!existing) {
+            membersMap.set(mId, {
+              id: mId,
+              name: resolvedName,
+              role: 'motorista',
+              vehiclePrefix: m.prefix || m.vehiclePrefix || '',
+              phone: m.phone || '',
+              photoURL: m.photoURL || m.photoUrl || m.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${mId}`) || '' : ''),
+              online: isOnline,
+              lastSeenText: isOnline ? 'Online' : (lastSeenText || 'Offline'),
+              lastSeenIso
             });
-          } catch (fallbackErr) {
-            console.error('All driver fetch attempts failed:', fallbackErr);
+          } else if (isIdLike(existing.name) && !isIdLike(resolvedName)) {
+            existing.name = resolvedName;
           }
         }
+      });
 
-        // 2. Fetch administrative staff (Gerente, Operador, Mecânico, Contabilista, Admin)
-        try {
-          const staffSnap = await getDocs(collection(db, 'administrative_staff'));
-          staffSnap.docs.forEach((docSnap) => {
-            const s = docSnap.data();
-            const sId = docSnap.id;
-            if (sId && sId !== currentUserId) {
-              membersMap.set(sId, {
-                id: sId,
-                name: s.name || 'Operador',
-                role: s.role || 'operador',
-                phone: s.phone || '',
-                photoURL: s.photoURL || s.photoUrl || s.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${sId}`) || '' : ''),
-                online: true
-              });
-            }
+      // Administrative Staff (Gerente, Operador, Mecânico, Contabilista, Admin)
+      staffDocs.forEach((s) => {
+        const sId = s.id || s.uid;
+        if (sId && sId !== currentUserId) {
+          const { isOnline, lastSeenText, lastSeenIso } = presenceService.checkIsOnline(sId, presenceMap, activeDriverIds);
+          membersMap.set(sId, {
+            id: sId,
+            name: s.name || 'Colaborador',
+            role: s.role || 'operador',
+            phone: s.phone || '',
+            photoURL: s.photoURL || s.photoUrl || s.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${sId}`) || '' : ''),
+            online: isOnline,
+            lastSeenText: isOnline ? 'Online' : (lastSeenText || 'Offline'),
+            lastSeenIso
           });
-        } catch (e) {
-          console.warn('Error fetching administrative_staff for chat:', e);
         }
+      });
 
-        // 3. Fetch registered platform users
-        try {
-          const usersSnap = await getDocs(collection(db, 'users'));
-          usersSnap.docs.forEach((docSnap) => {
-            const u = docSnap.data();
-            const uId = u.uid || docSnap.id;
-            if (uId && uId !== currentUserId && !membersMap.has(uId)) {
-              membersMap.set(uId, {
-                id: uId,
-                name: u.name || 'Colaborador',
-                role: u.role || 'colaborador',
-                phone: u.phone || '',
-                photoURL: u.photoURL || u.photoUrl || u.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${uId}`) || '' : ''),
-                online: true
-              });
-            }
+      // Platform Registered Users
+      usersDocs.forEach((u) => {
+        const uId = u.uid || u.id;
+        if (uId && uId !== currentUserId && !membersMap.has(uId)) {
+          const resolvedName = (u.role === 'driver' || isIdLike(u.name))
+            ? resolveDriverName(u.name || u.email?.split('@')[0] || uId, masterDocs, vehiclesDocs, usersDocs)
+            : (u.name || u.email?.split('@')[0] || 'Colaborador');
+          const { isOnline, lastSeenText, lastSeenIso } = presenceService.checkIsOnline(uId, presenceMap, activeDriverIds);
+          
+          membersMap.set(uId, {
+            id: uId,
+            name: resolvedName,
+            role: u.role || 'colaborador',
+            phone: u.phone || '',
+            photoURL: u.photoURL || u.photoUrl || u.photo || (typeof localStorage !== 'undefined' ? localStorage.getItem(`jis_avatar_${uId}`) || '' : ''),
+            online: isOnline,
+            lastSeenText: isOnline ? 'Online' : (lastSeenText || 'Offline'),
+            lastSeenIso
           });
-        } catch (e) {
-          console.warn('Error fetching users for chat:', e);
         }
+      });
 
-        setTeamMembers(Array.from(membersMap.values()));
-      } catch (err) {
-        console.warn('Error loading chat team members:', err);
-      } finally {
-        setLoadingMembers(false);
-      }
+      const list = Array.from(membersMap.values());
+      // Sort: Online members first (alphabetical), then Offline members (alphabetical)
+      list.sort((a, b) => {
+        if (a.online && !b.online) return -1;
+        if (!a.online && b.online) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      setTeamMembers(list);
+      setLoadingMembers(false);
+
+      // Keep active direct chat recipient live state synchronized
+      setSelectedRecipient((prev) => {
+        if (!prev) return null;
+        const fresh = list.find((m) => m.id === prev.id);
+        return fresh || prev;
+      });
     };
 
-    if (!isOpen && !isEmbedded) return;
-    loadMembers();
+    const unsubPresence = onSnapshot(collection(db, 'user_presence'), (snap) => {
+      presenceMap = new Map();
+      snap.docs.forEach((d) => {
+        presenceMap.set(d.id, { uid: d.id, ...d.data() } as UserPresence);
+      });
+      recomputeMembers();
+    }, (e) => console.warn('[Chat] Presence sync error:', e));
+
+    const unsubDrivers = onSnapshot(collection(db, 'drivers'), (snap) => {
+      vehiclesDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recomputeMembers();
+    }, (e) => console.warn('[Chat] Drivers sync error:', e));
+
+    const unsubMaster = onSnapshot(collection(db, 'drivers_master'), (snap) => {
+      masterDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recomputeMembers();
+    }, (e) => console.warn('[Chat] Master drivers sync error:', e));
+
+    const unsubStaff = onSnapshot(collection(db, 'administrative_staff'), (snap) => {
+      staffDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recomputeMembers();
+    }, (e) => console.warn('[Chat] Staff sync error:', e));
+
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+      usersDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recomputeMembers();
+    }, (e) => console.warn('[Chat] Users sync error:', e));
+
+    return () => {
+      unsubPresence();
+      unsubDrivers();
+      unsubMaster();
+      unsubStaff();
+      unsubUsers();
+    };
   }, [isOpen, isEmbedded, currentUserId]);
 
   // Listen for messages depending on general channel vs direct chat

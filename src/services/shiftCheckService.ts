@@ -1,5 +1,5 @@
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs } from '@/src/lib/firebase';
+import { collection, query, where, getDocs } from '../lib/firebase';
 import { subDays, format } from 'date-fns';
 
 /**

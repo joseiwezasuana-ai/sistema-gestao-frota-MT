@@ -27,7 +27,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, limit, getDocs, where, writeBatch, updateDoc } from '@/src/lib/firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, limit, getDocs, where, writeBatch, updateDoc } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType, getActiveTenantId } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { geminiService } from '../services/geminiService';

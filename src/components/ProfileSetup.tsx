@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Shield, ArrowRight, Loader2, Key, AlertCircle, ChevronRight, CheckCircle2, ShieldCheck, LogOut, Mail, Building, Plus, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
-import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, orderBy } from '@/src/lib/firebase';
+import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, orderBy } from '../lib/firebase';
 import { db, auth, handleFirestoreError, OperationType, withTimeout, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 

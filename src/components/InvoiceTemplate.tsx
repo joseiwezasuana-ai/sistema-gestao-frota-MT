@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { db, getActiveTenantId } from '../lib/firebase';
-import { doc, onSnapshot } from '@/src/lib/firebase';
+import { doc, onSnapshot } from '../lib/firebase';
 
 interface InvoiceData {
   id: string;
