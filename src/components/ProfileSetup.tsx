@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Shield, ArrowRight, Loader2, Key, AlertCircle, ChevronRight, CheckCircle2, ShieldCheck, LogOut, Mail, Building, Plus, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
-import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, orderBy } from '../lib/firebase';
+import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, orderBy, onSnapshot } from '../lib/firebase';
 import { db, auth, handleFirestoreError, OperationType, withTimeout, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 
@@ -37,21 +37,46 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     window.dispatchEvent(new CustomEvent('jis-request-logout'));
   };
 
-  // Fetch available tenants globally
+  // Fetch available tenants globally with real-time onSnapshot listener
   useEffect(() => {
-    const fetchTenants = async () => {
-      setTenantsLoading(true);
-      try {
-        const snap = await getDocs(collection(db, 'tenants'));
-        const list = snap.docs.map(doc => ({ id: doc.id, name: doc.data().name || doc.id }));
-        setTenantsList(list);
-      } catch (err) {
-        console.error("Error fetching tenants:", err);
-      } finally {
-        setTenantsLoading(false);
+    let isMounted = true;
+    setTenantsLoading(true);
+
+    fetch('/api/companies')
+      .then(res => res.json())
+      .then(data => {
+        if (isMounted && data.success && Array.isArray(data.companies) && data.companies.length > 0) {
+          setTenantsList(data.companies);
+          setTenantsLoading(false);
+        }
+      })
+      .catch(err => console.warn("API companies fetch notice in ProfileSetup:", err));
+
+    const unsub = onSnapshot(collection(db, 'tenants'), (snap) => {
+      if (!isMounted) return;
+      const list: { id: string, name: string }[] = [];
+      if (snap && Array.isArray(snap.docs)) {
+        snap.docs.forEach(docSnap => {
+          const d = docSnap.data();
+          const name = d?.name || d?.companyName || d?.nome || d?.title || (docSnap.id === 'psm' ? 'JIS ANGOLA' : docSnap.id);
+          list.push({ id: docSnap.id, name });
+        });
       }
+      if (!list.some(c => c.id === 'psm')) {
+        list.unshift({ id: 'psm', name: 'JIS ANGOLA' });
+      }
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setTenantsList(list);
+      setTenantsLoading(false);
+    }, (err) => {
+      console.warn("Real-time tenants onSnapshot notice in ProfileSetup:", err);
+      setTenantsLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      unsub();
     };
-    fetchTenants();
   }, []);
 
   // Fetch registered collaborators under selected Tenant (Staff & Drivers)
@@ -65,6 +90,15 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     const fetchCollaborators = async () => {
       setCollaboratorsLoading(true);
       try {
+        const response = await fetch(`/api/auth/collaborators?role=${validationRole}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && Array.isArray(data.collaborators) && data.collaborators.length > 0) {
+            setCollaborators(data.collaborators);
+            return;
+          }
+        }
+
         let results: { id: string, name: string }[] = [];
 
         if (validationRole === 'admin' || validationRole === 'gerente' || validationRole === 'operator' || validationRole === 'contabilista' || validationRole === 'mecanico') {
@@ -537,13 +571,13 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Confirmar Nome Registado</label>
                 <div className="relative group">
                   <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-brand-primary transition-colors pointer-events-none z-10" />
-                  {isAdminEmail ? (
+                  {isAdminEmail || collaborators.length === 0 ? (
                     <input 
                       required
                       type="text"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Introduza o seu Nome Completo de Administrador"
+                      placeholder={isAdminEmail ? "Introduza o seu Nome Completo de Administrador" : "Introduza o seu Nome Completo"}
                       className="w-full pl-11 pr-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-brand-primary transition-all text-sm font-bold"
                     />
                   ) : (
@@ -557,8 +591,6 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
                         <option value="">Selecione o seu nome...</option>
                         {collaboratorsLoading ? (
                           <option disabled>A carregar colaboradores...</option>
-                        ) : collaborators.length === 0 ? (
-                          <option disabled>Nenhum colaborador registado nesta Empresa</option>
                         ) : (
                           collaborators.map(c => (
                             <option key={c.id} value={c.name}>{c.name}</option>

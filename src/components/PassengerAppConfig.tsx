@@ -158,7 +158,7 @@ export default function PassengerAppConfig({ tenantId, tenantName = "SUPER Taxi"
     } catch (err: any) {
       console.error("Erro ao guardar configuração:", err);
       handleFirestoreError(err, OperationType.UPDATE, 'settings/passenger_app');
-      setErrorMsg("Falha ao registar dados no Firestore: " + err.message);
+      setErrorMsg("Falha ao registar dados na Base de dados: " + err.message);
     } finally {
       setSaving(false);
     }

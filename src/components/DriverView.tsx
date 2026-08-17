@@ -931,8 +931,8 @@ export default function DriverView({ user }: DriverViewProps) {
       alert("Por favor selecione um ficheiro de áudio válido (MP3, WAV, OGG, M4A).");
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      alert("O ficheiro de áudio é demasiado grande. O limite máximo é de 8MB.");
+    if (file.size > 4 * 1024 * 1024) {
+      alert("O ficheiro de áudio é demasiado grande. O limite máximo é de 4MB.");
       return;
     }
     const reader = new FileReader();
@@ -985,7 +985,7 @@ export default function DriverView({ user }: DriverViewProps) {
         window.speechSynthesis.cancel();
         const UtteranceClass = (window as any).SpeechSynthesisUtterance;
         if (typeof UtteranceClass === 'function') {
-          const utterance = new UtteranceClass("Atenção motorista: Pedido de Super Táxi em linha! Pedido de Super Táxi em linha!");
+          const utterance = new UtteranceClass("Atenção motorista: Pedido de Super Táxi em linha! Atenção! Pedido de Super Táxi em linha!");
           utterance.lang = "pt-PT";
           utterance.rate = 1.0;
           utterance.pitch = 1.15;
@@ -2539,11 +2539,11 @@ export default function DriverView({ user }: DriverViewProps) {
         driverName: targetDriver.name,
         driverPhone: targetDriver.phone || targetDriver.phoneNumber || '',
         vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || targetDriver.plate || '',
-        vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
+        vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'SUPER TAXI',
         driverInfo: {
           name: targetDriver.name,
           phone: targetDriver.phone || targetDriver.phoneNumber || '',
-          vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
+          vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'SUPER TAXI',
           vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || targetDriver.plate || ''
         },
         status: "pending",
@@ -2628,7 +2628,7 @@ export default function DriverView({ user }: DriverViewProps) {
           driverName: targetDriver.name,
           driverPhone: targetDriver.phone || targetDriver.phoneNumber || '',
           vehiclePlate: targetDriver.vehiclePlate || targetDriver.plate || '',
-          vehicleModel: targetDriver.vehicleModel || targetDriver.model || 'Táxi PSM',
+          vehicleModel: targetDriver.vehicleModel || targetDriver.model || 'SUPER TAXI',
           status: "pending", // Reset status back to pending so that it pops up for the new target driver!
           price: null, // Reset previous suggested price
           isForwarded: true,
@@ -2670,7 +2670,7 @@ export default function DriverView({ user }: DriverViewProps) {
           driverInfo: {
             name: targetDriver.name,
             phone: targetDriver.phone || targetDriver.phoneNumber || '',
-            vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'Táxi PSM',
+            vehicleModel: targetDriver.vehicleModel || targetDriver.brand || 'SUPER TAXI',
             vehiclePlate: targetDriver.vehiclePlate || targetDriver.licensePlate || ''
           },
           status: "pending",
@@ -3234,7 +3234,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
                     <div className="bg-amber-50 border border-amber-200/50 p-3 rounded-xl mb-6 text-left">
                       <p className="text-[9.5px] text-amber-800 leading-normal font-medium">
-                        Ao pressionar o encerramento, o seu estado passará para <b className="text-rose-600">INDISPONÍVEL</b> na rota ativa do Luena e o seu veículo será libertado na central de escalas.
+                        Ao pressionar o encerramento, o seu estado passará para <b className="text-rose-600">INDISPONÍVEL</b> na rota ativa do SUPER TAXI e o seu veículo será libertado na central de escalas.
                       </p>
                     </div>
 
@@ -4082,7 +4082,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       <div className="space-y-4">
                         <div className="bg-[#10b981]/15 p-4 rounded-2xl border border-emerald-500/30 text-center">
                           <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest animate-pulse">VIAGEM DE SUPER TÁXI ATIVA</p>
-                          <p className="text-[9px] text-slate-400 uppercase mt-0.5 font-bold">Conduza com segurança pelas estradas do Luena-Moxico.</p>
+                          <p className="text-[9px] text-slate-400 uppercase mt-0.5 font-bold">Conduza com segurança pelas estradas de ANGOLA.</p>
                         </div>
                         <button
                           onClick={finishService}
@@ -4263,6 +4263,31 @@ export default function DriverView({ user }: DriverViewProps) {
 
 
 
+                {/* Divulgação • App do Passageiro Quick Navigation Card */}
+                <motion.button
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  onClick={() => setIsPassengerApkModalOpen(true)}
+                  className="w-full flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black py-3.5 px-4 rounded-2xl text-[10px] uppercase tracking-wider transition-all shadow-md shadow-emerald-950/20 active:scale-95 text-left border border-emerald-400/30 cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                      <QrCode size={18} className="text-white animate-pulse" />
+                    </div>
+                    <div className="min-w-0 text-left">
+                      <span className="block text-[11px] font-black uppercase text-white tracking-tight truncate">
+                        Divulgação • App do Passageiro
+                      </span>
+                      <span className="block text-[8.5px] font-bold text-emerald-100 uppercase truncate">
+                        QR CODE DO APP PASSAGEIRO & APK
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-white shrink-0">
+                    Abrir QR
+                  </div>
+                </motion.button>
+
                 {/* Reencaminhar Chamada de cliente direta */}
                 {isOnline && (
                   <motion.button
@@ -4439,7 +4464,7 @@ export default function DriverView({ user }: DriverViewProps) {
                         {/* Marca JIS ANGOLA com posicionamento fixo no canto inferior direito */}
                         <div className="fixed bottom-3 right-3 sm:bottom-4 sm:right-4 z-30 pointer-events-none select-none flex items-center">
                           <span className="text-[8.5px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-widest bg-white/85 dark:bg-slate-900/85 backdrop-blur-xs border border-slate-200/80 dark:border-slate-800/80 px-2.5 py-1 rounded-md shadow-xs pointer-events-auto">
-                            JIS ANGOLA
+                            TAXIControl (JIS ANGOLA)
                           </span>
                         </div>
                       </>
@@ -4977,7 +5002,7 @@ export default function DriverView({ user }: DriverViewProps) {
                               {passengerRidesTotal > 0 ? "Acumulado Pendente de Declaração" : "Reiniciado / Em Dia"}
                             </p>
                             <p className="text-[7.5px] text-slate-400 font-medium">
-                              * Corridas pagas com bónus são debitadas automaticamente pelo sistema e não entram no numerário pendente.
+                              * Corridas de bónus são debitadas automaticamente pelo sistema e não entram no numerário pendente.
                             </p>
                           </div>
                         </div>
@@ -5283,7 +5308,7 @@ export default function DriverView({ user }: DriverViewProps) {
                           Carregar Música / Áudio do Dispositivo
                         </h4>
                         <p className="text-[10px] text-slate-300 mt-0.5">
-                          Suporta ficheiros MP3, WAV, OGG ou M4A guardados no seu telemóvel (máx. 8MB).
+                          Suporta ficheiros MP3, WAV, OGG ou M4A guardados no seu telemóvel (máx. 4MB).
                         </p>
                       </div>
                     </div>
@@ -5405,7 +5430,7 @@ export default function DriverView({ user }: DriverViewProps) {
                     <div className="border-t border-dashed border-slate-200 pt-6">
                       <PermissionManager 
                         driverId={user?.uid || "anon-driver"} 
-                        driverName={user?.name || "Motorista Luena"} 
+                        driverName={user?.name || "Motorista"} 
                       />
                     </div>
 
@@ -5455,7 +5480,7 @@ export default function DriverView({ user }: DriverViewProps) {
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-550 block mb-1">Canais Operacionais</span>
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                      <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">Servidor Firebase Live (Ativo)</span>
+                      <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">Servidor Base de dados Live (Ativo)</span>
                     </div>
                   </div>
 
@@ -5581,7 +5606,7 @@ export default function DriverView({ user }: DriverViewProps) {
                           clientName: e.target.value,
                         })
                       }
-                      placeholder="Ex: Dra. Maria Antónia"
+                      placeholder=""
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-brand-primary"
                     />
                   </div>
@@ -5600,7 +5625,7 @@ export default function DriverView({ user }: DriverViewProps) {
                           neighborhood: e.target.value,
                         })
                       }
-                      placeholder="Ex: Benfica, Rua do Comércio"
+                      placeholder=""
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-brand-primary"
                     />
                   </div>
@@ -5863,7 +5888,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
                 <div className="border-t border-slate-100 pt-3 flex-1 flex flex-col min-h-0">
                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-2">
-                    Selecionar Motorista Coop / Moxico
+                    Selecionar Motorista Coop /
                   </span>
                   
                   <div className="overflow-y-auto pr-1 space-y-2 flex-1 max-h-[160px] no-scrollbar">
@@ -5959,7 +5984,7 @@ export default function DriverView({ user }: DriverViewProps) {
                       Delegar Cliente
                     </h3>
                     <p className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
-                      Frota SUPER Táxi / Luena
+                      Frota SUPER Táxi /
                     </p>
                   </div>
                   <button 

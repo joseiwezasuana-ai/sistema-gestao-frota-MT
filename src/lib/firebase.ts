@@ -15,7 +15,8 @@ import {
   updateDoc as originalUpdateDoc,
   deleteDoc as originalDeleteDoc,
   onSnapshot as originalOnSnapshot,
-  getDocFromServer
+  getDocFromServer,
+  getDocs
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -60,7 +61,18 @@ export const db = app ? initializeFirestore(app, {
 
 // --- MULTI-TENANT CONFIGURATION AND WRAPPERS ---
 let activeTenantId: string | null = null;
-const GLOBAL_COLLECTIONS = ['users', 'tenants', 'passengers', 'passenger_profiles', 'passenger_ratings'];
+const GLOBAL_COLLECTIONS = [
+  'users',
+  'admins',
+  'tenants',
+  'settings',
+  'taxi_requests',
+  'passengers',
+  'passenger_profiles',
+  'passenger_ratings',
+  'system_backups',
+  'system_error_logs'
+];
 
 export function getActiveTenantId(): string {
   if (activeTenantId) return activeTenantId;
@@ -584,6 +596,106 @@ export async function deleteDoc(reference: any) {
     }
     throw err;
   }
+}
+
+// Helper to retrieve staff/collaborators filtered strictly by tenantId
+export async function getStaffByTenant(tenantId?: string, role?: string | null): Promise<{ id: string, name: string, role?: string, type?: string, tenantId: string }[]> {
+  const targetTenant = (tenantId && tenantId.trim() && tenantId !== 'undefined' && tenantId !== 'null') 
+    ? tenantId.trim() 
+    : (getActiveTenantId() || 'psm');
+
+  console.log(`[getStaffByTenant] Diagnóstico: A carregar colaboradores estritamente para tenantId="${targetTenant}", cargo="${role || 'todos'}"`);
+
+  try {
+    const roleParam = role ? `&role=${encodeURIComponent(role)}` : '';
+    const response = await fetch(`/api/auth/collaborators?tenantId=${encodeURIComponent(targetTenant)}${roleParam}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && Array.isArray(data.collaborators)) {
+        console.log(`[getStaffByTenant] Sucesso via API: ${data.collaborators.length} colaboradores encontrados para tenantId="${targetTenant}"`);
+        return data.collaborators;
+      }
+    }
+  } catch (err) {
+    console.warn(`[getStaffByTenant] Aviso ao contactar endpoint de colaboradores:`, err);
+  }
+
+  // Client-side fallback if API not reachable
+  const resultsMap = new Map<string, { id: string, name: string, role?: string, type?: string, tenantId: string }>();
+
+  const addDoc = (docSnap: any, defaultType: string, defaultRole: string) => {
+    const d = docSnap.data ? docSnap.data() : docSnap;
+    if (!d) return;
+    const nameVal = d.name || d.nome || d.fullName || d.nomeCompleto || d.displayName;
+    if (nameVal && typeof nameVal === 'string' && nameVal.trim().length > 0) {
+      const docTenant = d.tenantId || d.tenant || 'psm';
+      if (docTenant === targetTenant) {
+        const key = nameVal.trim().toUpperCase();
+        if (!resultsMap.has(key)) {
+          resultsMap.set(key, {
+            id: docSnap.id || key,
+            name: nameVal.trim(),
+            role: d.role || defaultRole,
+            type: d.type || (d.role === 'driver' || defaultType === 'Motorista' ? 'Motorista' : defaultType),
+            tenantId: docTenant
+          });
+        }
+      }
+    }
+  };
+
+  try {
+    // 1. Check tenant subcollections
+    try {
+      const staffSnap = await withTimeout(getDocs(originalCollection(db, 'tenants', targetTenant, 'administrative_staff')), 4000);
+      staffSnap?.docs?.forEach(doc => addDoc(doc, 'Administrativo', 'operator'));
+    } catch (e) {}
+
+    try {
+      const driverMasterSnap = await withTimeout(getDocs(originalCollection(db, 'tenants', targetTenant, 'drivers_master')), 4000);
+      driverMasterSnap?.docs?.forEach(doc => addDoc(doc, 'Motorista', 'driver'));
+    } catch (e) {}
+
+    try {
+      const driverSnap = await withTimeout(getDocs(originalCollection(db, 'tenants', targetTenant, 'drivers')), 4000);
+      driverSnap?.docs?.forEach(doc => addDoc(doc, 'Motorista', 'driver'));
+    } catch (e) {}
+
+    // 2. Root collections matching tenantId
+    try {
+      const rootStaffSnap = await withTimeout(getDocs(originalCollection(db, 'administrative_staff')), 4000);
+      rootStaffSnap?.docs?.forEach(doc => addDoc(doc, 'Administrativo', 'operator'));
+    } catch (e) {}
+
+    try {
+      const rootDriversMasterSnap = await withTimeout(getDocs(originalCollection(db, 'drivers_master')), 4000);
+      rootDriversMasterSnap?.docs?.forEach(doc => addDoc(doc, 'Motorista', 'driver'));
+    } catch (e) {}
+
+    try {
+      const rootDriversSnap = await withTimeout(getDocs(originalCollection(db, 'drivers')), 4000);
+      rootDriversSnap?.docs?.forEach(doc => addDoc(doc, 'Motorista', 'driver'));
+    } catch (e) {}
+
+    // 3. Root users collection matching tenantId
+    try {
+      const usersSnap = await withTimeout(getDocs(originalCollection(db, 'users')), 4000);
+      usersSnap?.docs?.forEach(doc => addDoc(doc, doc.data()?.role === 'driver' ? 'Motorista' : 'Administrativo', doc.data()?.role || 'operator'));
+    } catch (e) {}
+  } catch (err) {
+    console.error(`[getStaffByTenant] Erro ao consultar Firestore cliente:`, err);
+  }
+
+  let list = Array.from(resultsMap.values());
+  if (role === 'driver') {
+    list = list.filter(c => c.type === 'Motorista' || c.role === 'driver');
+  } else if (role && role !== 'all') {
+    list = list.filter(c => c.type === 'Administrativo' || (c.role !== 'driver' && c.type !== 'Motorista'));
+  }
+
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  console.log(`[getStaffByTenant] Diagnóstico Concluído: ${list.length} colaboradores filtrados para tenantId="${targetTenant}"`);
+  return list;
 }
 
 // Inicia sincronização automática ao carregar se online

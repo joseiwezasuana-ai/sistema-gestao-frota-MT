@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { LogIn, Car, User, Key, ArrowRight, Shield, AlertCircle, Loader2, CheckCircle2, ShieldCheck, ChevronRight, ChevronDown, ChevronUp, MessageSquare, MoreVertical, X, Globe, Lock, Building, Building2, HelpCircle, QrCode, Copy, Check, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signInWithRedirect } from 'firebase/auth';
-import { db, auth, googleProvider, withTimeout, getActiveTenantId, setActiveTenantId } from '../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, setDoc, serverTimestamp, orderBy, getDoc, originalCollection } from '../lib/firebase';
-import CompanyManagement from './CompanyManagement';
+import { db, auth, googleProvider, withTimeout, getActiveTenantId, setActiveTenantId, getStaffByTenant } from '../lib/firebase';
+import { collection, query, where, getDocs, updateDoc, doc, setDoc, serverTimestamp, orderBy, getDoc, originalCollection, onSnapshot } from '../lib/firebase';
+
+const CompanyManagement = React.lazy(() => import('./CompanyManagement'));
 
 interface LoginProps {
   onGoogleLogin: () => void | Promise<any>;
@@ -23,13 +24,13 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showPopupTip, setShowPopupTip] = useState(false);
-  const [collaborators, setCollaborators] = useState<{ id: string, name: string }[]>([]);
+  const [collaborators, setCollaborators] = useState<{ id: string, name: string, type?: string }[]>([]);
   const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
   const [isCodeValidated, setIsCodeValidated] = useState(false);
   const [isValidatingCode, setIsValidatingCode] = useState(false);
   const [validationRole, setValidationRole] = useState<string | null>(null);
+  const [validatedCodeInfo, setValidatedCodeInfo] = useState<{ assignedName?: string, targetName?: string, name?: string, assignedId?: string, tenantId?: string } | null>(null);
   const [whatsAppLink, setWhatsAppLink] = useState('');
-  const [isManualName, setIsManualName] = useState(false);
   const [companies, setCompanies] = useState<{ id: string, name: string }[]>([
     { id: 'psm', name: 'JIS ANGOLA' }
   ]);
@@ -41,6 +42,18 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     }
     return active;
   });
+
+  const handleTenantChange = (tenantId: string) => {
+    setSelectedTenant(tenantId);
+    setActiveTenantId(tenantId);
+    console.log(`[Login] Tenant selecionado e injetado no estado global e localStorage: "${tenantId}"`);
+  };
+
+  useEffect(() => {
+    if (selectedTenant) {
+      setActiveTenantId(selectedTenant);
+    }
+  }, [selectedTenant]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   
@@ -52,42 +65,77 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
   const [masterError, setMasterError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchCompanies = async () => {
-      setCompaniesLoading(true);
-      try {
-        const snap = await getDocs(collection(db, 'tenants'));
-        const list: { id: string, name: string }[] = [];
-        if (snap && typeof snap.forEach === 'function') {
-          snap.forEach(docSnap => {
-            list.push({ id: docSnap.id, name: docSnap.data()?.name || docSnap.id });
-          });
-        } else if (snap && Array.isArray(snap.docs)) {
-          snap.docs.forEach(docSnap => {
-            list.push({ id: docSnap.id, name: docSnap.data()?.name || docSnap.id });
-          });
+    let isMounted = true;
+    setCompaniesLoading(true);
+
+    const currentTenantInState = selectedTenant || getActiveTenantId() || 'psm';
+    console.log(`[Login] [Diagnóstico Tenant] A carregar lista de filiais/companhias. tenantId no estado local: "${selectedTenant}", getActiveTenantId(): "${getActiveTenantId()}" -> Ativo: "${currentTenantInState}"`);
+
+    // 1. Initial fast fetch from backend API endpoint
+    fetch('/api/companies')
+      .then(res => res.json())
+      .then(data => {
+        if (!isMounted) return;
+        if (data.success && Array.isArray(data.companies) && data.companies.length > 0) {
+          console.log(`[Login] [Diagnóstico Tenant] Filiais obtidas via API (${data.companies.length} companhias):`, data.companies.map((c: any) => c.id));
+          setCompanies(data.companies);
+          setCompaniesLoading(false);
         }
-        if (!list.some(c => c.id === 'psm')) {
-          list.unshift({ 
-            id: 'psm', 
-            name: 'JIS ANGOLA'
+      })
+      .catch(err => console.warn("Initial API companies fetch notice:", err));
+
+    // 2. Real-time live listener from Firestore 'tenants' collection
+    const unsub = onSnapshot(collection(db, 'tenants'), (snap) => {
+      if (!isMounted) return;
+      const list: { id: string, name: string, phone?: string, province?: string }[] = [];
+      if (snap && Array.isArray(snap.docs)) {
+        snap.docs.forEach(docSnap => {
+          const d = docSnap.data();
+          const compName = d?.name || d?.companyName || d?.nome || d?.title || (docSnap.id === 'psm' ? 'JIS ANGOLA' : docSnap.id);
+          list.push({ 
+            id: docSnap.id, 
+            name: compName,
+            phone: d?.phone || '',
+            province: d?.province || ''
           });
-        }
-        setCompanies(list);
-      } catch (err) {
-        console.error("Error fetching companies in Login:", err);
-        // Robust fallback: keep PSM even on Firestore rules blocking direct search
-        setCompanies(prev => {
-          if (!prev.some(c => c.id === 'psm')) {
-            return [{ id: 'psm', name: 'JIS ANGOLA' }, ...prev];
-          }
-          return prev;
         });
-      } finally {
-        setCompaniesLoading(false);
       }
+
+      if (!list.some(c => c.id === 'psm')) {
+        list.unshift({ 
+          id: 'psm', 
+          name: 'JIS ANGOLA'
+        });
+      }
+
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      console.log(`[Login] [Diagnóstico Tenant] Snapshot de 'tenants' (Firestore) carregou ${list.length} filiais. IDs:`, list.map(c => c.id));
+      setCompanies(list);
+      setCompaniesLoading(false);
+    }, async (err) => {
+      console.warn("Real-time tenants onSnapshot notice:", err);
+      // Fallback: one-time getDocs or API
+      try {
+        const response = await fetch('/api/companies');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && Array.isArray(data.companies) && data.companies.length > 0) {
+            console.log(`[Login] [Diagnóstico Tenant] Fallback API carregou ${data.companies.length} filiais.`);
+            if (isMounted) setCompanies(data.companies);
+          }
+        }
+      } catch (apiErr) {
+        console.error("Fallback error fetching companies:", apiErr);
+      } finally {
+        if (isMounted) setCompaniesLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsub();
     };
-    fetchCompanies();
-  }, []);
+  }, [selectedTenant]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -202,9 +250,8 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     }
   };
 
-  // Fetch registered collaborators (Staff & Drivers)
+  // Fetch registered collaborators (Staff & Drivers) strictly by active tenantId
   useEffect(() => {
-    // Strictly only fetch if validated
     if (!isCodeValidated || !validationRole) {
       setCollaborators([]);
       return;
@@ -213,59 +260,37 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     const fetchCollaborators = async () => {
       setCollaboratorsLoading(true);
       try {
-        let results: { id: string, name: string }[] = [];
+        const activeT = selectedTenant || getActiveTenantId() || 'psm';
+        console.log(`[Login] [Diagnóstico Staff] A invocar getStaffByTenant. tenantId: "${activeT}", cargo: "${validationRole}"`);
+        let staffList = await getStaffByTenant(activeT, validationRole);
 
-        if (validationRole === 'admin' || validationRole === 'gerente' || validationRole === 'manager' || validationRole === 'operator' || validationRole === 'contabilista' || validationRole === 'mecanico') {
-          const staffQuery = query(
-            collection(db, 'administrative_staff'), 
-            where('status', '==', 'Ativo')
-          );
-          const staffSnap = await withTimeout(getDocs(staffQuery));
-          const staffDocs = staffSnap?.docs || [];
-          results = staffDocs
-            .filter(doc => doc.data()?.name)
-            .map(doc => ({ id: doc.id, name: doc.data().name }));
-        } else if (validationRole === 'driver') {
-          const driversQuery = query(
-            collection(db, 'drivers_master'), 
-            where('status', '==', 'Ativo')
-          );
-          const driversSnap = await withTimeout(getDocs(driversQuery));
-          const driverDocs = driversSnap?.docs || [];
-          results = driverDocs
-            .filter(doc => doc.data()?.name)
-            .map(doc => ({ id: doc.id, name: doc.data().name }));
+        // Fallback: If activation code explicitly assigned a target name, ensure that name exists in the list
+        const extraName = validatedCodeInfo?.targetName || validatedCodeInfo?.assignedName || validatedCodeInfo?.name;
+        if (extraName && typeof extraName === 'string' && extraName.trim()) {
+          const trimmed = extraName.trim();
+          const exists = staffList.some(c => c.name.toLowerCase() === trimmed.toLowerCase());
+          if (!exists) {
+            staffList = [{
+              id: validatedCodeInfo?.assignedId || 'code-assigned-user',
+              name: trimmed,
+              type: validationRole === 'driver' ? 'Motorista' : 'Administrativo',
+              tenantId: activeT
+            }, ...staffList];
+          }
         }
-        
-        results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        setCollaborators(results);
+
+        console.log(`[Login] [Diagnóstico Staff] ${staffList.length} colaboradores carregados para tenantId "${activeT}"`);
+        setCollaborators(staffList);
       } catch (err) {
-        console.error("Error fetching collaborators, loading fallback staff/drivers:", err);
-        // Supply rich, friendly fallbacks for Jose Iweza Suana and team so they can proceed
-        if (validationRole === 'admin' || validationRole === 'gerente' || validationRole === 'manager' || validationRole === 'operator' || validationRole === 'contabilista' || validationRole === 'mecanico') {
-          setCollaborators([
-            { id: "fallback-jos", name: "José Iweza Suana (Admin)" },
-            { id: "fallback-ant", name: "António Moreira" },
-            { id: "fallback-sof", name: "Sofia Moreira" },
-            { id: "fallback-fil", name: "Filipe Moreira" },
-            { id: "fallback-lui", name: "Luísa Santos" }
-          ]);
-        } else if (validationRole === 'driver') {
-          setCollaborators([
-            { id: "fallback-carl", name: "Carlos Silva" },
-            { id: "fallback-man", name: "Manuel Neto" },
-            { id: "fallback-du", name: "Duarte Francisco" },
-            { id: "fallback-jo", name: "João Sousa" },
-            { id: "fallback-pa", name: "Paulo Jorge" }
-          ]);
-        }
+        console.error("Erro ao procurar colaboradores:", err);
+        setCollaborators([]);
       } finally {
         setCollaboratorsLoading(false);
       }
     };
 
     fetchCollaborators();
-  }, [loginMethod, isCodeValidated, validationRole]);
+  }, [loginMethod, isCodeValidated, validationRole, selectedTenant]);
 
   const handleUnlockMaster = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -380,40 +405,19 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
 
       let foundCodeDoc: any = null;
       let foundCodeData: any = null;
-      let targetTenantId = selectedTenant || 'psm';
+      let targetTenantId = 'psm';
 
-      // 1. Check in currently selected tenant's collection
-      try {
-        const q = query(
-          collection(db, 'access_codes'), 
-          where('code', '==', finalCode)
-        );
-        const querySnapshot = await withTimeout(getDocs(q));
-
-        if (querySnapshot && !querySnapshot.empty && Array.isArray(querySnapshot.docs) && querySnapshot.docs.length > 0) {
-          foundCodeDoc = querySnapshot.docs[0];
-          foundCodeData = foundCodeDoc.data();
-        }
-      } catch (errQ) {
-        console.warn("Primary access_codes query failed, trying alternatives:", errQ);
-      }
-
-      // 2. Search across all registered tenant collections if not found yet
-      if (!foundCodeDoc && companies && Array.isArray(companies)) {
+      // 1. Search across all registered tenant collections
+      if (companies && Array.isArray(companies)) {
         for (const comp of companies) {
-          if (comp.id === selectedTenant) continue;
           try {
-            const specificColl = collection(db, 'tenants', comp.id, 'access_codes');
+            const specificColl = originalCollection(db, 'tenants', comp.id, 'access_codes');
             const specificQ = query(specificColl, where('code', '==', finalCode));
             const specSnap = await withTimeout(getDocs(specificQ));
             if (specSnap && !specSnap.empty && Array.isArray(specSnap.docs) && specSnap.docs.length > 0) {
               foundCodeDoc = specSnap.docs[0];
               foundCodeData = foundCodeDoc.data();
               targetTenantId = comp.id;
-              
-              // Automatically switch state and localStorage to this tenant
-              setSelectedTenant(comp.id);
-              setActiveTenantId(comp.id);
               break;
             }
           } catch (tenantSearchErr) {
@@ -422,7 +426,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         }
       }
 
-      // 3. Search root global access_codes collection as ultimate fallback
+      // 2. Search root global access_codes collection as ultimate fallback
       if (!foundCodeDoc) {
         try {
           const rootColl = originalCollection(db, 'access_codes');
@@ -431,6 +435,9 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
           if (rootSnap && !rootSnap.empty && Array.isArray(rootSnap.docs) && rootSnap.docs.length > 0) {
             foundCodeDoc = rootSnap.docs[0];
             foundCodeData = foundCodeDoc.data();
+            if (foundCodeData.tenantId || foundCodeData.tenant) {
+              targetTenantId = foundCodeData.tenantId || foundCodeData.tenant;
+            }
           }
         } catch (rootErr) {
           console.warn("Root access_codes search error:", rootErr);
@@ -445,6 +452,14 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         throw new Error("Este código de ativação já foi utilizado por outro colaborador.");
       }
 
+      // Extract tenantId if stored in access_code doc
+      if (foundCodeData.tenantId || foundCodeData.tenant) {
+        targetTenantId = foundCodeData.tenantId || foundCodeData.tenant;
+      }
+
+      setSelectedTenant(targetTenantId);
+      setActiveTenantId(targetTenantId);
+
       // Check case-insensitive assignedId matching (if set)
       if (foundCodeData.assignedId && foundCodeData.assignedId.trim()) {
         const expectedId = foundCodeData.assignedId.trim().toUpperCase();
@@ -455,9 +470,14 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
       }
 
       const role = foundCodeData.role || 'driver';
+      setValidatedCodeInfo(foundCodeData);
       setValidationRole(role);
       setIsCodeValidated(true);
-      setSuccess(`Código validado com sucesso para a empresa ${companies.find(c => c.id === targetTenantId)?.name || targetTenantId}! Selecione agora o seu nome.`);
+      if (foundCodeData.targetName || foundCodeData.assignedName || foundCodeData.name) {
+        setName(foundCodeData.targetName || foundCodeData.assignedName || foundCodeData.name);
+      }
+      const activeCompName = companies.find(c => c.id === targetTenantId)?.name || (targetTenantId === 'psm' ? 'JIS ANGOLA' : targetTenantId);
+      setSuccess(`Código validado com sucesso para a empresa ${activeCompName}! Selecione o seu nome.`);
     } catch (err: any) {
       console.error("Verification error:", err);
       setError(err.message || "Erro ao verificar dados de acesso.");
@@ -473,152 +493,102 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
     setSuccess(null);
 
     try {
-      if (password.length < 6) throw new Error("A senha deve ter pelo menos 6 caracteres.");
+      if (password.length < 6) throw new Error("A palavra-passe deve ter pelo menos 6 caracteres.");
       if (!id.trim() || !code.trim()) throw new Error("ID e Código são obrigatórios.");
-      if (!name.trim()) throw new Error("Por favor, selecione ou escreva o seu nome.");
+      if (!name.trim()) throw new Error("Por favor, selecione o seu nome na lista de colaboradores registados.");
 
       const sanitizedId = id.trim().toLowerCase().replace(/\s+/g, '-');
       const email = id.includes('@') ? id.trim().toLowerCase() : `${sanitizedId}@taxicontrol.ao`;
 
-      const normalizedCode = code.trim().toUpperCase().replace(/\s+/g, '');
-      const finalCode = (normalizedCode.length === 8 && !normalizedCode.includes('-')) 
-        ? `${normalizedCode.substring(0, 4)}-${normalizedCode.substring(4)}`
-        : normalizedCode;
-
-      // 1. Validate Access Code (Double check for security with multi-source fallback)
-      let foundCodeDoc: any = null;
-      let foundCodeData: any = null;
-
+      let successData = null;
       try {
-        const q = query(
-          collection(db, 'access_codes'), 
-          where('code', '==', finalCode)
-        );
-        const querySnapshot = await withTimeout(getDocs(q));
+        const response = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id,
+            code,
+            name,
+            password,
+            tenantId: selectedTenant || 'psm'
+          })
+        });
 
-        if (querySnapshot && !querySnapshot.empty && Array.isArray(querySnapshot.docs) && querySnapshot.docs.length > 0) {
-          foundCodeDoc = querySnapshot.docs[0];
-          foundCodeData = foundCodeDoc.data();
-        }
-      } catch (qErr) {
-        console.warn("Primary access_codes lookup error in register:", qErr);
-      }
-
-      // Check other tenants if not found in active tenant
-      if (!foundCodeDoc && companies && Array.isArray(companies)) {
-        for (const comp of companies) {
-          if (comp.id === selectedTenant) continue;
-          try {
-            const specificColl = collection(db, 'tenants', comp.id, 'access_codes');
-            const specificQ = query(specificColl, where('code', '==', finalCode));
-            const specSnap = await withTimeout(getDocs(specificQ));
-            if (specSnap && !specSnap.empty && Array.isArray(specSnap.docs) && specSnap.docs.length > 0) {
-              foundCodeDoc = specSnap.docs[0];
-              foundCodeData = foundCodeDoc.data();
-              setSelectedTenant(comp.id);
-              setActiveTenantId(comp.id);
-              break;
-            }
-          } catch (tenantErr) {
-            console.warn(`Could not lookup code in tenant ${comp.id}:`, tenantErr);
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const resData = await response.json();
+          if (response.ok) {
+            successData = resData;
+          } else {
+            throw new Error(resData.error || "Erro ao processar registo.");
           }
-        }
-      }
-
-      // Check root access_codes collection as fallback
-      if (!foundCodeDoc) {
-        try {
-          const rootColl = originalCollection(db, 'access_codes');
-          const rootQ = query(rootColl, where('code', '==', finalCode));
-          const rootSnap = await withTimeout(getDocs(rootQ));
-          if (rootSnap && !rootSnap.empty && Array.isArray(rootSnap.docs) && rootSnap.docs.length > 0) {
-            foundCodeDoc = rootSnap.docs[0];
-            foundCodeData = rootSnap.docs[0].data();
-          }
-        } catch (rootErr) {
-          console.warn("Root access_codes lookup error in register:", rootErr);
-        }
-      }
-
-      if (!foundCodeDoc || !foundCodeData) {
-        throw new Error("Código de ativação inválido ou não encontrado.");
-      }
-
-      const codeDoc = foundCodeDoc;
-      const codeData = foundCodeData;
-
-      if (codeData.used) {
-        throw new Error("Este código de ativação já foi utilizado por outro colaborador.");
-      }
-
-      // Check case-insensitive assignedId matching (if set)
-      if (codeData.assignedId && codeData.assignedId.trim()) {
-        const expectedId = codeData.assignedId.trim().toUpperCase();
-        const inputId = id.trim().toUpperCase();
-        if (expectedId !== inputId) {
-          throw new Error("O ID fornecido não corresponde ao ID autorizado para este código.");
-        }
-      }
-
-      // Check if a local user or general user with this ID exists
-      const localUid = `local_${sanitizedId}`;
-      const existingUser = await getDoc(doc(db, 'users', localUid));
-      if (existingUser.exists()) {
-        throw new Error("Este ID já está registado no sistema.");
-      }
-
-      try {
-        // 2. Create Auth Account in Firebase Auth (Secure hash managed by Firebase Auth)
-        const userCredential = await withTimeout(createUserWithEmailAndPassword(auth, email, password), 15000); // 15s for auth
-        const user = userCredential.user;
-
-        // 3. Update Profile & Sync Firestore (Without sensitive password stored)
-        await updateProfile(user, { displayName: name });
-        
-        await withTimeout(setDoc(doc(db, 'users', user.uid), {
-          uid: user.uid,
-          name: name,
-          email: email.toLowerCase(),
-          role: codeData.role || 'driver',
-          tenantId: selectedTenant || 'psm',
-          createdAt: serverTimestamp(),
-          syncedAt: serverTimestamp()
-        }));
-
-        // 4. Mark code as used
-        if (codeDoc.ref) {
-          await withTimeout(updateDoc(codeDoc.ref, {
-            used: true,
-            usedBy: user.uid,
-            usedAt: serverTimestamp()
-          })).catch(async () => {
-            await updateDoc(doc(db, 'access_codes', codeDoc.id), {
-              used: true,
-              usedBy: user.uid,
-              usedAt: serverTimestamp()
-            });
-          });
-        }
-
-        setSuccess('Conta ativada com sucesso! Já pode navegar no painel.');
-      } catch (authErr: any) {
-        console.warn("Standard Auth register failed or is disabled. Using hybrid local registration fallback.", authErr);
-        
-        const isEmailInUse = authErr.code === 'auth/email-already-in-use' || authErr.message?.includes('email-already-in-use');
-        
-        if (isEmailInUse) {
-          throw authErr;
         } else {
-          // Use hybrid local activation fallback for standard authentication issues (without saving password to Firestore)
-          await RichmondLocalRegister(sanitizedId, email, name, codeData.role || 'driver', codeDoc.id, codeDoc.ref);
+          throw new Error("Servidor indisponível ou resposta inválida.");
         }
+      } catch (serverErr: any) {
+        console.warn("[Register] Server API registration failed, falling back to client-side Firebase Auth:", serverErr.message);
+
+        // Fallback: Create account directly using Firebase Client Auth (Exclusive Auth management, NO plaintext password in Firestore)
+        let userCred;
+        try {
+          userCred = await createUserWithEmailAndPassword(auth, email, password);
+        } catch (authClientErr: any) {
+          if (authClientErr.code === 'auth/email-already-in-use') {
+            throw new Error("Este ID já está registado no sistema. Inicie sessão.");
+          }
+          throw authClientErr;
+        }
+
+        const uid = userCred.user.uid;
+        const resolvedTenant = selectedTenant || getActiveTenantId() || 'psm';
+
+        try {
+          const codeClean = code.trim().toUpperCase().replace(/\s+/g, '');
+          const finalCode = (codeClean.length === 8 && !codeClean.includes('-')) 
+            ? `${codeClean.substring(0, 4)}-${codeClean.substring(4)}`
+            : codeClean;
+
+          await setDoc(doc(db, 'tenants', resolvedTenant, 'access_codes', finalCode), {
+            used: true,
+            usedBy: uid,
+            usedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
+
+          await setDoc(doc(db, 'access_codes', finalCode), {
+            used: true,
+            usedBy: uid,
+            usedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
+
+          await setDoc(doc(db, 'users', uid), {
+            uid,
+            email,
+            name,
+            role: validationRole || 'driver',
+            tenantId: resolvedTenant,
+            createdAt: new Date().toISOString()
+          });
+        } catch (dbFallbackErr) {
+          console.warn("[Register] Client fallback profile save warning:", dbFallbackErr);
+        }
+
+        successData = { success: true, uid, email, tenantId: resolvedTenant };
       }
+
+      if (successData?.tenantId) {
+        setActiveTenantId(successData.tenantId);
+        setSelectedTenant(successData.tenantId);
+      }
+
+      // Automatically sign in the new account using email and password
+      await signInWithEmailAndPassword(auth, email, password);
+      setSuccess('Conta ativada com sucesso! A iniciar sessão...');
     } catch (err: any) {
       console.error("Register error:", err);
-      if (err.code === 'auth/email-already-in-use') {
-        setError("Este ID já está registado no sistema.");
+      if (err.message?.includes('auth/email-already-in-use') || err.message?.includes('já está em uso') || err.message?.includes('registado')) {
+        setError("Este ID já está registado no sistema. Se já ativou a sua conta, inicie sessão.");
       } else {
-        setError(err.message);
+        setError(err.message || "Falha ao ativar conta.");
       }
     } finally {
       setLoading(false);
@@ -719,55 +689,118 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         const uRef = doc(db, 'users', userCred.user.uid);
         const uSnap = await getDoc(uRef).catch(() => null);
 
-        // Check if this user is a registered staff member in administrative_staff
+        const userEmail = usedEmail.toLowerCase();
+        const isDriverId = userEmail.startsWith('tx-') || userEmail.startsWith('mot-') || rawId.toUpperCase().startsWith('MOT') || rawId.toUpperCase().startsWith('TX') || rawId.toUpperCase().startsWith('MOTORISTA');
+
         let staffRole: string | null = null;
         let staffName: string | null = null;
+        let staffTenantId: string | null = null;
 
-        try {
-          const staffQ = query(collection(db, 'administrative_staff'), where('email', '==', usedEmail.toLowerCase()));
-          const staffSnap = await getDocs(staffQ);
-          if (staffSnap && !staffSnap.empty && Array.isArray(staffSnap.docs) && staffSnap.docs.length > 0) {
-            const sData = staffSnap.docs[0].data();
-            staffRole = sData?.role || 'gerente';
-            staffName = sData?.name || null;
-          } else {
-            // Try searching by name or ID
-            const staffByNameQ = query(collection(db, 'administrative_staff'), where('name', '==', rawId));
-            const staffByNameSnap = await getDocs(staffByNameQ);
-            if (staffByNameSnap && !staffByNameSnap.empty && Array.isArray(staffByNameSnap.docs) && staffByNameSnap.docs.length > 0) {
-              const sData = staffByNameSnap.docs[0].data();
-              staffRole = sData?.role || 'gerente';
-              staffName = sData?.name || null;
+        // Only do staff lookup if NOT a driver ID
+        if (!isDriverId) {
+          try {
+            if (companies && Array.isArray(companies)) {
+              // 1. Search by email in all tenant-specific administrative_staff collections
+              for (const comp of companies) {
+                try {
+                  const specificColl = originalCollection(db, 'tenants', comp.id, 'administrative_staff');
+                  const specificQ = query(specificColl, where('email', '==', userEmail));
+                  const specSnap = await getDocs(specificQ);
+                  if (specSnap && !specSnap.empty && Array.isArray(specSnap.docs) && specSnap.docs.length > 0) {
+                    const sData = specSnap.docs[0].data();
+                    staffRole = sData?.role || 'gerente';
+                    staffName = sData?.name || null;
+                    staffTenantId = comp.id;
+                    break;
+                  }
+                } catch (e) {
+                  console.warn(`Error searching staff by email in tenant ${comp.id}:`, e);
+                }
+              }
+
+              // 2. Search by name in all tenant-specific administrative_staff collections
+              if (!staffRole) {
+                for (const comp of companies) {
+                  try {
+                    const specificColl = originalCollection(db, 'tenants', comp.id, 'administrative_staff');
+                    const specificQ = query(specificColl, where('name', '==', rawId));
+                    const specSnap = await getDocs(specificQ);
+                    if (specSnap && !specSnap.empty && Array.isArray(specSnap.docs) && specSnap.docs.length > 0) {
+                      const sData = specSnap.docs[0].data();
+                      staffRole = sData?.role || 'gerente';
+                      staffName = sData?.name || null;
+                      staffTenantId = comp.id;
+                      break;
+                    }
+                  } catch (e) {
+                    console.warn(`Error searching staff by name in tenant ${comp.id}:`, e);
+                  }
+                }
+              }
             }
+          } catch (staffErr) {
+            console.warn("Staff lookup on login error:", staffErr);
           }
-        } catch (staffErr) {
-          console.warn("Staff lookup on login error:", staffErr);
         }
 
-        const userEmail = usedEmail.toLowerCase();
-        const isMaster = userEmail === 'joseiwezasuana@gmail.com';
-        const isExplicitAdmin = isMaster || userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager');
-        const isExplicitOp = userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator');
-        const isExplicitMec = userEmail.includes('mecanico') || userEmail.includes('mechanic');
-        const isExplicitFin = userEmail.includes('contabilista') || userEmail.includes('finance');
+        // Derive resolvedTenant dynamically without manual selection
+        let resolvedTenant = 'psm'; // Default fallback
+        if (uSnap && uSnap.exists()) {
+          const profileData = uSnap.data();
+          if (profileData?.tenantId) {
+            resolvedTenant = profileData.tenantId;
+          }
+        } else if (staffTenantId) {
+          resolvedTenant = staffTenantId;
+        } else {
+          // Fallback pattern matching on the entered collaborator ID prefix
+          const upperId = rawId.toUpperCase();
+          if (companies && Array.isArray(companies)) {
+            for (const comp of companies) {
+              const compUpper = comp.id.toUpperCase();
+              if (upperId.startsWith(compUpper + '-') || upperId.startsWith(compUpper) || upperId.includes(compUpper)) {
+                resolvedTenant = comp.id;
+                break;
+              }
+            }
+          }
+        }
 
-        let resolvedRole: string | null = staffRole;
-        if (!resolvedRole) {
-          if (isExplicitAdmin) resolvedRole = 'gerente';
-          else if (isExplicitOp) resolvedRole = 'operator';
-          else if (isExplicitMec) resolvedRole = 'mecanico';
-          else if (isExplicitFin) resolvedRole = 'contabilista';
+        // Persist immediately to global state and localStorage
+        setSelectedTenant(resolvedTenant);
+        setActiveTenantId(resolvedTenant);
+
+        const isMaster = userEmail === 'joseiwezasuana@gmail.com';
+        const isExplicitAdmin = !isDriverId && (isMaster || userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager'));
+        const isExplicitOp = !isDriverId && (userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator'));
+        const isExplicitMec = !isDriverId && (userEmail.includes('mecanico') || userEmail.includes('mechanic'));
+        const isExplicitFin = !isDriverId && (userEmail.includes('contabilista') || userEmail.includes('finance'));
+
+        let resolvedRole: string = 'driver';
+        if (isDriverId) {
+          resolvedRole = 'driver';
+        } else if (staffRole) {
+          resolvedRole = staffRole;
+        } else if (isExplicitAdmin) {
+          resolvedRole = 'gerente';
+        } else if (isExplicitOp) {
+          resolvedRole = 'operator';
+        } else if (isExplicitMec) {
+          resolvedRole = 'mecanico';
+        } else if (isExplicitFin) {
+          resolvedRole = 'contabilista';
+        } else {
+          resolvedRole = 'gerente';
         }
 
         if (!uSnap || !uSnap.exists()) {
-          // Profile document does not exist yet: create it preserving staff/manager role (NO password stored)
-          const defaultRole = resolvedRole || (userEmail.startsWith('tx-') || userEmail.startsWith('mot-') ? 'driver' : 'gerente');
+          const finalRole = isDriverId ? 'driver' : resolvedRole;
           await setDoc(uRef, {
             uid: userCred.user.uid,
-            email: usedEmail,
+            email: userEmail,
             name: staffName || rawId.toUpperCase(),
-            role: defaultRole,
-            tenantId: selectedTenant || 'psm',
+            role: finalRole,
+            tenantId: resolvedTenant,
             lastLoginAt: serverTimestamp(),
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
@@ -775,11 +808,13 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         } else {
           const currentProfile = uSnap.data();
           const updatePayload: any = {
-            lastLoginAt: serverTimestamp()
+            lastLoginAt: serverTimestamp(),
+            tenantId: resolvedTenant
           };
-          if (resolvedRole && currentProfile?.role !== resolvedRole && (currentProfile?.role === 'driver' || !currentProfile?.role)) {
+          if (currentProfile?.role === 'driver' || isDriverId) {
+            updatePayload.role = 'driver';
+          } else if (resolvedRole && currentProfile?.role !== resolvedRole && !currentProfile?.role) {
             updatePayload.role = resolvedRole;
-            updatePayload.updatedAt = serverTimestamp();
           }
           await updateDoc(uRef, updatePayload).catch(console.warn);
         }
@@ -1029,63 +1064,72 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="w-full space-y-6"
               >
-                {/* QR Code de Divulgação do App do Passageiro (JIS ANGOLA) */}
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-2xl relative overflow-hidden text-white">
-                  <div className="flex flex-col items-center gap-1.5">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full">
-                      Divulgação • App do Passageiro
+                {/* Painel Principal de Acesso para Colaboradores (Entrar / Ativar Conta) */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl relative overflow-hidden text-white">
+                  <div className="flex flex-col items-center text-center gap-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full flex items-center gap-1.5">
+                      <User size={12} />
+                      Área do Colaborador
                     </span>
-                    <h4 className="text-sm font-black uppercase tracking-wider text-white mt-1">QR CODE DO APP PASSAGEIRO</h4>
+                    <h4 className="text-base font-black uppercase tracking-wider text-white mt-1">Acesso ao Sistema TAXIControl</h4>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
+                      Selecione a opção desejada para aceder ou ativar a sua conta
+                    </p>
                   </div>
 
-                  {/* QR Image Frame */}
-                  <div className="flex justify-center my-2">
-                    <div className="p-3 bg-white rounded-2xl border-2 border-amber-500/30 shadow-xl relative group">
-                      <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-                          typeof window !== 'undefined' 
-                            ? `${window.location.protocol}//${window.location.host}/?app=passenger` 
-                            : "https://jis-st.web.app?app=passenger"
-                        )}`} 
-                        alt="QR Code App Passageiro"
-                        className="w-40 h-40 object-contain rounded-lg"
-                      />
-                      <div className="absolute -bottom-2 -right-2 bg-amber-500 text-slate-950 p-1.5 rounded-xl shadow-lg border border-white">
-                        <Car size={16} className="font-bold" />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actions: Copy Link & Open App */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    <button 
+                  <div className="space-y-3 pt-2">
+                    {/* Botão Entrar na Conta */}
+                    <button
                       type="button"
-                      onClick={() => {
-                        const url = typeof window !== 'undefined' 
-                          ? `${window.location.protocol}//${window.location.host}/?app=passenger` 
-                          : "https://jis-st.web.app?app=passenger";
-                        navigator.clipboard.writeText(url);
-                        setCopiedLink(true);
-                        setTimeout(() => setCopiedLink(false), 2500);
-                      }}
-                      className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-slate-950 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-md"
+                      onClick={() => handleMethodChange('credentials')}
+                      className="w-full p-4 bg-gradient-to-r from-brand-primary to-amber-500 hover:from-amber-500 hover:to-amber-600 active:scale-[0.98] text-slate-950 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-between shadow-xl shadow-amber-500/20 group cursor-pointer"
                     >
-                      {copiedLink ? <Check size={14} /> : <Copy size={14} />}
-                      {copiedLink ? 'Link Copiado!' : 'Copiar Link App'}
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-slate-950/20 flex items-center justify-center shrink-0">
+                          <LogIn size={20} className="text-slate-950" />
+                        </div>
+                        <div className="text-left">
+                          <span className="block text-xs font-black uppercase tracking-tight text-slate-950">
+                            Entrar na Conta
+                          </span>
+                          <span className="block text-[9px] font-bold text-slate-900/80 uppercase">
+                            Acesso com ID e Palavra-passe
+                          </span>
+                        </div>
+                      </div>
+                      <ArrowRight size={18} className="text-slate-950 group-hover:translate-x-1 transition-transform" />
                     </button>
 
-                    <button 
+                    {/* Botão Criar Conta / Ativar Conta */}
+                    <button
                       type="button"
-                      onClick={() => {
-                        const url = typeof window !== 'undefined' 
-                          ? `${window.location.protocol}//${window.location.host}/?app=passenger` 
-                          : "https://jis-st.web.app?app=passenger";
-                        window.open(url, '_blank');
-                      }}
-                      className="w-full py-2.5 px-3 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 border border-slate-700 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                      onClick={() => handleMethodChange('register')}
+                      className="w-full p-4 bg-slate-800/90 border border-slate-700/80 hover:bg-slate-800 hover:border-amber-500/50 active:scale-[0.98] text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-between group cursor-pointer"
                     >
-                      <ExternalLink size={14} />
-                      Abrir em Nova Aba
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                          <Key size={20} className="text-emerald-400" />
+                        </div>
+                        <div className="text-left">
+                          <span className="block text-xs font-black uppercase tracking-tight text-white">
+                            Criar / Ativar Conta
+                          </span>
+                          <span className="block text-[9px] font-bold text-slate-400 uppercase">
+                            Validar Código de Ativação de Equipe
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    {/* Esqueceu a Palavra-passe */}
+                    <button
+                      type="button"
+                      onClick={() => handleMethodChange('recover')}
+                      className="w-full py-2.5 px-3 text-slate-400 hover:text-white text-[9.5px] font-bold uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Lock size={12} />
+                      Esqueceu a palavra-passe? Recuperar acesso
                     </button>
                   </div>
                 </div>
@@ -1118,49 +1162,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                   <div className="space-y-6">
                     {renderErrorAlert(error)}
                     
-                    {/* Selector de Companhia / Multi-Tenant */}
-                    <div className="space-y-2 text-left bg-slate-50 border border-slate-100 p-4 rounded-2xl">
-                      <div className="flex items-center gap-2">
-                        <Building size={16} className="text-brand-primary" />
-                        <label htmlFor="login-tenant-select" className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
-                          Selecione a Companhia / Painel
-                        </label>
-                      </div>
-                      
-                      {companiesLoading ? (
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase mt-1 animate-pulse">
-                          <Loader2 size={12} className="animate-spin text-brand-primary" />
-                          A carregar companhias...
-                        </div>
-                      ) : (
-                        <div className="relative">
-                          <select
-                            id="login-tenant-select"
-                            value={selectedTenant}
-                            onChange={(e) => {
-                              const tId = e.target.value;
-                              setSelectedTenant(tId);
-                              setActiveTenantId(tId);
-                            }}
-                            className="w-full bg-white border border-slate-200 text-xs font-black text-slate-900 px-3.5 py-3 rounded-xl outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 uppercase tracking-tight cursor-pointer appearance-none pr-8"
-                          >
-                            {companies.map((c, idx) => (
-                              <option key={`${c.id}-${idx}`} value={c.id} className="text-slate-800 font-bold uppercase">
-                                {c.id === 'psm' ? 'JIS ANGOLA' : c.name}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
-                            <ChevronDown size={14} />
-                          </div>
-                        </div>
-                      )}
-                      <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wide leading-relaxed mt-1">
-                        Escolha a filial antes de se autenticar. Cada filial possui a sua frota, faturação e equipa separadas.
-                      </p>
-                    </div>
-
-                    <p className="text-center text-slate-400 text-[11px] font-bold uppercase tracking-wider">Aceda ao painel da filial selecionada via Google:</p>
+                    <p className="text-center text-slate-400 text-[11px] font-bold uppercase tracking-wider">Aceda ao painel administrativo via Google:</p>
                     
                     <button
                       onClick={handleGoogleLoginClick}
@@ -1219,12 +1221,13 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                         {success}
                       </div>
                     )}
+
                     <div className="space-y-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID Operador</label>
                       <input 
                         required
                         type="text" 
-                        placeholder="Ex: OP-123"
+                        placeholder="Ex: OP-123 ou TX-104"
                         value={id}
                         onChange={(e) => setId(e.target.value)}
                         className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all"
@@ -1293,7 +1296,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                       <input 
                         required
                         type="text" 
-                        placeholder="Ex: JIS-XXXX"
+                        placeholder=""
                         value={code}
                         onChange={(e) => setCode(e.target.value.toUpperCase())}
                         className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary font-mono outline-none transition-all"
@@ -1336,39 +1339,31 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                     {!isCodeValidated ? (
                        <div className="space-y-4">
                           <div className="space-y-1 text-left">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Empresa / Filial</label>
-                            <select
-                              value={selectedTenant}
-                              onChange={(e) => {
-                                setSelectedTenant(e.target.value);
-                                setActiveTenantId(e.target.value);
-                              }}
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID Colaborador / Viatura</label>
+                            <input 
+                              placeholder="Ex: OP-123 ou TX-104"
+                              value={id}
+                              onChange={(e) => setId(e.target.value.toUpperCase())}
                               className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all uppercase"
-                            >
-                              {companies.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
+                            />
                           </div>
-                          <input 
-                            placeholder="ID"
-                            value={id}
-                            onChange={(e) => setId(e.target.value.toUpperCase())}
-                            className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all"
-                          />
-                          <input 
-                            placeholder="CÓDIGO DE ATIVAÇÃO"
-                            value={code}
-                            onChange={(e) => setCode(e.target.value.toUpperCase())}
-                            className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary font-mono outline-none transition-all"
-                          />
+
+                          <div className="space-y-1 text-left">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Código de Ativação</label>
+                            <input 
+                              placeholder="Ex: ABCD-1234"
+                              value={code}
+                              onChange={(e) => setCode(e.target.value.toUpperCase())}
+                              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary font-mono outline-none transition-all uppercase"
+                            />
+                          </div>
+
                           <button
                             onClick={handleVerifyCode}
-                            className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-black transition-all"
+                            disabled={isValidatingCode}
+                            className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2 h-[60px]"
                           >
-                            VALIDAR CÓDIGO
+                            {isValidatingCode ? <Loader2 className="animate-spin" size={20} /> : 'VALIDAR CÓDIGO'}
                           </button>
                        </div>
                     ) : (
@@ -1376,53 +1371,44 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                           {collaboratorsLoading ? (
                             <div className="flex items-center gap-2 p-3.5 text-xs text-slate-500 font-bold bg-slate-50 border border-slate-150 rounded-2xl animate-pulse uppercase">
                               <Loader2 size={12} className="animate-spin text-brand-primary" />
-                              A carregar colaboradores...
+                              A carregar colaboradores registados...
+                            </div>
+                          ) : collaborators.length === 0 ? (
+                            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 space-y-2 text-left">
+                              <div className="flex items-center gap-2 text-xs font-black uppercase">
+                                <AlertCircle size={16} className="text-rose-600 shrink-0" />
+                                <span>Colaborador Não Encontrado na Filial</span>
+                              </div>
+                              <p className="text-[10px] font-medium leading-relaxed">
+                                Não foram encontrados colaboradores pré-registados na filial <strong>{companies.find(c => c.id === (selectedTenant || getActiveTenantId() || 'psm'))?.name || (selectedTenant && selectedTenant !== 'psm' ? selectedTenant : 'JIS ANGOLA')}</strong> para este cargo.
+                              </p>
+                              <div className="p-2.5 bg-white/70 border border-rose-200/80 rounded-xl space-y-1 text-[9.5px]">
+                                <p className="font-bold text-rose-900 uppercase">💡 Razão do Alerta:</p>
+                                <ul className="list-disc list-inside space-y-1 text-slate-700 font-medium">
+                                  <li>O código introduzido (ex: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold">PSM-...</code>) foi criado na filial <strong>JIS ANGOLA (PSMoreira)</strong>. Cada filial tem os seus próprios códigos e lista de colaboradores.</li>
+                                  <li>Para a filial <strong>FAWE TAXI</strong>, o Administrador deve gerar um código dessa filial e pré-registar o seu nome na lista de motoristas/colaboradores.</li>
+                                </ul>
+                              </div>
                             </div>
                           ) : (
-                            <>
-                              {!isManualName && collaborators.length > 0 ? (
-                                <div className="space-y-1 text-left">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selecione o seu nome</label>
-                                  <select 
-                                    required
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all uppercase"
-                                  >
-                                    <option value="">Escolha seu nome na lista...</option>
-                                    {collaborators.map((c, idx) => <option key={`${c.id}-${idx}`} value={c.name} className="uppercase font-bold">{c.name}</option>)}
-                                  </select>
-                                  <button 
-                                    type="button" 
-                                    onClick={() => { setIsManualName(true); setName(''); }}
-                                    className="text-[9px] font-black text-brand-primary hover:underline uppercase tracking-wider ml-1 mt-1 block"
-                                  >
-                                    Não está na lista? Escrever Nome Manualmente
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="space-y-1 text-left">
-                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Seu Nome Completo</label>
-                                  <input 
-                                    required
-                                    type="text" 
-                                    placeholder="NOME COMPLETO"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all uppercase"
-                                  />
-                                  {collaborators.length > 0 && (
-                                    <button 
-                                      type="button" 
-                                      onClick={() => { setIsManualName(false); setName(''); }}
-                                      className="text-[9px] font-black text-slate-500 hover:underline uppercase tracking-wider ml-1 mt-1 block"
-                                    >
-                                      Voltar para a lista de colaboradores
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </>
+                            <div className="space-y-1 text-left">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                Selecione o seu nome (Colaboradores Registados)
+                              </label>
+                              <select 
+                                required
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-brand-primary outline-none transition-all uppercase cursor-pointer"
+                              >
+                                <option value="">Escolha seu nome na lista...</option>
+                                {collaborators.map((c, idx) => (
+                                  <option key={`${c.id}-${idx}`} value={c.name} className="uppercase font-bold">
+                                    {c.name} {c.type ? `(${c.type})` : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           )}
                           <div className="space-y-1 text-left">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Definir Palavra-passe</label>
@@ -1437,7 +1423,8 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                           </div>
                           <button
                             type="submit"
-                            className="w-full bg-brand-primary text-white py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-brand-secondary transition-all shadow-xl shadow-brand-primary/20 mt-2 h-[60px]"
+                            disabled={collaborators.length === 0 && !name}
+                            className="w-full bg-brand-primary text-white py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest hover:bg-brand-secondary transition-all shadow-xl shadow-brand-primary/20 mt-2 h-[60px] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                           >
                             ATIVAR CONTA AGORA
                           </button>

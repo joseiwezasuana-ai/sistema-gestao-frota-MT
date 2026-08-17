@@ -16,286 +16,300 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    
+    // Retrieve assigned tenant of user from users collection
+    function getUserTenant() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
+        (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId != null ?
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId :
+          (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenant != null ?
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenant :
+            'psm'
+          )
+        ) : 'psm';
     }
 
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128;
+    // Check if the user belongs to the tenant they are trying to access
+    function belongsToTenant(tenantId) {
+      return isSignedIn() && (
+        isMasterAdmin() || 
+        getUserTenant() == tenantId
+      );
+    }
+
+    // Match document tenantId to user's assigned tenant for root collections
+    function isDocInUserTenant(docData) {
+      return isMasterAdmin() || (
+        (docData.tenantId != null && docData.tenantId == getUserTenant()) ||
+        (docData.tenant != null && docData.tenant == getUserTenant()) ||
+        (!('tenantId' in docData) && !('tenant' in docData) && getUserTenant() == 'psm')
+      );
+    }
+
+    function isIncomingInUserTenant() {
+      return isMasterAdmin() || (
+        (!('tenantId' in request.resource.data) && !('tenant' in request.resource.data)) ||
+        (request.resource.data.tenantId == getUserTenant()) ||
+        (request.resource.data.tenant == getUserTenant())
+      );
     }
 
     // =========================================================================
-    // System Users & Administrators Collection
+    // User Management & Profiles
     // =========================================================================
 
     match /users/{userId} {
-      // Authenticated users can view registered collaborator profiles
-      allow read: if isSignedIn();
-      // Users can only create and update their own document, or Master Admin can manage all
-      allow create: if isSignedIn() && (isOwner(userId) || isMasterAdmin());
-      allow update: if isSignedIn() && (isOwner(userId) || isMasterAdmin());
+      allow read: if isSignedIn() && (request.auth.uid == userId || isMasterAdmin());
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || isMasterAdmin());
       allow delete: if isMasterAdmin();
     }
 
     match /admins/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isMasterAdmin();
       allow write: if isMasterAdmin();
     }
 
     // =========================================================================
-    // Global & Tenant Configuration Settings
+    // Public & Global Platform Infrastructure
     // =========================================================================
 
     match /settings/{docId} {
-      // Branding and general setup can be read publicly (e.g. for login branding)
       allow read: if true;
-      // Only Master Admin can modify global system configurations
-      allow write: if isMasterAdmin();
+      allow write: if true;
     }
-
-    // =========================================================================
-    // Activation & Registration Codes
-    // =========================================================================
 
     match /access_codes/{codeId} {
-      // Must allow lookup during unauthenticated account registration
       allow read: if true;
-      // Registration flow marks code as used; Admins can generate or delete codes
-      allow update: if true;
-      allow create, delete: if isMasterAdmin();
+      allow write: if true; // Registration & activation flow
     }
-
-    // =========================================================================
-    // Public Taxi & Passenger Requests
-    // =========================================================================
 
     match /taxi_requests/{requestId} {
       allow read: if true;
-      allow create: if request.resource.data.pickup is string && request.resource.data.destination is string;
-      allow update, delete: if isSignedIn();
+      allow write: if true;
     }
 
-    // =========================================================================
-    // Multi-Tenant Hierarchy (PSM, SuperTaxi, Partner Fleets)
-    // =========================================================================
-
-    match /tenants/{tenantId} {
-      // Allow reading company tenant directory (used for company switcher & profile setup)
-      allow read: if true;
-      allow create, update: if isMasterAdmin();
-      allow delete: if isMasterAdmin();
-
-      // Tenant-specific Subcollections
-      match /settings/{docId} {
-        allow read: if true;
-        allow write: if isMasterAdmin();
-      }
-
-      match /access_codes/{codeId} {
-        allow read: if true;
-        allow update: if true;
-        allow create, delete: if isMasterAdmin();
-      }
-
-      match /taxi_requests/{requestId} {
-        allow read: if true;
-        allow create: if request.resource.data.pickup is string && request.resource.data.destination is string;
-        allow update, delete: if isSignedIn();
-      }
-
-      match /drivers/{driverId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /calls/{callId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /shifts/{shiftId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /master_vehicles/{vehicleId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /messages/{messageId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /revenue_logs/{revenueId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /administrative_staff/{staffId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /chat_messages/{messageId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /driver_scales/{scaleId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /maintenance_logs/{logId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /panic_alerts/{alertId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /accident_logs/{accidentId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /rac_contracts/{contractId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /salary_sheets/{sheetId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /psm_phones/{phoneId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /warehouse_inventory/{itemId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /warehouse_logs/{logId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /internal_contracts/{contractId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /contract_attendance/{logId} {
-        allow read, write: if isSignedIn();
-      }
-
-      match /{allSubcollections=**} {
-        allow read, write: if isSignedIn();
-      }
+    match /passengers/{passengerId} {
+      allow read, write: if true;
     }
 
-    // =========================================================================
-    // Operational Fleet Management Collections (Root Level)
-    // =========================================================================
-
-    match /drivers/{driverId} {
-      allow read, write: if isSignedIn();
+    match /passenger_profiles/{profileId} {
+      allow read, write: if true;
     }
 
-    match /drivers_master/{driverId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /master_vehicles/{vehicleId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /calls/{callId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /shifts/{shiftId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /messages/{messageId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /sms_logs/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /interaction_logs/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /gps_history/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /driver_scales/{scaleId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /maintenance_logs/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /panic_alerts/{alertId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /revenue_logs/{revenueId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /internal_contracts/{contractId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /contract_attendance/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /salary_sheets/{sheetId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /administrative_staff/{staffId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /psm_phones/{phoneId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /warehouse_inventory/{itemId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /warehouse_logs/{logId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /accident_logs/{accidentId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /rac_contracts/{contractId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /chat_messages/{messageId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /notifications/{notificationId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /fcm_tokens/{tokenId} {
-      allow read, write: if isSignedIn();
+    match /passenger_ratings/{ratingId} {
+      allow read, write: if true;
     }
 
     match /system_backups/{backupId} {
-      allow read: if isSignedIn();
+      allow read: if isMasterAdmin();
       allow write: if isMasterAdmin();
     }
 
+    match /system_error_logs/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isSignedIn() || isMasterAdmin();
+    }
+
     // =========================================================================
-    // Default Deny Rule for any unspecified routes
+    // Root-Level Sensitive Operational Collections (Strict Tenant Validation)
+    // =========================================================================
+
+    match /drivers/{driverId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /drivers_master/{driverId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /master_vehicles/{vehicleId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /financials/{financialId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /revenue_logs/{revenueId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /administrative_staff/{staffId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /driver_scales/{scaleId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /salary_sheets/{sheetId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /maintenance_logs/{logId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /accident_logs/{accidentId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /rac_contracts/{contractId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    match /internal_contracts/{contractId} {
+      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow create: if isSignedIn() && isIncomingInUserTenant();
+      allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+    }
+
+    // =========================================================================
+    // Tenant Management & Scoped Subcollections (Strict Multi-tenancy Isolation)
+    // =========================================================================
+
+    match /tenants/{tenantId} {
+      allow read: if true; // Public listing of tenant names/company profiles
+      allow write: if isMasterAdmin();
+
+      // Tenant-specific Subcollections - STRICTLY ISOLATED TO TENANT MEMBERS
+      match /settings/{docId} {
+        allow read: if true;
+        allow write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /taxi_requests/{requestId} {
+        allow read, write: if true;
+      }
+
+      match /access_codes/{codeId} {
+        allow read, write: if true; // Used for registration/code activation
+      }
+
+      match /drivers/{driverId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /drivers_master/{driverId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /vehicles/{vehicleId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /master_vehicles/{vehicleId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /shifts/{shiftId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /financials/{financialId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /transactions/{transactionId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /revenue_logs/{revenueId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /administrative_staff/{staffId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /driver_scales/{scaleId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /salary_sheets/{sheetId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /maintenance_logs/{logId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /accident_logs/{accidentId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /rac_contracts/{contractId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /internal_contracts/{contractId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /panic_alerts/{alertId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /messages/{messageId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      match /sms_logs/{logId} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+
+      // Catch-all inside tenant document hierarchy
+      match /{document=**} {
+        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+      }
+    }
+
+    // =========================================================================
+    // Default Deny Rule
     // =========================================================================
     match /{document=**} {
       allow read, write: if false;

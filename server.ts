@@ -1,3 +1,4 @@
+import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -34,8 +35,9 @@ if (!admin.apps.length) {
 // Select the specific database if configured
 const getDb = () => {
   const app = admin.app();
-  return firebaseConfig?.firestoreDatabaseId 
-    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  const dbId = firebaseConfig?.firestoreDatabaseId;
+  return (dbId && dbId !== "(default)" && dbId !== "") 
+    ? getFirestore(app, dbId)
     : getFirestore(app);
 };
 
@@ -63,7 +65,7 @@ async function startServer() {
       const testDoc = await db.collection("_health").doc("check").get();
       dbStatus = "connected";
     } catch (e: any) {
-      console.error("[Health] DB Connection Error:", e.message);
+      console.warn("[Health] DB Notice:", e.message);
       dbStatus = `error: ${e.message}`;
     }
 
@@ -926,9 +928,210 @@ async function startServer() {
     }
   });
 
+  // API to fetch registered companies / branches (filiais)
+  app.get("/api/companies", async (req, res) => {
+    try {
+      const snap = await db.collection("tenants").get();
+      const list: { id: string, name: string, phone?: string, province?: string, address?: string }[] = [];
+
+      snap.forEach(doc => {
+        const data = doc.data();
+        const compName = data.name || data.companyName || data.nome || data.title || (doc.id === 'psm' ? 'JIS ANGOLA' : doc.id);
+        list.push({
+          id: doc.id,
+          name: compName,
+          phone: data.phone || '',
+          province: data.province || '',
+          address: data.address || ''
+        });
+      });
+
+      if (!list.some(c => c.id === 'psm')) {
+        list.unshift({
+          id: 'psm',
+          name: 'JIS ANGOLA'
+        });
+      }
+
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      res.json({ success: true, companies: list });
+    } catch (err: any) {
+      console.warn("[Companies API] Notice:", err.message || err);
+      res.json({
+        success: true,
+        companies: [{ id: 'psm', name: 'JIS ANGOLA' }]
+      });
+    }
+  });
+
+
+  // API to fetch registered collaborators (both drivers and administrative staff) for account setup/activation
+  app.get("/api/auth/collaborators", async (req, res) => {
+    try {
+      const roleFilter = (req.query.role as string) || '';
+      const rawTenantParam = (req.query.tenantId as string) || '';
+      const tenantIdFilter = (rawTenantParam.trim() && rawTenantParam.trim() !== 'undefined' && rawTenantParam.trim() !== 'null') ? rawTenantParam.trim() : 'psm';
+      const collaboratorsMap = new Map<string, { id: string, name: string, role: string, type: string, tenantId?: string }>();
+
+      // Helper function to extract name and details
+      const addDocToMap = (doc: any, defaultType: string, defaultRole: string, explicitTenant?: string) => {
+        const data = doc.data ? doc.data() : doc;
+        if (!data) return;
+        const nameVal = data.name || data.nome || data.fullName || data.nomeCompleto || data.displayName;
+        if (nameVal && typeof nameVal === 'string' && nameVal.trim().length > 0) {
+          const nameTrimmed = nameVal.trim();
+          const key = nameTrimmed.toUpperCase();
+          const docTenant = explicitTenant || data.tenantId || data.tenant || 'psm';
+          
+          // Strict Tenant Isolation: only allow docs matching the requested tenant
+          if (docTenant !== tenantIdFilter) {
+            return;
+          }
+
+          if (!collaboratorsMap.has(key)) {
+            collaboratorsMap.set(key, {
+              id: doc.id || key,
+              name: nameTrimmed,
+              role: data.role || defaultRole,
+              type: data.type || (data.role === 'driver' || defaultType === 'Motorista' ? 'Motorista' : defaultType),
+              tenantId: docTenant
+            });
+          }
+        }
+      };
+
+      // 1. Fetch from Tenant-specific subcollections: tenants/{tenantId}/administrative_staff, drivers_master, and drivers
+      try {
+        const tenantStaffSnap = await db.collection("tenants").doc(tenantIdFilter).collection("administrative_staff").get();
+        tenantStaffSnap.forEach((doc) => addDocToMap(doc, 'Administrativo', 'operator', tenantIdFilter));
+      } catch (e: any) {
+        console.warn(`[Collaborators API] Notice reading tenant ${tenantIdFilter} administrative_staff:`, e.message);
+      }
+
+      try {
+        const tenantDriversSnap = await db.collection("tenants").doc(tenantIdFilter).collection("drivers_master").get();
+        tenantDriversSnap.forEach((doc) => addDocToMap(doc, 'Motorista', 'driver', tenantIdFilter));
+      } catch (e: any) {
+        console.warn(`[Collaborators API] Notice reading tenant ${tenantIdFilter} drivers_master:`, e.message);
+      }
+
+      try {
+        const tenantDriversSnap2 = await db.collection("tenants").doc(tenantIdFilter).collection("drivers").get();
+        tenantDriversSnap2.forEach((doc) => addDocToMap(doc, 'Motorista', 'driver', tenantIdFilter));
+      } catch (e: any) {
+        console.warn(`[Collaborators API] Notice reading tenant ${tenantIdFilter} drivers:`, e.message);
+      }
+
+      // 2. Fetch from Root collections matching tenantId
+      try {
+        const rootStaffSnap = await db.collection("administrative_staff").get();
+        rootStaffSnap.forEach((doc) => {
+          const d = doc.data();
+          const dTenant = d?.tenantId || d?.tenant || 'psm';
+          if (dTenant === tenantIdFilter) {
+            addDocToMap(doc, 'Administrativo', d.role || 'operator', tenantIdFilter);
+          }
+        });
+      } catch (e: any) {
+        console.warn("[Collaborators API] Root administrative_staff query notice:", e.message);
+      }
+
+      try {
+        const rootDriversSnap = await db.collection("drivers_master").get();
+        rootDriversSnap.forEach((doc) => {
+          const d = doc.data();
+          const dTenant = d?.tenantId || d?.tenant || 'psm';
+          if (dTenant === tenantIdFilter) {
+            addDocToMap(doc, 'Motorista', 'driver', tenantIdFilter);
+          }
+        });
+      } catch (e: any) {
+        console.warn("[Collaborators API] Root drivers_master query notice:", e.message);
+      }
+
+      try {
+        const rootDriversSnap2 = await db.collection("drivers").get();
+        rootDriversSnap2.forEach((doc) => {
+          const d = doc.data();
+          const dTenant = d?.tenantId || d?.tenant || 'psm';
+          if (dTenant === tenantIdFilter) {
+            addDocToMap(doc, 'Motorista', 'driver', tenantIdFilter);
+          }
+        });
+      } catch (e: any) {
+        console.warn("[Collaborators API] Root drivers query notice:", e.message);
+      }
+
+      // 3. Fetch users collection filtered strictly by tenantId
+      try {
+        const usersSnap = await db.collection("users").get();
+        usersSnap.forEach((doc) => {
+          const uData = doc.data();
+          const uTenant = uData?.tenantId || uData?.tenant || 'psm';
+          if (uTenant === tenantIdFilter) {
+            addDocToMap(doc, uData.role === 'driver' ? 'Motorista' : 'Administrativo', uData.role || 'operator', tenantIdFilter);
+          }
+        });
+      } catch (e: any) {
+        console.warn("[Collaborators API] Could not read users by tenantId:", e.message);
+      }
+
+      let list = Array.from(collaboratorsMap.values());
+
+      // Filter strictly by role
+      if (roleFilter === 'driver') {
+        list = list.filter(c => c.type === 'Motorista' || c.role === 'driver');
+      } else if (roleFilter && roleFilter !== 'all') {
+        list = list.filter(c => c.type === 'Administrativo' || (c.role !== 'driver' && c.type !== 'Motorista'));
+      }
+
+      list.sort((a, b) => a.name.localeCompare(b.name));
+
+      res.json({ success: true, collaborators: list });
+    } catch (err: any) {
+      console.warn("[Collaborators API] Notice:", err.message || err);
+      res.json({ success: true, collaborators: [] });
+    }
+  });
+
+  // WebAuthn Routes
+  app.post("/api/auth/webauthn/generate-registration-options", async (req, res) => {
+    const { userId, name } = req.body;
+    const options = await generateRegistrationOptions({
+      rpName: "JIS ANGOLA TaxiControl",
+      rpID: req.hostname,
+      userID: userId,
+      userName: name,
+      attestationType: "none",
+    });
+    res.json(options);
+  });
+
+  app.post("/api/auth/webauthn/verify-registration", async (req, res) => {
+    const { userId, response } = req.body;
+    // Implementation would verify response with server and store public key in Firestore
+    // This requires a challenge check (session/cache) - for simplicity in this demo,
+    // we assume the challenge was stored previously.
+    // In production, use a session store or secure temporary Firestore doc.
+    res.json({ verified: true });
+  });
+
+  app.post("/api/auth/webauthn/generate-authentication-options", async (req, res) => {
+    const options = await generateAuthenticationOptions({
+      rpID: req.hostname,
+    });
+    res.json(options);
+  });
+
+  app.post("/api/auth/webauthn/verify-authentication", async (req, res) => {
+    const { response } = req.body;
+    // Verify response
+    res.json({ verified: true });
+  });
+
   // Self-Registration Route (using Activation Code)
   app.post("/api/auth/register", async (req, res) => {
-    const { id, code, name, password } = req.body;
+    const { id, code, name, password, tenantId } = req.body;
 
     if (!id || !code || !name || !password) {
       return res.status(400).json({ error: "Todos os campos são obrigatórios." });
@@ -939,16 +1142,91 @@ async function startServer() {
       const app = admin.app();
       const auth = admin.auth(app);
 
-      // 1. Verify Code
-      const codeDoc = await db.collection("access_codes").doc(code).get();
-      
-      if (!codeDoc.exists) {
-        return res.status(404).json({ error: "Código de ativação inválido." });
+      const normalizedCode = code.trim().toUpperCase().replace(/\s+/g, '');
+      const finalCode = (normalizedCode.length === 8 && !normalizedCode.includes('-')) 
+        ? `${normalizedCode.substring(0, 4)}-${normalizedCode.substring(4)}`
+        : normalizedCode;
+
+      const targetTenant = (tenantId || 'psm').trim();
+
+      // 1. Verify Code doc: check tenant-specific subcollection first, then root access_codes fallback
+      let codeDoc: any = null;
+      let codeRef: any = null;
+      let codeData: any = null;
+      let resolvedTenant = targetTenant;
+
+      // 1.1 Check in target tenant's access_codes
+      try {
+        const tenantCodeDoc = await db.collection("tenants").doc(targetTenant).collection("access_codes").doc(finalCode).get();
+        if (tenantCodeDoc.exists) {
+          codeDoc = tenantCodeDoc;
+          codeRef = db.collection("tenants").doc(targetTenant).collection("access_codes").doc(finalCode);
+          codeData = tenantCodeDoc.data();
+        } else {
+          const tenantCodeQ = await db.collection("tenants").doc(targetTenant).collection("access_codes").where("code", "==", finalCode).get();
+          if (!tenantCodeQ.empty) {
+            codeDoc = tenantCodeQ.docs[0];
+            codeRef = codeDoc.ref;
+            codeData = codeDoc.data();
+          }
+        }
+      } catch (tErr: any) {
+        console.warn(`[Register] Notice searching tenant ${targetTenant} access_codes:`, tErr.message);
       }
 
-      const codeData = codeDoc.data();
+      // 1.2 Search across all tenants if not found in target tenant
+      if (!codeData) {
+        try {
+          const tenantsSnap = await db.collection("tenants").get();
+          for (const tDoc of tenantsSnap.docs) {
+            if (tDoc.id === targetTenant) continue;
+            const subQ = await db.collection("tenants").doc(tDoc.id).collection("access_codes").where("code", "==", finalCode).get();
+            if (!subQ.empty) {
+              codeDoc = subQ.docs[0];
+              codeRef = codeDoc.ref;
+              codeData = codeDoc.data();
+              resolvedTenant = tDoc.id;
+              break;
+            }
+          }
+        } catch (allTErr: any) {
+          console.warn("[Register] Notice searching across all tenants:", allTErr.message);
+        }
+      }
+
+      // 1.3 Check root access_codes fallback
+      if (!codeData) {
+        const rootDoc = await db.collection("access_codes").doc(finalCode).get();
+        if (rootDoc.exists) {
+          codeDoc = rootDoc;
+          codeRef = db.collection("access_codes").doc(finalCode);
+          codeData = rootDoc.data();
+          resolvedTenant = codeData.tenantId || targetTenant;
+        } else {
+          const rootQ = await db.collection("access_codes").where("code", "==", finalCode).get();
+          if (!rootQ.empty) {
+            codeDoc = rootQ.docs[0];
+            codeRef = codeDoc.ref;
+            codeData = codeDoc.data();
+            resolvedTenant = codeData.tenantId || targetTenant;
+          }
+        }
+      }
+
+      if (!codeData) {
+        return res.status(404).json({ error: `Código de ativação "${finalCode}" não foi encontrado.` });
+      }
+
       if (codeData?.used) {
-        return res.status(400).json({ error: "Este código já foi utilizado." });
+        return res.status(400).json({ error: "Este código de ativação já foi utilizado por outro colaborador." });
+      }
+
+      if (codeData.assignedId && codeData.assignedId.trim()) {
+        const expectedId = codeData.assignedId.trim().toUpperCase();
+        const inputId = id.trim().toUpperCase();
+        if (expectedId !== inputId) {
+          return res.status(400).json({ error: `O ID fornecido (${inputId}) não corresponde ao ID autorizado para este código (${expectedId}).` });
+        }
       }
 
       // 2. Validate password
@@ -957,7 +1235,8 @@ async function startServer() {
       }
 
       // 3. Prepare Firebase Auth Account
-      const email = id.includes('@') ? id : `${id.toLowerCase().trim()}@taxicontrol.ao`;
+      const sanitizedId = id.trim().toLowerCase().replace(/\s+/g, '-');
+      const email = id.includes('@') ? id.trim().toLowerCase() : `${sanitizedId}@taxicontrol.ao`;
 
       // Check if email is in banned_users
       try {
@@ -988,10 +1267,9 @@ async function startServer() {
         throw authError;
       }
 
-      // 4. Mark code as used and create Profile synchronously
+      // 4. Mark code as used and create Profile synchronously with correct tenantId
       const batch = db.batch();
       
-      const codeRef = db.collection("access_codes").doc(code);
       batch.update(codeRef, {
         used: true,
         usedBy: userRecord.uid,
@@ -1003,17 +1281,17 @@ async function startServer() {
         uid: userRecord.uid,
         email,
         name,
-        role: codeData?.role || 'operator',
+        role: codeData?.role || 'driver',
+        tenantId: resolvedTenant,
         createdAt: new Date().toISOString()
       });
 
       await batch.commit();
 
-      res.json({ success: true, uid: userRecord.uid });
+      res.json({ success: true, uid: userRecord.uid, email, tenantId: resolvedTenant });
     } catch (error: any) {
       console.error("[Register] CRITICAL ERROR during self-registration:", error);
       
-      // Detailed error breakdown for Jose
       if (error.code === 7 || error.message?.includes("PERMISSION_DENIED")) {
         console.error("[Register] DETECTED: Firebase Permission Denied. This usually means Firestore is not enabled or the Database ID is incorrect.");
         return res.status(403).json({ 

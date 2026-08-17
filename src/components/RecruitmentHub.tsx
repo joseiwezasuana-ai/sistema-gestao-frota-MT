@@ -21,7 +21,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, auth, getActiveTenantId } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import { cn } from '../lib/utils';
 import DriversMaster from './DriversMaster';
@@ -41,7 +41,8 @@ import CompanyPhones from './CompanyPhones';
 import WarehouseManager from './WarehouseManager';
 import { 
   collection, 
-  addDoc, 
+  addDoc,
+  setDoc,
   query, 
   where, 
   onSnapshot, 
@@ -281,16 +282,38 @@ export default function RecruitmentHub({ user }: { user?: any }) {
       if (formData.name.trim().length < 3) throw new Error("Insira o nome do colaborador.");
       if (formData.assignedId.trim().length < 2) throw new Error("Atribua um ID ao convite (Ex: MOT-01).");
       
-      const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
-      const newCode = `PSM-${randomPart}`;
-      await addDoc(collection(db, 'access_codes'), {
+      const selTenant = getActiveTenantId() || 'psm';
+      const rawClean = selTenant.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const prefix = rawClean.length >= 3 ? rawClean.substring(0, 4) : 'PSM';
+
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let suffix = '';
+      for (let i = 0; i < 4; i++) {
+        suffix += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      const newCode = `${prefix}-${suffix}`;
+
+      await setDoc(doc(db, 'tenants', selTenant, 'access_codes', newCode), {
         code: newCode,
         role: formData.role,
         targetName: formData.name,
         assignedId: formData.assignedId.trim().toUpperCase(),
+        tenantId: selTenant,
         used: false,
-        createdAt: serverTimestamp()
+        createdAt: new Date().toISOString()
       });
+
+      await setDoc(doc(db, 'access_codes', newCode), {
+        code: newCode,
+        role: formData.role,
+        targetName: formData.name,
+        assignedId: formData.assignedId.trim().toUpperCase(),
+        tenantId: selTenant,
+        used: false,
+        createdAt: new Date().toISOString()
+      }).catch(() => {});
+
       setSuccessCode(newCode);
       setFormData({ name: '', role: 'operator', assignedId: '' });
     } catch (err: any) {

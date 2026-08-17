@@ -8,7 +8,7 @@ import {
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
   Wifi, ArrowRight, ArrowLeft, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
-  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut
+  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut, LogIn, ChevronRight, Key
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { customConfirm } from '../lib/customConfirm';
@@ -1647,10 +1647,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
               visible: true
             });
           } else if (data.status === 'confirmed' || data.status === 'active') {
-            playNotificationSound('success', 'Viagem Ativada!', 'A viagem foi confirmada pelo motorista. Desfrute da viagem.');
+            playNotificationSound('success', 'Viagem Ativada!', 'A viagem foi confirmada pelo motorista. Aguarde o Embarque.');
             setNotificationBanner({
               title: 'Viagem Ativada!',
-              message: 'A viagem foi confirmada pelo motorista. Desfrute da viagem.',
+              message: 'A viagem foi confirmada pelo motorista. Aguarde o Embarque.',
               type: 'success',
               visible: true
             });
@@ -2476,7 +2476,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
             
             <div className="flex items-center gap-1.5 text-white font-mono">
               <Wifi size={10} className="text-white" />
-              <span className="text-[9px] font-black tracking-tighter text-white">PSM LTE</span>
+              <span className="text-[9px] font-black tracking-tighter text-white">LTE</span>
               <div className="w-4 h-2.5 border border-white/70 rounded-sm bg-white/20 p-0.5 flex">
                 <div className="h-full bg-white flex-1 animate-pulse" />
               </div>
@@ -2764,8 +2764,9 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
               
               {!passengerProfile && passengerTab !== 'seguranca' ? (
                 authPortalView === 'welcome' ? (
-                  /* WELCOME PORTAL SELECTION PAGE */
-                  <div className="space-y-6 py-6 flex flex-col items-center justify-center min-h-[420px]">
+                  /* WELCOME PORTAL SELECTION PAGE - DESIGN IDÊNTICO À CAPA DO COLABORADOR */
+                  <div className="space-y-6 py-6 flex flex-col items-center justify-center min-h-[420px] max-w-sm mx-auto">
+                    {/* Header Marca / Logo */}
                     <div className="text-center space-y-3">
                       <div className="w-16 h-16 bg-blue-500/10 rounded-3xl flex items-center justify-center mx-auto border border-blue-500/20 mb-3 shadow-md">
                         <Car className="text-blue-500" size={32} />
@@ -2785,57 +2786,98 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </div>
                     </div>
 
-                    <div className="w-full space-y-3 max-w-sm pt-4">
-                      {/* OPTION 1: CREATE ACCOUNT */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthMode('register');
-                          setAuthPortalView('form');
-                        }}
-                        className={`w-full p-4 rounded-2xl border text-left flex items-center gap-4 transition-all duration-300 transform active:scale-95 cursor-pointer ${
-                          isDark 
-                            ? 'bg-white/5 border-white/10 hover:border-amber-500/50 hover:bg-white/[0.08]' 
-                            : 'bg-white border-slate-200 hover:border-amber-500/50 hover:bg-amber-50/20'
-                        }`}
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
-                          <User size={20} />
+                    {/* Painel Principal de Acesso para Passageiros (Entrar / Criar Conta) */}
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="w-full space-y-6"
+                    >
+                      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl relative overflow-hidden text-white">
+                        <div className="flex flex-col items-center text-center gap-1.5">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-full flex items-center gap-1.5">
+                            <User size={12} />
+                            Área do Passageiro
+                          </span>
+                          <h4 className="text-base font-black uppercase tracking-wider text-white mt-1">Acesso ao Sistema TAXIControl</h4>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
+                            Selecione a opção desejada para aceder ou criar o seu perfil
+                          </p>
                         </div>
-                        <div className="flex-1">
-                          <h4 className="text-xs font-black uppercase tracking-wider text-amber-500">Criar Perfil</h4>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Criar uma nova conta de passageiro</p>
+
+                        <div className="space-y-3 pt-2">
+                          {/* Botão Entrar na Conta */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthMode('login');
+                              setAuthPortalView('form');
+                            }}
+                            className="w-full p-4 bg-gradient-to-r from-brand-primary to-amber-500 hover:from-amber-500 hover:to-amber-600 active:scale-[0.98] text-slate-950 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-between shadow-xl shadow-amber-500/20 group cursor-pointer"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-slate-950/20 flex items-center justify-center shrink-0">
+                                <LogIn size={20} className="text-slate-950" />
+                              </div>
+                              <div className="text-left">
+                                <span className="block text-xs font-black uppercase tracking-tight text-slate-950">
+                                  Entrar na Conta
+                                </span>
+                                <span className="block text-[9px] font-bold text-slate-900/80 uppercase">
+                                  Acesso com Nome e Palavra-passe
+                                </span>
+                              </div>
+                            </div>
+                            <ArrowRight size={18} className="text-slate-950 group-hover:translate-x-1 transition-transform" />
+                          </button>
+
+                          {/* Botão Criar Conta / Registar Perfil */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthMode('register');
+                              setAuthPortalView('form');
+                            }}
+                            className="w-full p-4 bg-slate-800/90 border border-slate-700/80 hover:bg-slate-800 hover:border-amber-500/50 active:scale-[0.98] text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-between group cursor-pointer"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                                <Key size={20} className="text-emerald-400" />
+                              </div>
+                              <div className="text-left">
+                                <span className="block text-xs font-black uppercase tracking-tight text-white">
+                                  Criar / Registar Conta
+                                </span>
+                                <span className="block text-[9px] font-bold text-slate-400 uppercase">
+                                  Registo Rápido para Viagens e Descontos
+                                </span>
+                              </div>
+                            </div>
+                            <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
+                          </button>
+
+                          {/* Opções Rápidas: APK Android e Instalar Web App */}
+                          <div className="pt-2 border-t border-slate-800/80 grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowApkDownloadModal(true)}
+                              className="py-2.5 px-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 rounded-xl text-emerald-400 text-[9px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <Smartphone size={13} />
+                              <span>App Android</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setShowInstallPwaModal(true)}
+                              className="py-2.5 px-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 rounded-xl text-amber-400 text-[9px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <Download size={13} />
+                              <span>Instalar PWA</span>
+                            </button>
+                          </div>
                         </div>
-                        <ArrowRight size={14} className="text-slate-500 shrink-0" />
-                      </button>
-
-                      {/* OPTION 2: LOGIN */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthMode('login');
-                          setAuthPortalView('form');
-                        }}
-                        className={`w-full p-4 rounded-2xl border text-left flex items-center gap-4 transition-all duration-300 transform active:scale-95 cursor-pointer ${
-                          isDark 
-                            ? 'bg-white/5 border-white/10 hover:border-amber-500/50 hover:bg-white/[0.08]' 
-                            : 'bg-white border-slate-200 hover:border-amber-500/50 hover:bg-amber-50/20'
-                        }`}
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
-                          <Lock size={20} />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="text-xs font-black uppercase tracking-wider text-amber-500">Entrar se já tiver perfil</h4>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Aceder a uma conta existente</p>
-                        </div>
-                        <ArrowRight size={14} className="text-slate-500 shrink-0" />
-                      </button>
-
-
-                    </div>
-
-                    {/* No staff portal buttons in passenger welcome flow */}
+                      </div>
+                    </motion.div>
 
                     <p className="text-[8px] text-slate-500 font-extrabold uppercase tracking-widest text-center pt-2">
                       PLATAFORMA AUDITADA • CONTROLADO POR JIS
@@ -3193,7 +3235,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       CONTA BLOQUEADA PERMANENTEMENTE
                     </h2>
                     <p className="text-[10px] text-slate-450 font-bold uppercase tracking-widest leading-none">
-                      TAXICONTROL • OPERADOR PSM COMERCIAL
+                      TAXICONTROL • OPERADOR TAXIControl
                     </p>
                   </div>
                   
@@ -3498,7 +3540,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
                               {appConfig?.driverRatingEnabled && (
                                 <div className="bg-gradient-to-br from-amber-500/5 to-yellow-500/5 p-2 rounded-xl border border-amber-500/10 text-[8.5px] text-center space-y-0.5">
-                                  <span className="font-extrabold uppercase text-amber-500 block tracking-wider leading-none">Como correu a sua viagem com Carlos?</span>
+                                  <span className="font-extrabold uppercase text-amber-500 block tracking-wider leading-none">Como correu a sua viagem com SUPER TAXI?</span>
                                   <div className="flex justify-center gap-1 text-amber-400 text-xs py-0.5">
                                     <span>★</span><span>★</span><span>★</span><span>★</span><span className="opacity-40">★</span>
                                   </div>
@@ -3643,7 +3685,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           </div>
                           <div>
                             <p className={`text-xs font-black uppercase tracking-tight m-0 ${isDark ? 'text-white' : 'text-slate-900'}`}>Termos & Políticas de Segurança</p>
-                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Consultar regulamento e privacidade JIS</p>
+                            <p className="text-[8.5px] text-slate-400 font-bold m-0 uppercase tracking-widest">Consultar regulamento e privacidade TAXIControl</p>
                           </div>
                         </div>
                         <span className="text-[10px] font-black text-amber-500 opacity-60 group-hover:opacity-100 group-hover:translate-x-1 transition-all">➔</span>
@@ -3672,7 +3714,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </button>
                       </div>
                       
-                      {/* CLUB BONUS & OFFERS PANEL (JIS) */}
+                      {/* CLUB BONUS & OFFERS PANEL (SUPER TAXI) */}
                       {appConfig?.bonusClubEnabled !== false && (
                         <div className="bg-slate-900 border border-white/5 p-4 rounded-2xl text-left space-y-3 shadow-xl">
                           <div className="flex items-center justify-between">
@@ -3682,7 +3724,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                               </div>
                               <div>
                                 <h4 className="text-[10px] font-black uppercase text-white tracking-wider leading-none">SUPER Táxi Clube de Bónus 🌟</h4>
-                                <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">Plano de fidelidade & ofertas JIS</p>
+                                <p className="text-[8px] text-slate-400 font-bold uppercase mt-0.5">Plano de fidelidade & ofertas SUPER TAXI</p>
                               </div>
                             </div>
                             <span className="text-[8px] bg-emerald-500/10 text-emerald-400 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">{(appConfig?.bonusClubCashbackPercent || 5)}% Cashback</span>
@@ -3894,7 +3936,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         className="w-full p-3 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 rounded-2xl flex items-center justify-center gap-2 text-rose-400 font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 cursor-pointer mt-2"
                       >
                         <X size={14} />
-                        Sair da Conta / Mudar Usuário
+                        Terminar Sessao
                       </button>
 
                     </div>
@@ -3941,11 +3983,11 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
                         <div className="flex justify-between text-xs">
                           <span className="text-slate-400 font-bold uppercase">Origem:</span>
-                          <span className="text-white font-black truncate max-w-[150px]">{activeRideRecord?.pickup || "Luena Centro"}</span>
+                          <span className="text-white font-black truncate max-w-[150px]">{activeRideRecord?.pickup || ""}</span>
                         </div>
                         <div className="flex justify-between text-xs">
                           <span className="text-slate-400 font-bold uppercase">Destino:</span>
-                          <span className="text-white font-black truncate max-w-[150px]">{activeRideRecord?.destination || "Aeroporto do Luena"}</span>
+                          <span className="text-white font-black truncate max-w-[150px]">{activeRideRecord?.destination || ""}</span>
                         </div>
                         {activeRideRecord?.passengerCount !== undefined && (
                           <div className="flex justify-between text-xs">
@@ -3962,7 +4004,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </div>
                       </div>
 
-                      {/* BÓNUS CLUB ALERT BANNER (JIS) */}
+                      {/* BÓNUS CLUB ALERT BANNER (TAXIControl) */}
                       {appConfig?.bonusClubEnabled !== false && (
                         <div className="bg-amber-500/10 border-2 border-dashed border-amber-500/30 rounded-2xl p-4 mx-2 text-center space-y-2 relative overflow-hidden">
                           <div className="flex items-center justify-center gap-1.5 text-amber-400">
@@ -4028,7 +4070,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         onClick={handleDismissCompletedRide}
                         className="w-full py-4 bg-brand-primary text-slate-950 hover:bg-yellow-500 font-extrabold text-xs uppercase tracking-widest rounded-2xl shadow-xl transition-all"
                       >
-                        Recomeçar Nova Viagem
+                        Finalizar
                       </button>
                     </div>
                   </div>
@@ -4174,7 +4216,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </div>
                     </div>
 
-                    {/* Partilha de Trajeto Ativo via WhatsApp (JIS) */}
+                    {/* Partilha de Trajeto Ativo via WhatsApp (TAXIControl) */}
                     {(appConfig?.routeSharingEnabled !== false) && activeRideRecord && activeRideRecord.status === 'active' && (
                       <div className="mx-2 shrink-0 my-1">
                         <button
@@ -4198,7 +4240,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             const destAddr = activeRideRecord.destination || destination || "A definir";
                             
                             const shareUrl = getPassengerShareUrl();
-                            const shareText = `*SUPER TÁXI ANGOLA - PARTILHA DE TRAJETO SEGURO* 🚕%0A%0A*Motorista:* ${encodeURIComponent(driver)}%0A*Viatura:* ${encodeURIComponent(model)} (${encodeURIComponent(plate)})%0A*Origem:* ${encodeURIComponent(pickupAddr)}%0A*Destino:* ${encodeURIComponent(destAddr)}%0A*Estado da Viagem:* ${activeRideRecord.status === 'confirmed' ? 'Motorista a caminho do local' : activeRideRecord.status === 'arrived' ? 'Motorista no ponto de recolha' : 'Em deslocamento'}%0A%0A📍 *Acompanhe em tempo real:* ${shareUrl}%0A%0A_Partilhado via SUPER Táxi Angola_`;
+                            const shareText = `*SUPER TÁXI - PARTILHA DE TRAJETO SEGURO* 🚕%0A%0A*Motorista:* ${encodeURIComponent(driver)}%0A*Viatura:* ${encodeURIComponent(model)} (${encodeURIComponent(plate)})%0A*Origem:* ${encodeURIComponent(pickupAddr)}%0A*Destino:* ${encodeURIComponent(destAddr)}%0A*Estado da Viagem:* ${activeRideRecord.status === 'confirmed' ? 'Motorista a caminho do local' : activeRideRecord.status === 'arrived' ? 'Motorista no ponto de recolha' : 'Em deslocamento'}%0A%0A📍 *Acompanhe em tempo real:* ${shareUrl}%0A%0A_Partilhado via TAXIControl JIS Angola_`;
 
                             window.open(`https://api.whatsapp.com/send?text=${shareText}`, '_blank');
                           }}
@@ -4486,7 +4528,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </label>
                       <input 
                         className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-amber-400 font-bold transition-colors" 
-                        placeholder="Ex: Aeroporto do Luena" 
+                        placeholder="" 
                         value={pickup}
                         onChange={e => setPickup(e.target.value)}
                       />
@@ -4499,7 +4541,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </label>
                       <input 
                         className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-amber-400 font-bold transition-colors" 
-                        placeholder="Ex: Mercado Central Luena" 
+                        placeholder="" 
                         value={destination}
                         onChange={e => setDestination(e.target.value)}
                       />
@@ -4513,9 +4555,9 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           Número de Passageiros (Passo 2)
                         </label>
                         <span className="text-[9px] font-extrabold text-slate-300 bg-white/10 px-2 py-0.5 rounded-full">
-                          {passengerCount === 1 ? '1 Passageiro (Individual)' :
-                           passengerCount <= 4 ? `${passengerCount} Passageiros (Lotação Padrão)` :
-                           `${passengerCount} Passageiros (Lotação Máxima)`}
+                          {passengerCount === 1 ? '1 (Individual)' :
+                           passengerCount <= 4 ? `${passengerCount} (Lotação Padrão)` :
+                           `${passengerCount} (Lotação Máxima)`}
                         </span>
                       </div>
 
@@ -4600,7 +4642,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           <div>
                             <p className="text-xs font-black text-white uppercase tracking-tight">
                               {selectedVehicleId === '' || selectedVehicleId === 'auto'
-                                ? 'Qualquer Viatura Disponível'
+                                ? 'Qualquer viatura'
                                 : (availableVehicles.find(v => v.id === selectedVehicleId)?.model || 'Viatura Selecionada')}
                             </p>
                             <p className="text-[9.5px] text-amber-400 font-medium">
@@ -4617,7 +4659,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </motion.button>
                     </div>
 
-                    {/* Club Bonus Redemption options (JIS) */}
+                    {/* Club Bonus Redemption options (SUPER TAXI) */}
                     {appConfig?.bonusClubEnabled !== false && passengerProfile && (
                       <div className="pt-3 border-t border-white/5 space-y-2">
                         {Number(passengerProfile.bonusBalance || 0) > 0 ? (
@@ -4684,7 +4726,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </div>
                       ) : availableVehicles.filter(v => v.driverName !== activeRideRecord?.driverName).length === 0 ? (
                         <div className="p-4 bg-white/5 border border-white/10 rounded-xl text-center text-[10px] text-slate-400">
-                          Nenhum outro colega disponível no momento.
+                          Colega indisponível no momento.
                         </div>
                       ) : (
                         availableVehicles.filter(v => v.driverName !== activeRideRecord?.driverName).map(veh => (
@@ -4711,7 +4753,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
               </div>
             )}
 
-            {/* TELA DEDICADA: HISTÓRICO COMPLETO DE MINHAS CORRIDAS RECENTES (JIS) */}
+            {/* TELA DEDICADA: HISTÓRICO COMPLETO DE MINHAS CORRIDAS RECENTES (SUPER TAXI) */}
             {showRidesHistoryModal && (
               <div className="absolute inset-0 bg-slate-950 z-[2000] flex flex-col p-4 sm:p-5 overflow-hidden animate-in slide-in-from-bottom duration-300 text-white">
                 {/* Header da Tela Dedicada - FIXO */}
@@ -4754,7 +4796,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       <div className="space-y-1">
                         <p className="text-xs text-slate-200 uppercase font-black">Nenhuma corrida registada ainda</p>
                         <p className="text-[9.5px] text-slate-400 font-bold max-w-xs mx-auto">
-                          Os seus pedidos de SUPER Táxi no Luena e Moxico ficarão arquivados detalhadamente no seu histórico.
+                          Os seus pedidos de SUPER Táxi ficarão arquivados detalhadamente no seu histórico.
                         </p>
                       </div>
                       <button
@@ -4862,7 +4904,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
               </div>
             )}
 
-            {/* MODAL 2: ALTERAR/TROCAR FOTO DE PERFIL (JIS) */}
+            {/* MODAL 2: ALTERAR/TROCAR FOTO DE PERFIL (TAXI Control) */}
             {showProfilePicModal && (
               <div className="absolute inset-0 bg-black/85 z-[2000] flex flex-col justify-end">
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
@@ -4880,7 +4922,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   </div>
 
                   <div className="space-y-4 py-4 text-center flex flex-col items-center justify-center">
-                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">Clique na foto abaixo para abrir a galeria e escolher uma nova imagem de perfil:</p>
+                    <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tight">Abrir galeria do dispositivo:</p>
                     
                     <label className="relative w-32 h-32 rounded-full overflow-hidden border-2 border-dashed border-amber-500/60 hover:border-amber-500 cursor-pointer flex items-center justify-center transition-all bg-slate-950 group shadow-2xl">
                       {passengerProfile?.photoUrl || selectedAvatar ? (
@@ -4946,7 +4988,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest animate-pulse">A carregar imagem do dispositivo...</p>
                     )}
 
-                    <p className="text-[8px] text-slate-500 font-extrabold uppercase tracking-widest mt-2">Toque acima para selecionar uma foto da sua galeria</p>
+                    <p className="text-[8px] text-slate-500 font-extrabold uppercase tracking-widest mt-2">Selecionar uma foto da sua galeria</p>
                   </div>
 
                   <button
@@ -4959,7 +5001,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
               </div>
             )}
 
-            {/* MODAL 3: RECLAMAÇÕES & PROTEÇÃO (JIS) */}
+            {/* MODAL 3: RECLAMAÇÕES & PROTEÇÃO (TAXIControl) */}
             {showComplaintsModal && (
               <div className="absolute inset-0 bg-black/85 z-[2000] flex flex-col justify-end">
                 <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[92%] overflow-y-auto no-scrollbar">
@@ -5122,10 +5164,10 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                                         <Clock size={14} className="shrink-0 mt-0.5 animate-pulse" />
                                         <div className="space-y-0.5">
                                           <p className="text-[9.5px] font-black uppercase tracking-wider m-0">
-                                            PENDENTE • Em Análise na Central JIS
+                                            PENDENTE • Em Análise na Central 
                                           </p>
                                           <p className="text-[8.5px] text-amber-300/80 font-bold leading-tight m-0">
-                                            A fiscalização em Luena-Moxico está a auditar este caso. Receberá atualizações aqui.
+                                            A fiscalização está a auditar este caso. Receberá atualizações aqui.
                                           </p>
                                         </div>
                                       </div>
@@ -5135,7 +5177,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                                           <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
                                           <div className="space-y-0.5">
                                             <p className="text-[9.5px] font-black uppercase tracking-wider m-0">
-                                              RESOLVIDO • Concluído pela Central JIS
+                                              RESOLVIDO • Concluído pela Central
                                             </p>
                                             <p className="text-[8.5px] text-emerald-300/80 font-bold leading-tight m-0">
                                               {item.resolvedBy ? `Tratado por: ${item.resolvedBy}` : 'Atendido e resolvido pelo departamento de operações.'}
@@ -5184,7 +5226,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                                               <div className="flex items-center gap-2">
                                                 <AlertCircle size={15} className="text-rose-400 shrink-0 animate-pulse" />
                                                 <p className="text-[9.5px] font-black uppercase tracking-wider text-rose-300 m-0">
-                                                  Contacte a Central JIS Improrrogavelmente
+                                                  Contacte a Central Improrrogavelmente
                                                 </p>
                                               </div>
                                               <p className="text-[8.5px] font-bold text-slate-300 leading-tight m-0">
@@ -5307,7 +5349,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             <textarea
                               rows={3}
                               className="w-full p-2.5 bg-slate-950 border border-white/10 rounded-xl outline-none text-white focus:border-white font-bold resize-none"
-                              placeholder="Fale brevemente do ocorrido. O relatório será enviado com a sua identificação (+244) e enviado ao operador JIS."
+                              placeholder="Fale brevemente do ocorrido. O relatório será enviado com a sua identificação (+244) e enviado ao operador TAXIControl."
                               value={complaintText}
                               onChange={e => setComplaintText(e.target.value)}
                             />
@@ -5333,9 +5375,9 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                                   status: 'pending'
                                 });
                                 if (complaintType === 'eliminar_conta') {
-                                  setComplaintSuccessMsg("O seu pedido de eliminação de conta foi registado com sucesso. De acordo com as diretivas de privacidade, a administração de José Iweza Suana (JIS) processará a eliminação definitiva dos seus dados em até 48 horas operacionais.");
+                                  setComplaintSuccessMsg("O seu pedido de eliminação de conta foi registado com sucesso. De acordo com as diretivas de privacidade, a administração do TAXIControl (JIS ANGOLA) processará a eliminação definitiva dos seus dados em até 48 horas operacionais.");
                                 } else {
-                                  setComplaintSuccessMsg("A sua reclamação foi registada com sucesso. A fiscalização em Luena-Moxico iniciará uma auditoria.");
+                                  setComplaintSuccessMsg("A sua reclamação foi registada com sucesso. A fiscalização TAXIControl iniciará uma auditoria.");
                                 }
                               } catch (err) {
                                 console.error("Error submitting complaint:", err);
@@ -5372,7 +5414,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           referrerPolicy="no-referrer"
                           className="w-full py-2.5 bg-teal-500/10 border border-teal-500/30 rounded-xl text-[10px] font-extrabold uppercase text-teal-400 tracking-wider text-center flex items-center justify-center gap-1.5 hover:bg-teal-500/20 transition-all"
                         >
-                          <MessageSquare size={11} /> Entrar no Grupo da Filial (WhatsApp)
+                          <MessageSquare size={11} /> Entrar no Grupo da Companhia (WhatsApp)
                         </a>
                       )}
                     </div>
@@ -5401,7 +5443,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   <div className="space-y-4 py-2 text-justify text-[10.5px] leading-relaxed text-slate-300">
                     <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center space-y-1">
                       <p className="text-[10px] text-amber-400 uppercase font-black tracking-wider m-0">
-                        PSM COMERCIAL (SU), LDA • LUENA-MOXICO
+                        PSMOREIRA COMERCIAL (SU), LDA • LUENA-MOXICO
                       </p>
                       <p className="text-[8.5px] text-slate-400 font-bold uppercase tracking-widest m-0">
                         Regulamento de Segurança Operacional & Políticas de Privacidade (SUPER TÁXI / JIS ANGOLA)
@@ -5409,7 +5451,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </div>
 
                     <p>
-                      <strong>1. Objeto e Âmbito Operacional:</strong> Estes Termos e Políticas regulam a prestação e a utilização do serviço de mobilidade urbana <strong>SUPER Táxi</strong> na província do Moxico (Luena), operado pela PSM Comercial (SU), Lda sob gestão da central <strong>TaxiControl (JIS ANGOLA)</strong>. Ao registar-se ou utilizar a aplicação, o utilizador aceita integralmente as normas operacionais e de segurança.
+                      <strong>1. Objeto e Âmbito Operacional:</strong> Estes Termos e Políticas regulam a prestação e a utilização do serviço de mobilidade urbana <strong>SUPER Táxi</strong> na província do Moxico (Luena), operado pela PSMoreira Comercial (SU), Lda sob gestão da central <strong>TaxiControl (JIS ANGOLA)</strong>. Ao registar-se ou utilizar a aplicação, o utilizador aceita integralmente as normas operacionais e de segurança.
                     </p>
 
                     <p>
@@ -5425,7 +5467,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </p>
 
                     <p>
-                      <strong>5. Limite Telemático de Velocidade (80 km/h):</strong> A frota de táxis é monitorizada continuamente por telemetria GPS via satélite sob orientação do operador <strong>José Iweza Suana (JIS)</strong>. A velocidade máxima permitida em perímetro urbano é de <strong>80 km/h</strong>. Qualquer transgressão por parte do condutor pode e deve ser reportada de imediato no painel de Reclamações para instauração de processo disciplinar.
+                      <strong>5. Limite Telemático de Velocidade (80 km/h):</strong> A frota de táxis é monitorizada continuamente por telemetria GPS via satélite sob orientação do operador <strong>TAXIContro (JIS)</strong>. A velocidade máxima permitida em perímetro urbano é de <strong>80 km/h</strong>. Qualquer transgressão por parte do condutor pode e deve ser reportada de imediato no painel de Reclamações para instauração de processo disciplinar.
                     </p>
 
                     <p>
@@ -5437,7 +5479,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </p>
 
                     <p>
-                      <strong>8. Proteção de Dados e Direito de Eliminação:</strong> Os dados de geolocalização e histórico de viagens são encriptados e processados exclusivamente para fins operacionais da rede SUPER Táxi e do Firestore, em inteira conformidade com a legislação angolana de proteção de dados. O utilizador pode solicitar a eliminação definitiva dos seus dados a qualquer momento via painel de Reclamações, sendo a conta eliminada em até 48 horas operacionais.
+                      <strong>8. Proteção de Dados e Direito de Eliminação:</strong> Os dados de geolocalização e histórico de viagens são encriptados e processados exclusivamente para fins operacionais da rede SUPER Táxi e da Base de dados, em inteira conformidade com a legislação angolana de proteção de dados. O utilizador pode solicitar a eliminação definitiva dos seus dados a qualquer momento via painel de Reclamações, sendo a conta eliminada em até 48 horas operacionais.
                     </p>
 
                     <p>
@@ -5449,15 +5491,15 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </p>
 
                     <p>
-                      <strong>11. Continuidade Operacional Offline (Rede Móvel / SMS / Chamada):</strong> Em situações de oscilação ou quebra na transmissão de dados de internet móvel, a Central de Proteção JIS aciona automaticamente o canal analógico redundante (Chamadas de Voz e SMS) para garantir o contacto e o reencaminhamento seguro do passageiro.
+                      <strong>11. Continuidade Operacional Offline (Rede Móvel / SMS / Chamada):</strong> Em situações de oscilação ou quebra na transmissão de dados de internet móvel, a Central de Proteção aciona automaticamente o canal analógico redundante (Chamadas de Voz e SMS) para garantir o contacto e o reencaminhamento seguro do passageiro.
                     </p>
 
                     <p>
-                      <strong>12. Política de Achados e Perdidos:</strong> Quaisquer bens, documentos ou dispositivos esquecidos no interior dos táxis da rede serão recolhidos pelo condutor e depositados na Central da PSM Comercial (SU), Lda no Luena. O proprietário dispõe do prazo de 30 dias para efetuar a recolha mediante comprovação de identidade.
+                      <strong>12. Política de Achados e Perdidos:</strong> Quaisquer bens, documentos ou dispositivos esquecidos no interior dos táxis da rede serão recolhidos pelo condutor e depositados na Central da Companhia em serviço. O proprietário dispõe do prazo de 30 dias para efetuar a recolha mediante comprovação de identidade.
                     </p>
 
                     <p>
-                      <strong>13. Utilização de Bónus e Cupões Promocionais:</strong> Quaisquer saldos de bónus ou créditos promocionais atribuídos pela administração da JIS ANGOLA são pessoais, intransferíveis e aplicáveis única e exclusivamente como desconto na contratação de corridas no aplicativo oficial SUPER Táxi.
+                      <strong>13. Utilização de Bónus e Cupões Promocionais:</strong> Quaisquer saldos de bónus ou créditos promocionais atribuídos pela administração do SUPER TAXI são pessoais, intransferíveis e aplicáveis única e exclusivamente como desconto na contratação de corridas no aplicativo oficial SUPER Táxi.
                     </p>
 
                     <p>
@@ -5525,7 +5567,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         {getPassengerShareUrl()}
                       </p>
                       <p className="text-[8px] text-slate-550 uppercase font-black tracking-widest">
-                        URL Oficial de Divulgação • Luena-Moxico
+                        URL de Divulgação • Luena-Moxico
                       </p>
                     </div>
 
@@ -5578,7 +5620,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   {/* Modal Body - List of Vehicles */}
                   <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
                     <p className="text-[10.5px] text-slate-300 font-medium leading-relaxed">
-                      Escolha a viatura de sua preferência para realizar a viagem ou selecione atribuição automática.
+                      Escolha a viatura de sua preferência ou selecione automáticamente.
                     </p>
 
                     {/* Active Confirmation Toast Banner */}
@@ -5712,7 +5754,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   {/* Modal Footer */}
                   <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
                     <span className="text-[10px] text-slate-400 font-medium">
-                      Frota SUPER Táxi Luena
+                      Frota SUPER Táxi
                     </span>
                     <button
                       type="button"
@@ -5909,9 +5951,9 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   </div>
 
                   <div>
-                    <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">Aplicações Móveis JIS Angola</span>
+                    <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">Aplicações Móveis TAXIControl</span>
                     <h3 className="text-base font-black uppercase tracking-tight text-white mt-1">App Passageiro Android</h3>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Versão {apkConfig.version || '6.0.0'} • Tamanho: {apkConfig.passengerAppSize || '16.8 MB'}</p>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Versão {apkConfig.version || '6.0.1'} • Tamanho: {apkConfig.passengerAppSize || ''}</p>
                   </div>
 
                   {/* Real Scannable QR Code */}

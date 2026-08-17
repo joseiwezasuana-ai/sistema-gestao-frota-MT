@@ -33,7 +33,7 @@ import {
   Mail,
   X
 } from 'lucide-react';
-import { collection, addDoc, setDoc, onSnapshot, query, orderBy, deleteDoc, doc, Timestamp, serverTimestamp, getDocs, writeBatch } from '../lib/firebase';
+import { collection, addDoc, setDoc, onSnapshot, query, orderBy, deleteDoc, doc, Timestamp, serverTimestamp, getDocs, writeBatch, getActiveTenantId } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import ThresholdSettings from './ThresholdSettings';
@@ -53,6 +53,7 @@ export default function Settings() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [newRole, setNewRole] = useState<'operator' | 'driver' | 'mecanico' | 'contabilista'>('operator');
   const [assignedId, setAssignedId] = useState('');
+  const [targetTenantId, setTargetTenantId] = useState<string>(() => getActiveTenantId() || 'psm');
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
@@ -167,6 +168,13 @@ export default function Settings() {
   };
 
   useEffect(() => {
+    const currentActiveTenant = getActiveTenantId();
+    if (currentActiveTenant) {
+      setTargetTenantId(currentActiveTenant);
+    }
+  }, []);
+
+  useEffect(() => {
     const qCodes = query(collection(db, 'access_codes'), orderBy('createdAt', 'desc'));
     const unsubCodes = onSnapshot(qCodes, (snapshot) => {
       setCodes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -222,20 +230,38 @@ export default function Settings() {
   const generateCode = async () => {
     setIsGenerating(true);
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-        if (i === 4) code += '-';
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    const selTenant = targetTenantId || getActiveTenantId() || 'psm';
+
+    // Generate prefix from tenant ID (e.g. 'PSM', 'FAWE', 'MOXI')
+    const rawClean = selTenant.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const prefix = rawClean.length >= 3 ? rawClean.substring(0, 4) : 'PSM';
+
+    let suffix = '';
+    for (let i = 0; i < 4; i++) {
+      suffix += chars.charAt(Math.floor(Math.random() * chars.length));
     }
 
+    const code = `${prefix}-${suffix}`;
+
     try {
+      // Save code in the selected tenant's subcollection
+      await setDoc(doc(db, 'tenants', selTenant, 'access_codes', code), {
+        code,
+        role: newRole,
+        assignedId: assignedId.trim() || null,
+        tenantId: selTenant,
+        used: false,
+        createdAt: new Date().toISOString(),
+      });
+      // Also save in scoped access_codes for seamless local hook resolution
       await setDoc(doc(db, 'access_codes', code), {
         code,
         role: newRole,
         assignedId: assignedId.trim() || null,
+        tenantId: selTenant,
         used: false,
         createdAt: new Date().toISOString(),
-      });
+      }).catch(() => {});
       setAssignedId('');
     } catch (error) {
        handleFirestoreError(error, OperationType.CREATE, 'access_codes');
@@ -252,7 +278,9 @@ export default function Settings() {
 
   const deleteCode = async (id: string) => {
     if (window.confirm("Anular este código de acesso?")) {
+      const selTenant = targetTenantId || getActiveTenantId() || 'psm';
       try {
+        await deleteDoc(doc(db, 'tenants', selTenant, 'access_codes', id)).catch(() => {});
         await deleteDoc(doc(db, 'access_codes', id));
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, `access_codes/${id}`);
@@ -366,6 +394,23 @@ export default function Settings() {
             </div>
             <div className="p-6 space-y-5">
               <div className="space-y-2">
+                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Companhia / Filial (Tenant)</label>
+                 <select
+                   value={targetTenantId}
+                   onChange={(e) => setTargetTenantId(e.target.value)}
+                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold focus:bg-white focus:border-brand-primary outline-none"
+                 >
+                   {registeredTenants.map((t) => (
+                     <option key={t.id} value={t.id}>
+                       {t.name || t.companyName || (t.id === 'psm' ? 'JIS ANGOLA' : t.id)} ({t.id})
+                     </option>
+                   ))}
+                   {!registeredTenants.some(t => t.id === 'psm') && (
+                     <option value="psm">JIS ANGOLA (psm)</option>
+                   )}
+                 </select>
+               </div>
+               <div className="space-y-2">
                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Atribuir Função</label>
                  <div className="grid grid-cols-2 gap-2">
                    {['gerente', 'operator', 'contabilista', 'mecanico', 'driver'].map(role => (
@@ -393,9 +438,9 @@ export default function Settings() {
                <button 
                 onClick={generateCode}
                 disabled={isGenerating}
-                className="w-full bg-slate-900 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-all disabled:opacity-50"
+                className="w-full bg-slate-900 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-slate-800 transition-all disabled:opacity-50 text-xs uppercase tracking-wider"
                >
-                 {isGenerating ? <Loader2 className="animate-spin" size={18} /> : <> <Plus size={18} /> GERAR CÓDIGO</>}
+                 {isGenerating ? <Loader2 className="animate-spin" size={18} /> : <> <Plus size={18} /> GERAR CÓDIGO ({(targetTenantId || 'psm').toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 4)})</>}
                </button>
             </div>
           </div>
@@ -488,8 +533,21 @@ export default function Settings() {
                 <tbody className="divide-y divide-slate-100">
                   {codes.filter(c => !c.used).map((item, idx) => (
                     <tr key={`${item.id}-${idx}`} className="hover:bg-slate-50/50">
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 flex items-center gap-3">
                         <span className="font-mono font-bold text-slate-900 text-[14px] bg-slate-100 px-2 py-1 rounded tracking-wider">{item.code}</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 uppercase">
+                          {item.role || 'DRIVER'}
+                        </span>
+                        {item.tenantId && (
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-800 uppercase">
+                            Tenant: {item.tenantId}
+                          </span>
+                        )}
+                        {item.assignedId && (
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            ID: {item.assignedId}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-right">
                          <button onClick={() => deleteCode(item.id)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
@@ -600,7 +658,12 @@ export default function Settings() {
                               </span>
                             </td>
                             <td className="px-4 py-3 font-mono text-[11px] text-slate-600">
-                              {u.email || u.id || 'N/A'}
+                              <div>{u.email || u.id || 'N/A'}</div>
+                              {u.tenantId && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 uppercase">
+                                  Tenant: {u.tenantId}
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-right">
                               {isMaster ? (

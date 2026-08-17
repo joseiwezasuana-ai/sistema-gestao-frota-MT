@@ -345,7 +345,19 @@ export function initWeeklyBackupScheduler(db: FirebaseFirestore.Firestore) {
 
   const checkAndRunBackup = async () => {
     try {
-      const scheduleDoc = await db.collection("settings").doc("backup_schedule").get();
+      const scheduleRef = db.collection("settings").doc("backup_schedule");
+      const scheduleDoc = await scheduleRef.get();
+      
+      // If doc doesn't exist, we treat it as due
+      if (!scheduleDoc.exists) {
+        console.log("[Weekly Backup Scheduler] No previous schedule found, performing initial backup...");
+        await executeWeeklyStorageBackup(db, {
+          triggerType: "scheduled",
+          triggeredBy: "Agendador Semanal Automático",
+        });
+        return;
+      }
+
       const data = scheduleDoc.data();
       const lastBackupAt = data?.lastBackupAt ? new Date(data.lastBackupAt).getTime() : 0;
       const now = Date.now();
@@ -361,7 +373,8 @@ export function initWeeklyBackupScheduler(db: FirebaseFirestore.Firestore) {
         });
       }
     } catch (err: any) {
-      console.error("[Weekly Backup Scheduler] Error in periodic check:", err.message);
+      // Use warn instead of error to reduce noise, specifically for permission/unavailable errors
+      console.warn("[Weekly Backup Scheduler] Notice in periodic check (backup may still proceed or be blocked by policy):", err.message);
     }
   };
 

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   signOut, 
   User 
 } from 'firebase/auth';
@@ -535,6 +537,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    getRedirectResult(auth).catch((err) => {
+      if (err) console.warn("[Auth] Redirect result check:", err.message);
+    });
+  }, []);
+
+  useEffect(() => {
     // Safety timeout: if auth doesn't resolve in 12s, show login anyway
     const safetyTimeout = setTimeout(() => {
       if (loading) {
@@ -999,8 +1007,15 @@ export default function App() {
 
   if (!user) {
     const handleGoogleLogin = async () => {
-      // Direct call to avoid popup blocking
-      return signInWithPopup(auth, googleProvider);
+      try {
+        return await signInWithPopup(auth, googleProvider);
+      } catch (err: any) {
+        if (err.code === 'auth/popup-blocked' || err.message?.includes('popup-blocked') || err.message?.includes('popup')) {
+          console.warn("[Auth] Popup blocked by browser, falling back to redirect...", err);
+          return await signInWithRedirect(auth, googleProvider);
+        }
+        throw err;
+      }
     };
     return (
       <>
