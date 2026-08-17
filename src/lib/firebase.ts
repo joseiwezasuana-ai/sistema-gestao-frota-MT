@@ -75,9 +75,11 @@ const GLOBAL_COLLECTIONS = [
 ];
 
 export function getActiveTenantId(): string {
-  if (activeTenantId) return activeTenantId;
+  if (activeTenantId && activeTenantId !== "" && activeTenantId !== "null" && activeTenantId !== "undefined") {
+    return activeTenantId;
+  }
   const saved = localStorage.getItem('active_tenant_id');
-  if (saved) {
+  if (saved && saved !== "" && saved !== "null" && saved !== "undefined") {
     activeTenantId = saved;
     return saved;
   }
@@ -85,11 +87,12 @@ export function getActiveTenantId(): string {
 }
 
 export function setActiveTenantId(tenantId: string | null) {
-  activeTenantId = tenantId;
-  if (tenantId) {
+  if (tenantId && tenantId !== "" && tenantId !== "null" && tenantId !== "undefined") {
+    activeTenantId = tenantId;
     localStorage.setItem('active_tenant_id', tenantId);
   } else {
-    localStorage.removeItem('active_tenant_id');
+    activeTenantId = 'psm';
+    localStorage.setItem('active_tenant_id', 'psm');
   }
 }
 

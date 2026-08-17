@@ -13,6 +13,8 @@ service cloud.firestore {
     function isMasterAdmin() {
       return isSignedIn() && (
         request.auth.token.email == 'joseiwezasuana@gmail.com' ||
+        request.auth.token.email == 'jis@taxicontrol.ao' ||
+        (request.auth.token.email != null && request.auth.token.email.endsWith('@taxicontrol.ao')) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -21,10 +23,10 @@ service cloud.firestore {
     function getUserTenant() {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ?
         (
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId != null ?
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId != "" ?
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId :
           (
-            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenant != null ?
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenant != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenant != "" ?
             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenant :
             'psm'
           )
