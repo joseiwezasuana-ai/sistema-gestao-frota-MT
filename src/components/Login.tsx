@@ -790,11 +790,11 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
         } else if (isExplicitFin) {
           resolvedRole = 'contabilista';
         } else {
-          resolvedRole = 'gerente';
+          resolvedRole = 'driver';
         }
 
         if (!uSnap || !uSnap.exists()) {
-          const finalRole = isDriverId ? 'driver' : resolvedRole;
+          const finalRole = isDriverId || (!staffRole && !isExplicitAdmin && !isExplicitOp && !isExplicitMec && !isExplicitFin) ? 'driver' : resolvedRole;
           await setDoc(uRef, {
             uid: userCred.user.uid,
             email: userEmail,
@@ -811,9 +811,10 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
             lastLoginAt: serverTimestamp(),
             tenantId: resolvedTenant
           };
-          if (currentProfile?.role === 'driver' || isDriverId) {
+          const hasAdminKeywords = userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager') || userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator');
+          if (isDriverId || (!hasAdminKeywords && !staffRole && !isMaster)) {
             updatePayload.role = 'driver';
-          } else if (resolvedRole && currentProfile?.role !== resolvedRole && !currentProfile?.role) {
+          } else if (resolvedRole && currentProfile?.role !== resolvedRole && (hasAdminKeywords || staffRole || isMaster)) {
             updatePayload.role = resolvedRole;
           }
           await updateDoc(uRef, updatePayload).catch(console.warn);

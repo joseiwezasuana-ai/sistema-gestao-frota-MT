@@ -638,7 +638,7 @@ export default function App() {
           } else if (email.includes('contabilista') || email.includes('finance') || email.includes('financas')) {
             resolvedRole = 'contabilista';
           } else {
-            resolvedRole = (email.startsWith('tx-') || email.startsWith('mot-')) ? 'driver' : 'gerente';
+            resolvedRole = 'driver';
           }
 
           const fallbackProfile = {
@@ -661,6 +661,24 @@ export default function App() {
         
         const isMaster = firebaseUser.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
         
+        if (isMaster) {
+          const adminProfile = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: 'José Iweza Suana (Admin)',
+            role: 'admin',
+            tenantId: getActiveTenantId() || 'psm',
+            createdAt: new Date().toISOString()
+          };
+          setActiveTenantId(getActiveTenantId() || 'psm');
+          setUserProfile(adminProfile);
+          setDoc(profileRef, adminProfile, { merge: true }).catch(console.warn);
+          presenceService.startHeartbeat(adminProfile);
+          clearTimeout(safetyTimeout);
+          finishLoading();
+          return;
+        }
+
         if (profileSnap.exists()) {
           const profile = profileSnap.data();
           const userEmail = (firebaseUser.email || '').toLowerCase();
@@ -690,6 +708,13 @@ export default function App() {
 
           if (profile && profile.role === 'operador') {
             profile.role = 'operator';
+          }
+
+          // If profile role is gerente/operator/colaborador/staff/unknown but email has no admin keywords and not in staff, correct it to driver
+          const hasAdminKeywords = userEmail.includes('admin') || userEmail.includes('gerente') || userEmail.includes('gestor') || userEmail.includes('manager') || userEmail.includes('operador') || userEmail.includes('central') || userEmail.includes('operator') || userEmail.includes('mecanico') || userEmail.includes('contabilista');
+          if (!hasAdminKeywords && !staffRole && !isMaster && (profile.role === 'gerente' || profile.role === 'operator' || profile.role === 'colaborador' || profile.role === 'staff' || !profile.role)) {
+            profile.role = 'driver';
+            setDoc(profileRef, { role: 'driver' }, { merge: true }).catch(console.warn);
           }
 
           // Auto-heal Driver Names if missing or replaced by ID/email prefix
@@ -781,9 +806,7 @@ export default function App() {
             else if (isExplicitOp) autoRole = 'operator';
             else if (isExplicitMec) autoRole = 'mecanico';
             else if (isExplicitFin) autoRole = 'contabilista';
-            else if (!userEmail.startsWith('tx-') && !userEmail.startsWith('mot-')) {
-              autoRole = 'gerente';
-            }
+            else autoRole = 'driver';
 
             // Auto-resolve driver name from drivers_master, drivers, and users
             try {
@@ -1062,10 +1085,10 @@ export default function App() {
   const userRole = (userProfile?.role || '').toLowerCase().trim();
   const isMasterAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com';
   const isAdmin = isMasterAdmin || userRole === 'admin' || userRole === 'gerente' || userRole === 'manager' || userRole === 'gestor' || userRole === 'administrator' || userRole === 'administrador';
-  const isDriver = userRole === 'driver' || userRole === 'motorista';
   const isMecanico = userRole === 'mecanico' || userRole === 'mechanic' || userRole === 'oficina';
   const isContabilista = userRole === 'contabilista' || userRole === 'finance' || userRole === 'accountant' || userRole === 'financas';
-  const isOperator = isAdmin || userRole === 'operator' || userRole === 'operador' || userRole === 'central';
+  const isOperator = !isMasterAdmin && (userRole === 'operator' || userRole === 'operador' || userRole === 'central');
+  const isDriver = userRole === 'driver' || userRole === 'motorista' || (!isMasterAdmin && !isAdmin && !isMecanico && !isContabilista && !isOperator);
   const shouldNotifyAlert = !!userProfile;
 
   // Admin, Operators, and Accounting roles get a specialized Mobile View on small screens

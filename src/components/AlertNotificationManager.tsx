@@ -99,10 +99,6 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setPermission(Notification.permission);
-      const isDismissed = localStorage.getItem('dismissed_permission_banner') === 'true';
-      if (Notification.permission === 'default' && !isDismissed) {
-        setShowPermissionBanner(true);
-      }
     }
 
     // 1. Monitor Missed & Stuck Calls

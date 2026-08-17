@@ -52,6 +52,7 @@ import {
   Volume2,
   Play,
   Pause,
+  QrCode,
 } from "lucide-react";
 import { customConfirm } from "../lib/customConfirm";
 import RevenueManagement from "./RevenueManagement";
@@ -377,7 +378,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const [showTripDetailsInConsole, setShowTripDetailsInConsole] = useState<boolean>(true);
   const [driverLiveCoords, setDriverLiveCoords] = useState<[number, number]>([-11.7833, 19.9167]);
 
-  // Notification Permission Check & Explanatory Modal for Drivers
+  // Notification Permission Check (without annoying modal popup)
   const [showDeniedNotifModal, setShowDeniedNotifModal] = useState<boolean>(false);
   const [notifPermissionStatus, setNotifPermissionStatus] = useState<NotificationPermission>('default');
 
@@ -385,20 +386,6 @@ export default function DriverView({ user }: DriverViewProps) {
     if (typeof window !== 'undefined' && 'Notification' in window && window.Notification) {
       const status = window.Notification.permission;
       setNotifPermissionStatus(status);
-      if (status === 'denied') {
-        setShowDeniedNotifModal(true);
-      } else if (status === 'default' && typeof window.Notification.requestPermission === 'function') {
-        try {
-          window.Notification.requestPermission().then((res) => {
-            setNotifPermissionStatus(res);
-            if (res === 'denied') {
-              setShowDeniedNotifModal(true);
-            }
-          }).catch(() => {});
-        } catch {
-          // Ignore
-        }
-      }
     }
   }, []);
 
@@ -1060,6 +1047,8 @@ export default function DriverView({ user }: DriverViewProps) {
 
   const [isPassengerApkModalOpen, setIsPassengerApkModalOpen] = useState(false);
   const [passengerApkQrUrl, setPassengerApkQrUrl] = useState<string>('');
+  const [isWebAppModalOpen, setIsWebAppModalOpen] = useState(false);
+  const [webAppQrUrl, setWebAppQrUrl] = useState<string>('');
   const [apkConfig, setApkConfig] = useState<any>({
     version: '6.0.0',
     passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
@@ -1076,6 +1065,15 @@ export default function DriverView({ user }: DriverViewProps) {
   }, []);
 
   useEffect(() => {
+    if (isWebAppModalOpen) {
+      const webAppUrl = window.location.origin;
+      QRCode.toDataURL(webAppUrl, { width: 280, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } })
+        .then(url => setWebAppQrUrl(url))
+        .catch(() => setWebAppQrUrl(`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(webAppUrl)}`));
+    }
+  }, [isWebAppModalOpen]);
+
+  useEffect(() => {
     if (isPassengerApkModalOpen) {
       const rawUrl = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
       const fullUrl = rawUrl.startsWith('http') ? rawUrl : `${window.location.origin}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
@@ -1084,6 +1082,8 @@ export default function DriverView({ user }: DriverViewProps) {
         .catch(() => setPassengerApkQrUrl(`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(fullUrl)}`));
     }
   }, [isPassengerApkModalOpen, apkConfig.passengerAppUrl]);
+
+
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [contractLoading, setContractLoading] = useState(false);
   const [contractFormData, setContractFormData] = useState({
@@ -2897,11 +2897,19 @@ export default function DriverView({ user }: DriverViewProps) {
                       <div className="h-px bg-slate-100 my-1.5" />
 
                       <button
+                        onClick={() => { setIsWebAppModalOpen(true); setIsMenuOpen(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                      >
+                        <QrCode size={14} className="text-emerald-500" />
+                        <span>QR Code • App Web Passageiro (PWA)</span>
+                      </button>
+
+                      <button
                         onClick={() => { setIsPassengerApkModalOpen(true); setIsMenuOpen(false); }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors text-left"
                       >
-                        <Smartphone size={14} className="text-emerald-500" />
-                        <span>Download APK Passageiro & QR</span>
+                        <Smartphone size={14} className="text-teal-500" />
+                        <span>QR Code & APK • Passageiro Android</span>
                       </button>
 
                       <div className="h-px bg-slate-100 my-1.5" />
@@ -4263,30 +4271,6 @@ export default function DriverView({ user }: DriverViewProps) {
 
 
 
-                {/* Divulgação • App do Passageiro Quick Navigation Card */}
-                <motion.button
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  onClick={() => setIsPassengerApkModalOpen(true)}
-                  className="w-full flex items-center justify-between gap-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black py-3.5 px-4 rounded-2xl text-[10px] uppercase tracking-wider transition-all shadow-md shadow-emerald-950/20 active:scale-95 text-left border border-emerald-400/30 cursor-pointer"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                      <QrCode size={18} className="text-white animate-pulse" />
-                    </div>
-                    <div className="min-w-0 text-left">
-                      <span className="block text-[11px] font-black uppercase text-white tracking-tight truncate">
-                        Divulgação • App do Passageiro
-                      </span>
-                      <span className="block text-[8.5px] font-bold text-emerald-100 uppercase truncate">
-                        QR CODE DO APP PASSAGEIRO & APK
-                      </span>
-                    </div>
-                  </div>
-                  <div className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-white shrink-0">
-                    Abrir QR
-                  </div>
-                </motion.button>
 
                 {/* Reencaminhar Chamada de cliente direta */}
                 {isOnline && (
@@ -6042,79 +6026,134 @@ export default function DriverView({ user }: DriverViewProps) {
 
 
 
-      {/* Driver Notification Permission Denied Activation Modal */}
+      {/* WEB APP QR CODE MODAL IN DRIVER VIEW */}
       <AnimatePresence>
-        {showDeniedNotifModal && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+        {isWebAppModalOpen && (
+          <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowDeniedNotifModal(false)}
-              className="fixed inset-0 bg-slate-950/80 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="relative w-full max-w-lg bg-slate-900 border border-amber-500/30 rounded-[2.5rem] p-6 text-white shadow-2xl z-10 space-y-5 overflow-hidden"
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-slate-900 border-2 border-emerald-500/60 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-center relative overflow-hidden"
             >
-              {/* Header */}
-              <div className="flex items-start justify-between border-b border-white/10 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 bg-amber-500/20 border border-amber-500/40 rounded-2xl flex items-center justify-center text-amber-400 shrink-0">
-                    <Bell size={22} className="animate-bounce" />
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                      GUIA DE ATIVAÇÃO DE NOTIFICAÇÕES
-                    </span>
-                    <h3 className="text-base font-black tracking-tight text-white mt-1">
-                      Notificações Desativadas no Navegador
-                    </h3>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowDeniedNotifModal(false)}
-                  className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-all cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
+              <button
+                onClick={() => setIsWebAppModalOpen(false)}
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-800 rounded-full transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+
+              <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/30">
+                <QrCode size={24} />
               </div>
 
+              <div>
+                <h3 className="text-base font-black text-white uppercase tracking-tight italic">SUPER Táxi • App Web Passageiro (PWA)</h3>
+                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-0.5">Instalação Direta no Telemóvel</p>
+              </div>
 
+              <div className="bg-white p-3 rounded-2xl w-48 h-48 mx-auto flex items-center justify-center shadow-inner border border-slate-700">
+                {webAppQrUrl ? (
+                  <img src={webAppQrUrl} alt="QR Code App Web" className="w-full h-full object-contain" />
+                ) : (
+                  <div className="animate-spin text-slate-400 text-xs font-bold">A gerar QR...</div>
+                )}
+              </div>
 
-              {/* Action Buttons */}
-              <div className="pt-2 flex flex-col sm:flex-row gap-3">
-                <button
-                  onClick={() => {
-                    if (typeof window !== 'undefined' && 'Notification' in window && typeof window.Notification?.requestPermission === 'function') {
-                      try {
-                        window.Notification.requestPermission().then((res) => {
-                          setNotifPermissionStatus(res);
-                          if (res === 'granted') {
-                            setShowDeniedNotifModal(false);
-                            alert("✓ Notificações Ativadas com Sucesso! Agora receberá todos os alertas de chamadas de táxi.");
-                          } else {
-                            alert("Ainda não foi possível ativar automaticamente. Siga o guia passo a passo acima nas definições do navegador.");
-                          }
-                        }).catch(() => {});
-                      } catch {
-                        alert("Notificações não suportadas neste ambiente.");
-                      }
-                    }
-                  }}
-                  className="flex-1 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <RefreshCw size={14} />
-                  Verificar / Tentar Ativar Novamente
-                </button>
-                <button
-                  onClick={() => setShowDeniedNotifModal(false)}
-                  className="px-4 py-3.5 bg-white/10 hover:bg-white/20 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
-                >
-                  Entendi / Ignorar
-                </button>
+              <div className="space-y-2 pt-1">
+                <p className="text-[9px] text-slate-400 font-bold leading-relaxed px-2">
+                  Aponte a câmara do telemóvel para o QR Code para abrir e instalar a Aplicação Web no seu dispositivo.
+                </p>
+
+                <div className="flex gap-2 pt-2">
+                  <a
+                    href={window.location.origin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <Smartphone size={14} />
+                    <span>Abrir App Web</span>
+                  </a>
+                  <button
+                    onClick={() => {
+                      const url = window.location.origin;
+                      navigator.clipboard.writeText(url);
+                      alert("Link da Aplicação Web copiado!");
+                    }}
+                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Copiar Link"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* PASSENGER APK DOWNLOAD & QR CODE MODAL IN DRIVER VIEW */}
+      <AnimatePresence>
+        {isPassengerApkModalOpen && (
+          <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-slate-900 border-2 border-teal-500/60 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-center relative overflow-hidden"
+            >
+              <button
+                onClick={() => setIsPassengerApkModalOpen(false)}
+                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-800 rounded-full transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+
+              <div className="w-12 h-12 bg-teal-500/20 text-teal-400 rounded-2xl flex items-center justify-center mx-auto border border-teal-500/30">
+                <Smartphone size={24} />
+              </div>
+
+              <div>
+                <h3 className="text-base font-black text-white uppercase tracking-tight italic">SUPER Táxi Passageiro (APK)</h3>
+                <p className="text-[10px] text-teal-400 font-bold uppercase tracking-wider mt-0.5">Versão Oficial • Android APK</p>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl w-48 h-48 mx-auto flex items-center justify-center shadow-inner border border-slate-700">
+                {passengerApkQrUrl ? (
+                  <img src={passengerApkQrUrl} alt="QR Code APK Passageiro" className="w-full h-full object-contain" />
+                ) : (
+                  <div className="animate-spin text-slate-400 text-xs font-bold">A gerar QR...</div>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-1">
+                <p className="text-[9px] text-slate-400 font-bold leading-relaxed px-2">
+                  Aponte a câmara do telemóvel para o QR Code ou utilize o botão abaixo para descarregar diretamente o APK do passageiro.
+                </p>
+
+                <div className="flex gap-2 pt-2">
+                  <a
+                    href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 py-3 bg-teal-600 hover:bg-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  >
+                    <Download size={14} />
+                    <span>Descarregar .APK</span>
+                  </a>
+                  <button
+                    onClick={() => {
+                      const url = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
+                      navigator.clipboard.writeText(url);
+                      alert("Link do APK copiado para a área de transferência!");
+                    }}
+                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Copiar Link"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -6178,72 +6217,7 @@ export default function DriverView({ user }: DriverViewProps) {
         )}
       </AnimatePresence>
 
-      {/* PASSENGER APK DOWNLOAD & QR CODE MODAL IN DRIVER VIEW */}
-      <AnimatePresence>
-        {isPassengerApkModalOpen && (
-          <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-slate-900 border-2 border-emerald-500/60 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl text-center relative overflow-hidden"
-            >
-              <button
-                onClick={() => setIsPassengerApkModalOpen(false)}
-                className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-800 rounded-full transition-colors cursor-pointer"
-              >
-                <X size={16} />
-              </button>
 
-              <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/30">
-                <Smartphone size={24} />
-              </div>
-
-              <div>
-                <h3 className="text-base font-black text-white uppercase tracking-tight italic">SUPER Táxi Passageiro</h3>
-                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mt-0.5">Versão Oficial • Android APK</p>
-              </div>
-
-              <div className="bg-white p-3 rounded-2xl w-48 h-48 mx-auto flex items-center justify-center shadow-inner border border-slate-700">
-                {passengerApkQrUrl ? (
-                  <img src={passengerApkQrUrl} alt="QR Code APK Passageiro" className="w-full h-full object-contain" />
-                ) : (
-                  <div className="animate-spin text-slate-400 text-xs font-bold">A gerar QR...</div>
-                )}
-              </div>
-
-              <div className="space-y-2 pt-1">
-                <p className="text-[9px] text-slate-400 font-bold leading-relaxed px-2">
-                  Aponte a câmara do telemóvel para o QR Code ou utilize o botão direto abaixo para descarregar o APK do passageiro.
-                </p>
-
-                <div className="flex gap-2 pt-2">
-                  <a
-                    href={apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <Download size={14} />
-                    <span>Descarregar .APK</span>
-                  </a>
-                  <button
-                    onClick={() => {
-                      const url = apkConfig.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk';
-                      navigator.clipboard.writeText(url);
-                      alert("Link copiado para a área de transferência!");
-                    }}
-                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-                    title="Copiar Link"
-                  >
-                    <Copy size={14} />
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Quick Theme Customizer Modal for Central Dispatch */}
       <AnimatePresence>
