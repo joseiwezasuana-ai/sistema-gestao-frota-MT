@@ -1065,6 +1065,45 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="w-full space-y-6"
               >
+                {/* Card de Acesso Imediato para Passageiro (SUPER Táxi) */}
+                <div className="p-4 bg-gradient-to-r from-amber-500/15 via-amber-500/25 to-yellow-500/15 border-2 border-amber-500/40 rounded-3xl space-y-2.5 shadow-xl text-center">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-amber-600 bg-amber-500/20 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <Car size={11} />
+                      Passageiros
+                    </span>
+                    <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500">Acesso Público</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.setItem('app_mode', 'passenger');
+                      localStorage.removeItem('collaborator_mode');
+                      if (onPassengerFlow) {
+                        onPassengerFlow();
+                      } else {
+                        window.location.href = '/?view=passenger&mode=passenger';
+                      }
+                    }}
+                    className="w-full p-3.5 bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-slate-950 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-between shadow-lg shadow-amber-500/30 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0">
+                        <Car size={16} />
+                      </div>
+                      <div className="text-left">
+                        <span className="block text-xs font-black uppercase tracking-tight text-slate-950">
+                          Pedir SUPER Táxi
+                        </span>
+                        <span className="block text-[8.5px] font-extrabold text-slate-900/80 uppercase">
+                          App Oficial do Passageiro
+                        </span>
+                      </div>
+                    </div>
+                    <ArrowRight size={16} className="text-slate-950" />
+                  </button>
+                </div>
+
                 {/* Painel Principal de Acesso para Colaboradores (Entrar / Ativar Conta) */}
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl relative overflow-hidden text-white">
                   <div className="flex flex-col items-center text-center gap-1.5">

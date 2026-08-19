@@ -1,68 +1,139 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
+    <!-- Gold Gradient for Vehicle Body & Accents -->
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FCD34D" />
-      <stop offset="50%" stop-color="#F59E0B" />
-      <stop offset="100%" stop-color="#D97706" />
+      <stop offset="0%" stop-color="#FDE68A" />
+      <stop offset="35%" stop-color="#F59E0B" />
+      <stop offset="85%" stop-color="#D97706" />
+      <stop offset="100%" stop-color="#B45309" />
     </linearGradient>
-    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.6"/>
-      <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.9"/>
+
+    <!-- Metallic Highlight for Stretched Vehicle -->
+    <linearGradient id="metalHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FEF3C7" stop-opacity="0.8" />
+      <stop offset="50%" stop-color="#F59E0B" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="#78350F" stop-opacity="0.6" />
     </linearGradient>
+
+    <!-- Windows Glow & Reflection -->
+    <linearGradient id="windowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#60A5FA" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#1E3A8A" stop-opacity="0.95"/>
+    </linearGradient>
+
+    <!-- Dark Luxury Canvas Background -->
     <linearGradient id="darkBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0F172A" />
-      <stop offset="100%" stop-color="#020617" />
+      <stop offset="0%" stop-color="#0B1120" />
+      <stop offset="50%" stop-color="#020617" />
+      <stop offset="100%" stop-color="#0F172A" />
     </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
-    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="40%" stop-color="#3B82F6" />
+
+    <!-- Glowing Blue/Cyan for PSM Word & Lighting -->
+    <linearGradient id="psmGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="30%" stop-color="#38BDF8" />
+      <stop offset="70%" stop-color="#2563EB" />
       <stop offset="100%" stop-color="#1D4ED8" />
     </linearGradient>
-    <filter id="blueGlow" x="-20%" y="-20%" width="140%" height="140%">
+
+    <!-- Gold Glow Filter -->
+    <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- PSM Text Glow Filter -->
+    <filter id="psmGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
 
-  <!-- Seamless Dark Rounded Canvas (No white border) -->
+  <!-- Luxury Dark Rounded Canvas Frame -->
   <rect width="512" height="512" rx="108" fill="url(#darkBg)" />
-  <rect width="510" height="510" x="1" y="1" rx="107" fill="none" stroke="#3B82F6" stroke-opacity="0.3" stroke-width="2" />
+  <rect width="508" height="508" x="2" y="2" rx="106" fill="none" stroke="#3B82F6" stroke-opacity="0.25" stroke-width="2" />
 
-  <!-- Luxury Typography TAXI (Gold) ABOVE THE CAR -->
-  <text x="256" y="108" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="50" font-weight="900" letter-spacing="10" fill="url(#goldGrad)" filter="url(#glow)">TAXI</text>
+  <!-- Background Speed & Dynamic Streamlines (Subtle Depth) -->
+  <path d="M 30 252 L 482 252" stroke="#3B82F6" stroke-opacity="0.12" stroke-width="1.5" stroke-dasharray="16 12" />
+  <path d="M 45 288 L 467 288" stroke="#F59E0B" stroke-opacity="0.15" stroke-width="1.5" stroke-dasharray="24 16" />
 
-  <!-- Taxi Top Sign Light -->
-  <path d="M 228 136 L 284 136 L 292 152 L 220 152 Z" fill="url(#goldGrad)" />
-  <rect x="236" y="140" width="40" height="8" rx="2" fill="#0F172A" opacity="0.7"/>
+  <!-- Luxury Typography TAXI (Gold) TOP HEADER -->
+  <text x="256" y="96" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="900" letter-spacing="12" fill="url(#goldGrad)" filter="url(#goldGlow)">TAXI</text>
 
-  <!-- Sleek Aerodynamic Car Silhouette -->
-  <!-- Roof and Windows -->
-  <path d="M 180 196 C 210 156, 302 156, 332 196 L 388 208 C 404 212, 416 224, 420 240 L 432 292 C 434 300, 428 308, 420 308 L 92 308 C 84 308, 78 300, 80 292 L 92 240 C 96 224, 108 212, 124 208 Z" fill="url(#goldGrad)" filter="url(#glow)"/>
-  
-  <!-- Front and Rear Windshields (Cobalt Glass) -->
-  <path d="M 188 198 C 212 166, 248 164, 252 198 Z" fill="url(#glowGrad)" />
-  <path d="M 260 198 C 264 164, 300 166, 324 198 Z" fill="url(#glowGrad)" />
+  <!-- Taxi Top Sign Light (Roof Lamp) -->
+  <path d="M 216 122 L 296 122 L 306 142 L 206 142 Z" fill="url(#goldGrad)" />
+  <rect x="226" y="126" width="60" height="12" rx="3" fill="#020617" opacity="0.85"/>
+  <text x="256" y="136" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="900" letter-spacing="3" fill="#FCD34D">TAXI</text>
 
-  <!-- Car Body Bottom Trim -->
-  <path d="M 88 292 L 424 292 L 420 304 L 92 304 Z" fill="#D97706" />
+  <!-- ================================================================= -->
+  <!-- EXTRA-WIDE STRETCHED LUXURY VEHICLE SILHOUETTE (Spans X: 38 to 474) -->
+  <!-- ================================================================= -->
+
+  <!-- Aerodynamic Wide Roof & Extended Cabin -->
+  <path d="M 148 186 C 185 140, 327 140, 364 186 L 434 200 C 456 205, 470 218, 474 238 L 478 286 C 480 296, 472 304, 462 304 L 50 304 C 40 304, 32 296, 34 286 L 38 238 C 42 218, 56 205, 78 200 Z" 
+        fill="url(#goldGrad)" 
+        filter="url(#goldGlow)" />
+
+  <!-- Top Curved Roof Highlight Layer -->
+  <path d="M 152 188 C 188 144, 324 144, 360 188 L 430 202 C 448 206, 460 216, 464 234 L 468 260 L 44 260 L 48 234 C 52 216, 64 206, 82 202 Z" 
+        fill="url(#metalHighlight)" />
+
+  <!-- Front, Middle & Rear Extended Windshields (Cobalt / Cyan Tinted Glass) -->
+  <!-- Rear Window (Left) -->
+  <path d="M 154 188 C 178 152, 218 150, 222 188 Z" fill="url(#windowGrad)" />
+  <!-- Center Side Window -->
+  <path d="M 230 188 L 282 188 L 282 150 C 256 150, 240 150, 230 188 Z" fill="url(#windowGrad)" />
+  <!-- Front Windshield (Right) -->
+  <path d="M 290 188 C 294 150, 334 152, 358 188 Z" fill="url(#windowGrad)" />
+
+  <!-- Lateral Windows Chrome Separators -->
+  <line x1="226" y1="152" x2="226" y2="188" stroke="#FDE68A" stroke-width="2.5" />
+  <line x1="286" y1="152" x2="286" y2="188" stroke="#FDE68A" stroke-width="2.5" />
+
+  <!-- Stretched Lower Body Baseline & Diffuser Trim -->
+  <path d="M 46 288 L 466 288 L 460 300 L 52 300 Z" fill="#92400E" />
 
   <!-- Headlights & Taillights -->
-  <polygon points="412,258 428,260 426,270 410,268" fill="#60A5FA" />
-  <polygon points="100,258 84,260 86,270 102,268" fill="#EF4444" />
+  <polygon points="452,246 474,250 472,262 450,260" fill="#38BDF8" filter="url(#goldGlow)" />
+  <polygon points="60,246 38,250 40,262 62,260" fill="#EF4444" />
 
-  <!-- Wheels Outer -->
-  <circle cx="160" cy="308" r="38" fill="#020617" stroke="url(#goldGrad)" stroke-width="6" />
-  <circle cx="352" cy="308" r="38" fill="#020617" stroke="url(#goldGrad)" stroke-width="6" />
+  <!-- ================================================================= -->
+  <!-- "PSM" PLACED DIRECTLY ON / OVER THE STRETCHED VEHICLE BODY -->
+  <!-- ================================================================= -->
   
-  <!-- Wheels Rims -->
-  <circle cx="160" cy="308" r="16" fill="url(#goldGrad)" />
-  <circle cx="352" cy="308" r="16" fill="url(#goldGrad)" />
+  <!-- Subtle Contrast Door Plate / Decal Band on Car Body for Maximum Legibility -->
+  <rect x="156" y="218" width="200" height="48" rx="10" fill="#020617" fill-opacity="0.72" stroke="url(#goldGrad)" stroke-width="2" />
 
-  <!-- Luxury Typography PSM (Blue) & Subtitle JIS ANGOLA Below Vehicle -->
-  <text x="256" y="405" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="54" font-weight="900" letter-spacing="6" fill="url(#blueGrad)" filter="url(#blueGlow)">PSM</text>
-  <text x="256" y="452" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="800" letter-spacing="6" fill="#94A3B8">JIS ANGOLA</text>
+  <!-- Prominent "PSM" Word Over the Vehicle Chassis -->
+  <text x="256" y="254" 
+        text-anchor="middle" 
+        font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
+        font-size="38" 
+        font-weight="900" 
+        letter-spacing="8" 
+        fill="url(#psmGrad)" 
+        filter="url(#psmGlow)">PSM</text>
+
+  <!-- ================================================================= -->
+  <!-- WIDER-SPACED WHEELS & SPORT RIMS (Front: 110, Rear: 402) -->
+  <!-- ================================================================= -->
+  
+  <!-- Left/Rear Wheel -->
+  <circle cx="118" cy="304" r="40" fill="#020617" stroke="url(#goldGrad)" stroke-width="7" />
+  <circle cx="118" cy="304" r="24" fill="#0F172A" stroke="#475569" stroke-width="2" />
+  <circle cx="118" cy="304" r="14" fill="url(#goldGrad)" />
+
+  <!-- Right/Front Wheel -->
+  <circle cx="394" cy="304" r="40" fill="#020617" stroke="url(#goldGrad)" stroke-width="7" />
+  <circle cx="394" cy="304" r="24" fill="#0F172A" stroke="#475569" stroke-width="2" />
+  <circle cx="394" cy="304" r="14" fill="url(#goldGrad)" />
+
+  <!-- Ground Reflection Shadow -->
+  <ellipse cx="256" cy="350" rx="210" ry="12" fill="#000000" opacity="0.6" />
+
+  <!-- ================================================================= -->
+  <!-- BOTTOM BRANDING & SUBTITLE -->
+  <!-- ================================================================= -->
+  <text x="256" y="412" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" letter-spacing="6" fill="#F8FAFC">SUPER TÁXI</text>
+  <text x="256" y="454" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" letter-spacing="7" fill="#F59E0B">JIS ANGOLA • LUENA</text>
 </svg>

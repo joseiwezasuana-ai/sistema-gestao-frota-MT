@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, CircleMarker 
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { renderToString } from 'react-dom/server';
-import { collection, onSnapshot, query, limit } from '../lib/firebase';
+import { collection, onSnapshot, query, limit, originalCollection, getActiveTenantId, getDocs } from '../lib/firebase';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Truck, Crosshair, Map as MapIcon, Globe, AlertCircle, Zap, User, Phone, Route, MapPin } from 'lucide-react';
 import { animate } from 'motion/react';
@@ -430,7 +430,35 @@ export default function RealTimeMap() {
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'drivers'), (snapshot) => {
-      setDrivers(snapshot.docs.map((doc, idx) => {
+      let combinedDocs = [...snapshot.docs];
+      const activeTenant = getActiveTenantId();
+      const isPsmAlias = ['psm', 'psmoreira', 'PSMoreira', 'psm_angola'].includes(activeTenant);
+      
+      if (isPsmAlias) {
+        getDocs(originalCollection(db, 'tenants', 'psm', 'drivers')).then(psmSnap => {
+          if ('docs' in psmSnap && Array.isArray(psmSnap.docs)) {
+            const seenIds = new Set(combinedDocs.map(d => d.id));
+            for (const d of psmSnap.docs) {
+              if (!seenIds.has(d.id)) {
+                seenIds.add(d.id);
+                combinedDocs.push(d);
+              }
+            }
+            setDrivers(combinedDocs.map((doc, idx) => {
+              const data = doc.data();
+              const jitter = idx * 0.0002;
+              return { 
+                id: doc.id, 
+                ...data,
+                lat: Number(data.lat || -11.7833 + jitter),
+                lng: Number(data.lng || 19.9167 + jitter)
+              };
+            }));
+          }
+        }).catch(() => {});
+      }
+
+      setDrivers(combinedDocs.map((doc, idx) => {
         const data = doc.data();
         // Add a tiny jitter if multiple vehicles use the default coordinate to avoid overlapping
         const jitter = idx * 0.0002;

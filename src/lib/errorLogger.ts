@@ -13,6 +13,41 @@ export interface SystemErrorLog {
   userAgent?: string;
   url?: string;
   resolved?: boolean;
+  // FCM & Signaling Specific Fields
+  logCategory?: 'system' | 'fcm_delivery' | 'signaling';
+  driverId?: string;
+  callId?: string;
+  serverCallReceivedTimestamp?: string;
+  fcmToken?: string;
+  failureReason?: string;
+  metadata?: Record<string, any>;
+}
+
+export async function logFcmDeliveryError(data: {
+  driverId: string;
+  serverCallReceivedTimestamp: string;
+  callId?: string;
+  errorMessage: string;
+  failureReason?: string;
+  fcmToken?: string;
+  stack?: string;
+  metadata?: Record<string, any>;
+}): Promise<void> {
+  const message = `[FCM Delivery Error] Falha ao entregar notificação push ao motorista (${data.driverId}): ${data.errorMessage}`;
+  await logSystemError({
+    message,
+    stack: data.stack || `FCM Delivery Attempt failed for Driver ${data.driverId}`,
+    severity: 'error',
+    metadata: {
+      logCategory: 'fcm_delivery',
+      driverId: data.driverId,
+      callId: data.callId || '',
+      serverCallReceivedTimestamp: data.serverCallReceivedTimestamp,
+      fcmToken: data.fcmToken || '',
+      failureReason: data.failureReason || 'Token FCM inválido ou dispositivo offline',
+      ...data.metadata
+    }
+  });
 }
 
 export async function logSystemError(data: {
@@ -47,7 +82,14 @@ export async function logSystemError(data: {
       tenantId: getActiveTenantId() || 'jis',
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
       url: typeof window !== 'undefined' ? window.location.href : '',
-      resolved: false
+      resolved: false,
+      logCategory: data.metadata?.logCategory || 'system',
+      driverId: data.metadata?.driverId,
+      callId: data.metadata?.callId,
+      serverCallReceivedTimestamp: data.metadata?.serverCallReceivedTimestamp,
+      fcmToken: data.metadata?.fcmToken,
+      failureReason: data.metadata?.failureReason,
+      metadata: data.metadata || {}
     };
 
     // 1. Backup to LocalStorage (for offline recovery)

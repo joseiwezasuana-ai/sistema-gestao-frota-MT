@@ -24,7 +24,9 @@ import {
   db,
   googleProvider,
   setActiveTenantId,
-  getActiveTenantId
+  getActiveTenantId,
+  originalCollection,
+  originalDoc
 } from './lib/firebase';
 import { cn } from './lib/utils';
 import { getFcmMessaging, requestDriverFcmToken, listenToFcmForegroundMessages } from './lib/fcmService';
@@ -310,6 +312,140 @@ const MandatoryUpdateModal = ({
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
+
+  // Debug logger for active tenant and query information requested by José Iweza Suana (JIS)
+  useEffect(() => {
+    const currentTenant = getActiveTenantId() || 'psm';
+    console.log(`[JIS DEBUG LOG] Active Tenant ID: "${currentTenant}"`);
+    console.log(`[JIS DEBUG LOG] Drivers/Viaturas collection query executed in DriverView/PassengerFlow with filters: tenantId == "${currentTenant}" AND disponibilidade_app == true AND status_operacional == "ativo"`);
+  }, [userProfile]);
+
+  // Automatic migration script to backfill missing tenantId in existing 'messages' documents for full isolation (JIS)
+  useEffect(() => {
+    const runMigration = async () => {
+      const hasMigrated = localStorage.getItem('messages_tenant_migration_done');
+      if (hasMigrated) return;
+
+      try {
+        console.log("[Migration] Running tenantId backfill migration on messages...");
+        const snap = await getDocs(collection(db, 'messages'));
+        let updatedCount = 0;
+        
+        for (const docSnap of snap.docs) {
+          const data = docSnap.data();
+          if (!data.tenantId) {
+            // Deduce tenantId based on fields, e.g. senderTenant, receiverTenant, companyId or default to 'psm'
+            const deducedTenant = data.senderTenant || data.receiverTenant || data.companyId || 'psm';
+            await updateDoc(doc(db, 'messages', docSnap.id), {
+              tenantId: deducedTenant
+            });
+            updatedCount++;
+          }
+        }
+        
+        console.log(`[Migration] Successfully updated ${updatedCount} messages with tenantId.`);
+        localStorage.setItem('messages_tenant_migration_done', 'true');
+      } catch (err) {
+        console.warn("[Migration] Error migrating messages:", err);
+      }
+    };
+
+    runMigration();
+  }, []);
+
+  // Automatic migration script to backfill missing fields and sync 'drivers' documents across all tenants (JIS)
+  useEffect(() => {
+    const runDriversMigration = async () => {
+      try {
+        console.log("[Migration] Running backfill migration on drivers subcollections across all tenants...");
+        
+        // 1. Get all known tenants
+        const tenantsSnap = await getDocs(originalCollection(db, 'tenants')).catch(() => ({ docs: [] }));
+        const tenantIds = ('docs' in tenantsSnap && Array.isArray(tenantsSnap.docs)) 
+          ? tenantsSnap.docs.map(docSnap => docSnap.id) 
+          : [];
+        
+        // Ensure known/standard IDs are present in the processing list
+        if (!tenantIds.includes('psm')) tenantIds.push('psm');
+        if (!tenantIds.includes('PSMoreira')) tenantIds.push('PSMoreira');
+        if (!tenantIds.includes('psmoreira')) tenantIds.push('psmoreira');
+        
+        let totalDriversUpdated = 0;
+        const psmDriversPool: any[] = [];
+        
+        for (const tId of tenantIds) {
+          // Access the subcollection tenants/{tId}/drivers bypassing the global tenant wrapper
+          const driversRef = originalCollection(db, 'tenants', tId, 'drivers');
+          const driversSnap = await getDocs(driversRef).catch(() => ({ docs: [] }));
+          
+          if (!('docs' in driversSnap) || !Array.isArray(driversSnap.docs)) continue;
+          
+          for (const docSnap of driversSnap.docs) {
+            const data = docSnap.data();
+            const docRef = originalDoc(db, 'tenants', tId, 'drivers', docSnap.id);
+            
+            let needsUpdate = false;
+            const updatePayload: any = {};
+            
+            // 1. Ensure the driver's tenantId matches the subcollection ID (no normalization mismatch)
+            if (data.tenantId !== tId) {
+              updatePayload.tenantId = tId;
+              needsUpdate = true;
+            }
+            
+            // 2. Set default disponibilidade_app to true if not defined
+            if (data.disponibilidade_app === undefined) {
+              updatePayload.disponibilidade_app = data.passengerAppActive !== false;
+              needsUpdate = true;
+            }
+            
+            // 3. Set default status_operacional to 'ativo' if not defined
+            if (!data.status_operacional) {
+              const statusStr = (data.status || '').toLowerCase();
+              updatePayload.status_operacional = (statusStr === 'ativo' || statusStr === 'available' || statusStr === 'disponível' || statusStr === 'disponivel' || statusStr === 'ativo_do_app' || statusStr === '') ? 'ativo' : 'inativo';
+              needsUpdate = true;
+            }
+            
+            if (needsUpdate) {
+              await updateDoc(docRef, updatePayload);
+              totalDriversUpdated++;
+            }
+
+            if (['psm', 'PSMoreira', 'psmoreira'].includes(tId)) {
+              psmDriversPool.push({ id: docSnap.id, sourceTenant: tId, data: { ...data, ...updatePayload } });
+            }
+          }
+        }
+
+        // Cross-sync drivers between psm, PSMoreira, and psmoreira subcollections for 100% visibility
+        const psmAliases = ['psm', 'PSMoreira', 'psmoreira'];
+        for (const targetTenant of psmAliases) {
+          const targetRef = originalCollection(db, 'tenants', targetTenant, 'drivers');
+          const targetSnap = await getDocs(targetRef).catch(() => ({ docs: [] }));
+          const existingIds = ('docs' in targetSnap && Array.isArray(targetSnap.docs)) ? targetSnap.docs.map(d => d.id) : [];
+
+          for (const item of psmDriversPool) {
+            if (item.sourceTenant !== targetTenant && !existingIds.includes(item.id)) {
+              await setDoc(originalDoc(db, 'tenants', targetTenant, 'drivers', item.id), {
+                ...item.data,
+                tenantId: targetTenant,
+                disponibilidade_app: true,
+                passengerAppActive: true,
+                status_operacional: 'ativo',
+                status: item.data.status || 'disponível'
+              }, { merge: true }).catch(() => {});
+            }
+          }
+        }
+        
+        console.log(`[Migration] Successfully migrated/backfilled and synchronized ${totalDriversUpdated} driver documents across all tenants.`);
+      } catch (err) {
+        console.warn("[Migration] Error migrating subcollection drivers:", err);
+      }
+    };
+
+    runDriversMigration();
+  }, [userProfile]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showPublicPassengerFlow, setShowPublicPassengerFlow] = useState(false);
@@ -370,20 +506,27 @@ export default function App() {
       const href = window.location.href.toLowerCase();
       const search = window.location.search.toLowerCase();
       const hash = window.location.hash.toLowerCase();
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+      const savedMode = localStorage.getItem('app_mode');
+      const isCollabMode = localStorage.getItem('collaborator_mode') === 'true';
 
-      // Check if URL search parameters, hash, or full URL specify passenger app
+      const isStaffExplicit = search.includes('staff') || search.includes('colaborador') || search.includes('admin') || search.includes('login') || hash.includes('staff') || hash.includes('login');
+
+      // Check if URL search parameters, hash, standalone mode, or saved mode specify passenger app
       const isPassengerRoute = 
         search.includes('passenger') || 
         search.includes('passageiro') || 
         hash.includes('passenger') || 
         hash.includes('passageiro') || 
         href.includes('=passenger') || 
-        href.includes('=passageiro');
+        href.includes('=passageiro') ||
+        (savedMode === 'passenger' && !isStaffExplicit) ||
+        (isStandalone && !isCollabMode && !isStaffExplicit);
 
       if (isPassengerRoute) {
         setShowPublicPassengerFlow(true);
+        localStorage.setItem('app_mode', 'passenger');
       } else {
-        // Default URL (e.g. JIS-st.web.app) opens the Collaborator / Staff Portal
         setShowPublicPassengerFlow(false);
       }
     }

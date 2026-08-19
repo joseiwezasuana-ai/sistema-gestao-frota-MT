@@ -231,16 +231,19 @@ async function startServer() {
 
   // Endpoint to send Firebase Cloud Messaging (FCM) Push Notifications to Drivers / Dispatch
   app.post("/api/fcm/send-driver-push", async (req, res) => {
+    const serverCallReceivedTimestamp = new Date().toISOString();
     try {
       const { fcmToken, title, body, callId, driverId, notificationType } = req.body;
+      const targetDriverId = driverId || "unassigned_driver";
       
       if (!title || !body) {
         return res.status(400).json({ error: "Title and body are required" });
       }
 
-      console.log(`[FCM Push Driver] Processing driver push '${title}' (type: ${notificationType}) for call: ${callId}, driver: ${driverId}`);
+      console.log(`[FCM Push Driver] Processing driver push '${title}' (type: ${notificationType}) for call: ${callId}, driver: ${targetDriverId} at ${serverCallReceivedTimestamp}`);
 
       let fcmMessageId: string | null = null;
+      let deliveryError: any = null;
 
       if (fcmToken && typeof fcmToken === "string" && fcmToken.length > 10) {
         try {
@@ -252,10 +255,11 @@ async function startServer() {
             },
             data: {
               callId: callId || "",
-              driverId: driverId || "",
+              driverId: targetDriverId,
               type: notificationType || "call_received",
               title: title,
               body: body,
+              serverCallReceivedTimestamp: serverCallReceivedTimestamp,
               click_action: "/?tab=dashboard",
             },
             webpush: {
@@ -285,19 +289,106 @@ async function startServer() {
             }
           });
           console.log(`[FCM Push Driver] Driver FCM message sent successfully. ID: ${fcmMessageId}`);
+
+          // Log success to signaling_logs
+          try {
+            await db.collection("signaling_logs").add({
+              eventType: "push_delivered",
+              status: "success",
+              message: `Notificação push FCM entregue com sucesso ao motorista (${targetDriverId})`,
+              driverId: targetDriverId,
+              callId: callId || "",
+              fcmToken: fcmToken.substring(0, 20) + "...",
+              serverCallReceivedTimestamp: serverCallReceivedTimestamp,
+              timestamp: new Date().toISOString(),
+              createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (logErr) {
+            console.warn("[FCM Log] Signaling success log error:", logErr);
+          }
         } catch (fcmErr: any) {
-          console.warn("[FCM Push Driver] Firebase Admin Messaging send warning:", fcmErr?.message || fcmErr);
+          deliveryError = fcmErr;
+          console.warn("[FCM Push Driver] Firebase Admin Messaging send error:", fcmErr?.message || fcmErr);
+
+          // Log FCM failure to system_error_logs and signaling_logs
+          try {
+            const errLogDoc = {
+              message: `[FCM Delivery Error] Falha de envio FCM para motorista ${targetDriverId}: ${fcmErr?.message || 'Erro desconhecido'}`,
+              stack: fcmErr?.stack || String(fcmErr),
+              severity: "error",
+              logCategory: "fcm_delivery",
+              driverId: targetDriverId,
+              callId: callId || "",
+              serverCallReceivedTimestamp: serverCallReceivedTimestamp,
+              fcmToken: fcmToken ? (fcmToken.substring(0, 20) + "...") : "não_fornecido",
+              failureReason: fcmErr?.code || fcmErr?.message || "Token FCM inválido ou dispositivo offline",
+              timestamp: new Date().toISOString(),
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              resolved: false
+            };
+
+            await db.collection("system_error_logs").add(errLogDoc);
+            await db.collection("signaling_logs").add({
+              eventType: "push_failed",
+              status: "failure",
+              message: `Falha na entrega de push FCM para motorista ${targetDriverId}`,
+              driverId: targetDriverId,
+              callId: callId || "",
+              serverCallReceivedTimestamp: serverCallReceivedTimestamp,
+              failureReason: fcmErr?.message || "Falha no Firebase Cloud Messaging",
+              fcmToken: fcmToken ? (fcmToken.substring(0, 20) + "...") : "não_fornecido",
+              timestamp: new Date().toISOString(),
+              createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+          } catch (logErr) {
+            console.warn("[FCM Log] Error writing FCM error log:", logErr);
+          }
+        }
+      } else {
+        // No valid token available for driver
+        try {
+          await db.collection("system_error_logs").add({
+            message: `[FCM Delivery Error] Motorista ${targetDriverId} sem token FCM registado durante disparo de 'call_received'`,
+            severity: "warning",
+            logCategory: "fcm_delivery",
+            driverId: targetDriverId,
+            callId: callId || "",
+            serverCallReceivedTimestamp: serverCallReceivedTimestamp,
+            failureReason: "Token FCM ausente ou não autorizado no navegador do motorista",
+            timestamp: new Date().toISOString(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            resolved: false
+          });
+
+          await db.collection("signaling_logs").add({
+            eventType: "push_failed",
+            status: "warning",
+            message: `Tentativa de envio FCM falhou: Motorista ${targetDriverId} não tem token registado`,
+            driverId: targetDriverId,
+            callId: callId || "",
+            serverCallReceivedTimestamp: serverCallReceivedTimestamp,
+            failureReason: "Token FCM não configurado no dispositivo",
+            timestamp: new Date().toISOString(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (logErr) {
+          console.warn("[FCM Log] Error logging missing token:", logErr);
         }
       }
 
       return res.json({ 
-        success: true, 
+        success: !deliveryError, 
         fcmMessageId,
-        message: "Notificação push do motorista enviada com sucesso!"
+        serverCallReceivedTimestamp,
+        error: deliveryError ? (deliveryError.message || String(deliveryError)) : undefined,
+        message: deliveryError ? "Falha na entrega FCM registada no log" : "Notificação push processada"
       });
     } catch (err: any) {
       console.error("[FCM Push Driver] Error in send-driver-push route:", err);
-      return res.status(500).json({ error: err?.message || "Internal server error" });
+      return res.status(500).json({ 
+        error: err?.message || "Internal server error",
+        serverCallReceivedTimestamp 
+      });
     }
   });
 

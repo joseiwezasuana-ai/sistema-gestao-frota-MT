@@ -21,7 +21,7 @@ import { WhatsAppMonitor } from './WhatsAppMonitor';
 import { TeamCollaborativeChat } from './TeamCollaborativeChat';
 
 import { collection, onSnapshot, addDoc, query, orderBy, limit, serverTimestamp, getDocs, deleteDoc, doc, where } from '../lib/firebase';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType, getActiveTenantId } from '../lib/firebase';
 import { smsService } from '../services/smsService';
 
 interface MessagesProps {
@@ -88,20 +88,39 @@ export default function Messages({ isAdmin = false }: MessagesProps) {
       }
     });
 
-    // Listen for driver users
-    const qUsers = query(collection(db, 'users'), where('role', '==', 'driver'));
+    const currentTenant = getActiveTenantId() || 'psm';
+
+    // Listen for driver users of this tenant
+    const qUsers = query(
+      collection(db, 'users'), 
+      where('role', '==', 'driver'),
+      where('tenantId', '==', currentTenant)
+    );
     const unsubUsers = onSnapshot(qUsers, (snapshot) => {
       setRegisteredUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
 
-    // Listen for messages
-    const qMessages = query(collection(db, 'messages'), orderBy('timestamp', 'desc'), limit(50));
+    // Listen for messages scoped strictly to tenant
+    const qMessages = query(
+      collection(db, 'messages'),
+      where('tenantId', '==', currentTenant),
+      limit(100)
+    );
     const unsubMessages = onSnapshot(qMessages, (snapshot) => {
-      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      docs.sort((a: any, b: any) => {
+        const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return dateB - dateA;
+      });
+      setMessages(docs);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'messages'));
 
-    // Listen for active drivers
-    const qDrivers = query(collection(db, 'drivers_master'));
+    // Listen for active drivers of this tenant
+    const qDrivers = query(
+      collection(db, 'drivers_master'),
+      where('tenantId', '==', currentTenant)
+    );
     const unsubDrivers = onSnapshot(qDrivers, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setDrivers(docs);
@@ -164,6 +183,7 @@ export default function Messages({ isAdmin = false }: MessagesProps) {
         content: newMessage,
         sender: auth.currentUser?.displayName || 'Central Operacional',
         senderUid: auth.currentUser?.uid,
+        tenantId: getActiveTenantId() || 'psm',
         type: channel.type,
         channelId: selectedChannel === 'all' ? 'logistics' : selectedChannel,
         targetId: selectedDriverId,

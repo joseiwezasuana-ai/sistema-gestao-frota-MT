@@ -797,12 +797,27 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
 
     const activeStatusesLower = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em servico', 'em curso'];
 
+    const normalizeTenant = (t?: string) => {
+      if (!t) return 'psm';
+      const clean = String(t).trim().toLowerCase();
+      if (clean === 'psmoreira' || clean === 'psm_angola' || clean === 'super_taxi_psm') return 'psm';
+      return clean;
+    };
+    const activeTenantClean = normalizeTenant(getActiveTenantId());
+
+    const isSameTenant = (itemTenant?: string) => {
+      if (!itemTenant) return true; // legacy or default record
+      const clean = normalizeTenant(itemTenant);
+      return clean === activeTenantClean || clean === 'all' || activeTenantClean === 'all';
+    };
+
     const recomputeMembers = () => {
       const membersMap = new Map<string, TeamMember>();
       const activeDriverIds = new Set<string>();
 
       // Active fleet drivers (from drivers collection)
       vehiclesDocs.forEach((d) => {
+        if (!isSameTenant(d.tenantId || d.companyId || d.tenant)) return;
         const dId = d.driverId || d.id;
         const status = String(d.status || '').toLowerCase();
         const isFleetActive = d.isOnline === true || d.shiftActive === true || activeStatusesLower.includes(status);
@@ -832,6 +847,7 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
 
       // Master Drivers directory (ensures all registered drivers are listed with their clean human name)
       masterDocs.forEach((m) => {
+        if (!isSameTenant(m.tenantId || m.companyId || m.tenant)) return;
         const mId = m.id || m.uid || m.driverId;
         if (mId && mId !== currentUserId) {
           const { isOnline, lastSeenText, lastSeenIso } = presenceService.checkIsOnline(mId, presenceMap, activeDriverIds);
@@ -858,6 +874,7 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
 
       // Administrative Staff (Gerente, Operador, Mecânico, Contabilista, Admin)
       staffDocs.forEach((s) => {
+        if (!isSameTenant(s.tenantId || s.companyId || s.tenant)) return;
         const sId = s.id || s.uid;
         if (sId && sId !== currentUserId) {
           const { isOnline, lastSeenText, lastSeenIso } = presenceService.checkIsOnline(sId, presenceMap, activeDriverIds);
@@ -876,6 +893,7 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
 
       // Platform Registered Users
       usersDocs.forEach((u) => {
+        if (!isSameTenant(u.tenantId || u.companyId || u.tenant)) return;
         const uId = u.uid || u.id;
         if (uId && uId !== currentUserId && !membersMap.has(uId)) {
           const resolvedName = (u.role === 'driver' || isIdLike(u.name))
@@ -952,11 +970,19 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
     };
   }, [isOpen, isEmbedded, currentUserId]);
 
-  // Listen for messages depending on general channel vs direct chat
+  // Listen for messages depending on general channel vs direct chat (scoped by tenant)
   useEffect(() => {
     if (!isOpen && !isEmbedded) return;
 
-    let targetChannel = 'general';
+    const normalizeTenant = (t?: string) => {
+      if (!t) return 'psm';
+      const clean = String(t).trim().toLowerCase();
+      if (clean === 'psmoreira' || clean === 'psm_angola' || clean === 'super_taxi_psm') return 'psm';
+      return clean;
+    };
+    const activeTenantClean = normalizeTenant(getActiveTenantId());
+
+    let targetChannel = activeTenantClean === 'psm' ? 'general' : `general_${activeTenantClean}`;
     if (activeTab === 'direct' && selectedRecipient) {
       // Sort IDs to get deterministic channel key
       const ids = [currentUserId, selectedRecipient.id].sort();
@@ -992,7 +1018,15 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
     const cleanText = inputText.trim();
     if (!cleanText) return;
 
-    let targetChannel = 'general';
+    const normalizeTenant = (t?: string) => {
+      if (!t) return 'psm';
+      const clean = String(t).trim().toLowerCase();
+      if (clean === 'psmoreira' || clean === 'psm_angola' || clean === 'super_taxi_psm') return 'psm';
+      return clean;
+    };
+    const activeTenantClean = normalizeTenant(getActiveTenantId());
+
+    let targetChannel = activeTenantClean === 'psm' ? 'general' : `general_${activeTenantClean}`;
     let recipientId = undefined;
 
     if (activeTab === 'direct') {
@@ -1004,6 +1038,7 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
 
     const msgPayload: any = {
       channel: targetChannel,
+      tenantId: activeTenantClean,
       senderId: currentUserId,
       senderName: currentUserName,
       senderRole: currentUserRole,
@@ -1389,8 +1424,16 @@ export const TeamCollaborativeChat: React.FC<TeamCollaborativeChatProps> = ({
                             {member.name}
                           </p>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[8.5px] font-extrabold uppercase text-indigo-400 bg-indigo-500/10 px-1.5 py-0.2 rounded">
+                            <span className="text-[8.5px] font-extrabold uppercase text-indigo-400 bg-indigo-500/10 px-1.5 py-0.2 rounded font-sans">
                               {member.role === 'motorista' ? `Motorista ${member.vehiclePrefix || ''}` : member.role}
+                            </span>
+                            <span className={cn(
+                              "text-[8.5px] font-black uppercase px-1.5 py-0.2 rounded font-sans",
+                              member.online 
+                                ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" 
+                                : "text-slate-500 bg-slate-500/10 border border-slate-700/20"
+                            )}>
+                              {member.online ? "ONLINE" : "OFFLINE"}
                             </span>
                           </div>
                         </div>

@@ -58,6 +58,7 @@ import { cn } from '../lib/utils';
 import { toSafeDate, formatSafe } from '../lib/dateUtils';
 import { startOfDay, endOfDay } from 'date-fns';
 import WaitingTimer from './WaitingTimer';
+import { CallPendingOverlay } from './CallPendingOverlay';
 
 interface Driver {
   id: string;
@@ -717,8 +718,16 @@ export default function DriverDashboard() {
     d.phone.includes(searchTerm)
   );
 
+  const activePendingCalls = allCalls.filter(c => c.status === 'pending' || c.status === 'pendente');
+
   return (
     <div className="space-y-6 container mx-auto pb-10" id="driver_dashboard_root">
+      {/* OVERLAY DE CHAMADA PENDENTE / RING ALERTA PARA MOTORISTAS & CENTRAL */}
+      <CallPendingOverlay 
+        pendingCalls={activePendingCalls} 
+        drivers={drivers} 
+        currentDriverId={selectedDriverId} 
+      />
       
       {/* HEADER PRINCIPAL */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 text-white rounded-[2rem] px-8 py-7 shadow-xl relative overflow-hidden shrink-0">
@@ -1996,6 +2005,25 @@ export default function DriverDashboard() {
 
         </AnimatePresence>
       )}
+
+      {/* High-visibility Call Pending Overlay for Active Calls */}
+      {(() => {
+        const pendingCalls = allCalls.filter((c) => {
+          if (c.status !== 'pending') return false;
+          if (!selectedDriverId) return true;
+          return !c.driverId || c.driverId === selectedDriverId || c.driverName === activeDriver?.name;
+        });
+
+        if (pendingCalls.length === 0) return null;
+
+        return (
+          <CallPendingOverlay
+            pendingCalls={pendingCalls}
+            drivers={drivers}
+            currentDriverId={selectedDriverId}
+          />
+        );
+      })()}
 
     </div>
   );

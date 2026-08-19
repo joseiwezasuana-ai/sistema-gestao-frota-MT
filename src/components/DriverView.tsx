@@ -94,6 +94,7 @@ import "leaflet/dist/leaflet.css";
 
 import { geminiService } from "../services/geminiService";
 import { sendPassengerPushNotification } from "../lib/fcmService";
+import { logSignalingEvent } from "../lib/signalingLogger";
 
 // Fix for Leaflet default icon issues safely
 try {
@@ -441,6 +442,7 @@ export default function DriverView({ user }: DriverViewProps) {
   const attendCall = async () => {
     if (!currentService?.id) return;
     try {
+      stopIncomingCallRing();
       setIsCallScreenMinimized(false);
       const callRef = doc(db, "calls", currentService.id);
       await updateDoc(callRef, {
@@ -900,6 +902,13 @@ export default function DriverView({ user }: DriverViewProps) {
   const [isPlayingAudioId, setIsPlayingAudioId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const incomingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const webAudioCtxRef = useRef<any>(null);
+  const webAudioOscGainRef = useRef<any>(null);
+  const isRingingRef = useRef<boolean>(false);
+  const ringingIntervalRef = useRef<any>(null);
+  const speechIntervalRef = useRef<any>(null);
+  const vibrateIntervalRef = useRef<any>(null);
 
   const baseRingtones = [
     { id: 'classic', name: 'Clássico', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
@@ -910,6 +919,197 @@ export default function DriverView({ user }: DriverViewProps) {
   ];
 
   const ringtones = [...customRingtones, ...baseRingtones];
+
+  // Helper to initialize and unlock Web Audio context on user interaction
+  const getUnlockedAudioContext = () => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const AudioCtxClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtxClass) return null;
+      if (!webAudioCtxRef.current) {
+        webAudioCtxRef.current = new AudioCtxClass();
+      }
+      if (webAudioCtxRef.current && webAudioCtxRef.current.state === 'suspended') {
+        webAudioCtxRef.current.resume().catch(() => {});
+      }
+      return webAudioCtxRef.current;
+    } catch (e) {
+      console.warn("Web Audio context init error:", e);
+      return null;
+    }
+  };
+
+  // Synthesize an audible dual-tone telephone bell ring (440Hz + 480Hz cadence) - 100% offline & reliable
+  const playSynthesizedPhoneRingBurst = () => {
+    try {
+      const ctx = getUnlockedAudioContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'sine';
+      osc2.type = 'sine';
+      osc1.frequency.setValueAtTime(440, now);
+      osc2.frequency.setValueAtTime(480, now);
+
+      gain.gain.setValueAtTime(0, now);
+      // Ring burst 1
+      gain.gain.linearRampToValueAtTime(0.35, now + 0.05);
+      gain.gain.setValueAtTime(0.35, now + 0.8);
+      gain.gain.linearRampToValueAtTime(0, now + 0.85);
+
+      // Ring burst 2
+      gain.gain.setValueAtTime(0, now + 1.0);
+      gain.gain.linearRampToValueAtTime(0.35, now + 1.05);
+      gain.gain.setValueAtTime(0.35, now + 1.85);
+      gain.gain.linearRampToValueAtTime(0, now + 1.9);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + 2.0);
+      osc2.stop(now + 2.0);
+    } catch (e) {
+      console.warn("Dual tone ring error:", e);
+    }
+  };
+
+  // Start continuous incoming call ringtone (Audio + Speech + Vibration + Dual-tone Fallback)
+  const startIncomingCallRing = () => {
+    if (isRingingRef.current) return;
+    isRingingRef.current = true;
+    console.log("[DriverView] 🔔 Starting continuous incoming call ringtone...");
+
+    // 1. Vibration
+    try {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate([600, 300, 600, 300, 1000]);
+        if (vibrateIntervalRef.current) clearInterval(vibrateIntervalRef.current);
+        vibrateIntervalRef.current = setInterval(() => {
+          if (!isRingingRef.current) {
+            clearInterval(vibrateIntervalRef.current);
+            return;
+          }
+          try {
+            navigator.vibrate([600, 300, 600, 300, 1000]);
+          } catch {}
+        }, 3000);
+      }
+    } catch (err) {
+      console.warn("Vibration error:", err);
+    }
+
+    // 2. Speech Synthesis or Ringtone Playback
+    const currentRingtoneId = selectedRingtone || localStorage.getItem('driver_ringtone') || 'voice_supertaxi';
+    const ringtoneObj = ringtones.find(r => r.id === currentRingtoneId) || baseRingtones[4];
+
+    if (currentRingtoneId === 'voice_supertaxi') {
+      speakNotification();
+      playSynthesizedPhoneRingBurst();
+      if (speechIntervalRef.current) clearInterval(speechIntervalRef.current);
+      speechIntervalRef.current = setInterval(() => {
+        if (!isRingingRef.current) {
+          clearInterval(speechIntervalRef.current);
+          return;
+        }
+        speakNotification();
+        playSynthesizedPhoneRingBurst();
+      }, 4000);
+    } else {
+      // Play Audio file loop + Synthesizer fallback
+      try {
+        if (incomingAudioRef.current) {
+          incomingAudioRef.current.pause();
+          incomingAudioRef.current.currentTime = 0;
+        }
+        if (typeof window !== 'undefined' && 'Audio' in window) {
+          const AudioClass = (window as any).Audio;
+          incomingAudioRef.current = new AudioClass(ringtoneObj.url);
+          incomingAudioRef.current.loop = true;
+          incomingAudioRef.current.play().catch((err) => {
+            console.warn("HTML5 audio playback blocked/failed, using Web Audio phone bell fallback:", err);
+            playSynthesizedPhoneRingBurst();
+            if (ringingIntervalRef.current) clearInterval(ringingIntervalRef.current);
+            ringingIntervalRef.current = setInterval(() => {
+              if (!isRingingRef.current) {
+                clearInterval(ringingIntervalRef.current);
+                return;
+              }
+              playSynthesizedPhoneRingBurst();
+            }, 3000);
+          });
+        }
+      } catch (err) {
+        console.warn("Audio element error, using synthesizer:", err);
+        playSynthesizedPhoneRingBurst();
+      }
+    }
+  };
+
+  // Stop incoming call ringtone immediately
+  const stopIncomingCallRing = () => {
+    isRingingRef.current = false;
+    console.log("[DriverView] 🔕 Stopped incoming call ringtone.");
+    try {
+      if (incomingAudioRef.current) {
+        incomingAudioRef.current.pause();
+        incomingAudioRef.current.currentTime = 0;
+      }
+    } catch {}
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {}
+    try {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate(0);
+      }
+    } catch {}
+    if (vibrateIntervalRef.current) {
+      clearInterval(vibrateIntervalRef.current);
+      vibrateIntervalRef.current = null;
+    }
+    if (speechIntervalRef.current) {
+      clearInterval(speechIntervalRef.current);
+      speechIntervalRef.current = null;
+    }
+    if (ringingIntervalRef.current) {
+      clearInterval(ringingIntervalRef.current);
+      ringingIntervalRef.current = null;
+    }
+  };
+
+  // Global user gesture listener to prime audio on device
+  useEffect(() => {
+    const handleUnlock = () => {
+      getUnlockedAudioContext();
+    };
+    window.addEventListener('click', handleUnlock, { passive: true });
+    window.addEventListener('touchstart', handleUnlock, { passive: true });
+    return () => {
+      window.removeEventListener('click', handleUnlock);
+      window.removeEventListener('touchstart', handleUnlock);
+    };
+  }, []);
+
+  // Monitor currentService status and trigger / stop continuous ringtone
+  useEffect(() => {
+    if (currentService && currentService.status === 'pending') {
+      startIncomingCallRing();
+    } else {
+      stopIncomingCallRing();
+    }
+    return () => {
+      stopIncomingCallRing();
+    };
+  }, [currentService?.id, currentService?.status, selectedRingtone]);
 
   const handleUploadCustomRingtone = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1003,6 +1203,7 @@ export default function DriverView({ user }: DriverViewProps) {
       setIsPlayingAudioId(ringId || null);
       if (ringId === 'voice_supertaxi') {
         speakNotification();
+        playSynthesizedPhoneRingBurst();
         return;
       }
       if (typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
@@ -1011,6 +1212,7 @@ export default function DriverView({ user }: DriverViewProps) {
         audioRef.current.onended = () => setIsPlayingAudioId(null);
         audioRef.current.play().catch(e => {
           console.warn(e);
+          playSynthesizedPhoneRingBurst();
           setIsPlayingAudioId(null);
         });
       }
@@ -1066,7 +1268,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
   useEffect(() => {
     if (isWebAppModalOpen) {
-      const webAppUrl = window.location.origin;
+      const webAppUrl = `${window.location.origin}/?view=passenger&mode=passenger`;
       QRCode.toDataURL(webAppUrl, { width: 280, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } })
         .then(url => setWebAppQrUrl(url))
         .catch(() => setWebAppQrUrl(`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(webAppUrl)}`));
@@ -1721,6 +1923,11 @@ export default function DriverView({ user }: DriverViewProps) {
         return p.toUpperCase().replace(/[^A-Z0-9]/g, '');
       };
 
+      const cleanPhone = (ph: string) => {
+        if (!ph) return "";
+        return ph.replace(/[^0-9]/g, '');
+      };
+
       // First check if our current active service in memory was updated in Firestore
       const currentActiveId = currentServiceRef.current?.id;
       let ourMatchedDoc: any = null;
@@ -1741,7 +1948,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
           const callDriverNameClean = cleanName(d.driverName || "");
           const loggedDriverNameClean = cleanName(user?.name || "");
-          const vehicleDriverNameClean = cleanName(assignedVehicle?.driverName || "");
+          const vehicleDriverNameClean = cleanName(assignedVehicle?.driverName || assignedVehicle?.name || "");
 
           const isNameMatch = (
             (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean === loggedDriverNameClean) ||
@@ -1759,20 +1966,34 @@ export default function DriverView({ user }: DriverViewProps) {
             (assignedVehicle?.driverId && d.driverId === assignedVehicle.driverId)
           );
 
-          // If call is explicitly reassigned/delegated to another driver, exclude it for current driver
-          const isAssignedToOther = (
-            (d.driverId && user?.uid && d.driverId !== user.uid && (!assignedVehicle?.id || d.driverId !== assignedVehicle.id) && (!assignedVehicle?.driverId || d.driverId !== assignedVehicle.driverId)) ||
-            (callDriverNameClean !== "" && loggedDriverNameClean !== "" && callDriverNameClean !== loggedDriverNameClean && (!vehicleDriverNameClean || callDriverNameClean !== vehicleDriverNameClean))
+          const callPhoneClean = cleanPhone(d.driverPhone || "");
+          const userPhoneClean = cleanPhone(user?.phone || user?.phoneNumber || "");
+          const vehiclePhoneClean = cleanPhone(assignedVehicle?.phone || assignedVehicle?.secondaryPhone || "");
+          const isPhoneMatch = (
+            (callPhoneClean !== "" && userPhoneClean !== "" && (callPhoneClean.endsWith(userPhoneClean) || userPhoneClean.endsWith(callPhoneClean))) ||
+            (callPhoneClean !== "" && vehiclePhoneClean !== "" && (callPhoneClean.endsWith(vehiclePhoneClean) || vehiclePhoneClean.endsWith(callPhoneClean)))
           );
 
-          if (isAssignedToOther && !isNameMatch && !isDriverIdMatch) {
-            return false;
-          }
+          const userPrefix = (user?.prefix && user.prefix !== "N/A") ? user.prefix.toUpperCase().trim() : "";
+          const vehiclePrefix = assignedVehicle?.prefix ? assignedVehicle.prefix.toUpperCase().trim() : "";
+          const callPrefix = (d.vehiclePrefix || d.prefix || "").toUpperCase().trim();
+          const isPrefixMatch = callPrefix !== "" && (callPrefix === userPrefix || callPrefix === vehiclePrefix);
+
+          const isBroadcastMatch = (
+            d.driverId === 'auto' ||
+            d.driverId === 'general' ||
+            !d.driverId ||
+            d.driverName === 'Motorista de Turno' ||
+            d.vehiclePlate === 'Atribuição Automática'
+          ) && isOnline;
 
           return (
+            isDriverIdMatch ||
             isNameMatch ||
             isPlateMatch ||
-            isDriverIdMatch
+            isPhoneMatch ||
+            isPrefixMatch ||
+            isBroadcastMatch
           );
         });
       }
@@ -1847,6 +2068,17 @@ export default function DriverView({ user }: DriverViewProps) {
           const isNewlyPending = callData.status === "pending" && (!prevService || prevService.id !== callData.id || prevService.status !== "pending");
           if (isNewlyPending) {
             triggerNativeDriverNotification(callData);
+            logSignalingEvent({
+              callId: callData.id,
+              driverId: user?.uid || assignedVehicle?.id || 'driver',
+              eventType: 'call_received',
+              status: 'success',
+              details: {
+                customerPhone: callData.customerPhone || callData.passengerPhone,
+                pickup: callData.pickupAddress,
+                driverName: user?.name
+              }
+            });
           }
 
           setCurrentService(callData);
@@ -1879,7 +2111,14 @@ export default function DriverView({ user }: DriverViewProps) {
   // Listen for other active and available drivers in the fleet
   useEffect(() => {
     if (!user?.uid) return;
-    const unsubscribe = onSnapshot(collection(db, "drivers"), (snapshot) => {
+    const userTenant = user?.tenantId || user?.companyId || getActiveTenantId() || 'psm';
+    const q = query(
+      collection(db, "drivers"),
+      where("tenantId", "==", userTenant),
+      where("disponibilidade_app", "==", true),
+      where("status_operacional", "==", "ativo")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const driversList = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .filter((d: any) => {
@@ -1898,9 +2137,7 @@ export default function DriverView({ user }: DriverViewProps) {
                        (d.name && user?.name && cleanName(d.name) === cleanName(user.name));
           if (isMe) return false;
           
-          const status = (d.status || "").toLowerCase();
-          const activeStatuses = ["available", "ativo", "disponível", "disponivel", "busy", "ocupado", "em serviço", "em curso"];
-          return activeStatuses.includes(status);
+          return true;
         });
       setOtherDrivers(driversList);
     }, (error) => console.warn("Error listening to other drivers:", error));
@@ -1982,10 +2219,14 @@ export default function DriverView({ user }: DriverViewProps) {
               // Update the current active vehicle's document in the 'drivers' collection
               if (assignedVehicle?.id) {
                 const driverRef = doc(db, "drivers", assignedVehicle.id);
+                const userTenant = user?.tenantId || user?.companyId || getActiveTenantId() || 'psm';
                 await updateDoc(driverRef, {
                   lat,
                   lng,
                   speed,
+                  disponibilidade_app: true,
+                  status_operacional: "ativo",
+                  tenantId: userTenant,
                   lastUpdated: new Date().toISOString()
                 });
               }
@@ -2266,9 +2507,13 @@ export default function DriverView({ user }: DriverViewProps) {
     setShowSafetyCheck(false);
     const nowIso = new Date().toISOString();
     if (assignedVehicle?.id) {
+      const userTenant = user?.tenantId || user?.companyId || getActiveTenantId() || 'psm';
       updateDoc(doc(db, "drivers", assignedVehicle.id), { 
         status: "disponível",
         shiftActive: true,
+        disponibilidade_app: true,
+        status_operacional: "ativo",
+        tenantId: userTenant,
         lastShiftStartedAt: nowIso,
         lastShiftStartedBy: user?.name || "Motorista"
       }).catch(e => console.warn(e));
@@ -2313,6 +2558,17 @@ export default function DriverView({ user }: DriverViewProps) {
           body: `O motorista ${user?.name || "Oficial"} aceitou o seu pedido de corrida no SUPER TÁXI!`,
           notificationType: "ride_accepted"
         }).catch(err => console.warn("[DriverView] FCM Push error:", err));
+
+        logSignalingEvent({
+          callId: currentService.id,
+          driverId: user?.uid || assignedVehicle?.id || 'driver',
+          eventType: 'call_attended',
+          status: 'success',
+          details: {
+            driverName: user?.name,
+            passengerPhone: currentService.customerPhone || currentService.passengerPhone
+          }
+        });
       }
 
       if (assignedVehicle?.id) {
@@ -2352,6 +2608,17 @@ export default function DriverView({ user }: DriverViewProps) {
             driverId: user?.uid || "unknown",
             driverName: user?.name || "Driver",
           }),
+        });
+
+        logSignalingEvent({
+          callId: serviceId,
+          driverId: user?.uid || assignedVehicle?.id || 'driver',
+          eventType: 'call_rejected',
+          status: 'warning',
+          details: {
+            driverName: user?.name,
+            reason: 'Driver clicked reject'
+          }
         });
       }
 
@@ -6067,7 +6334,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
                 <div className="flex gap-2 pt-2">
                   <a
-                    href={window.location.origin}
+                    href={`${window.location.origin}/?view=passenger&mode=passenger`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all"
@@ -6077,7 +6344,7 @@ export default function DriverView({ user }: DriverViewProps) {
                   </a>
                   <button
                     onClick={() => {
-                      const url = window.location.origin;
+                      const url = `${window.location.origin}/?view=passenger&mode=passenger`;
                       navigator.clipboard.writeText(url);
                       alert("Link da Aplicação Web copiado!");
                     }}

@@ -8,14 +8,15 @@ import {
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
   Wifi, ArrowRight, ArrowLeft, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
-  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut, LogIn, ChevronRight, Key
+  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut, LogIn, ChevronRight, Key, Palette
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { customConfirm } from '../lib/customConfirm';
 import { PWAInstallModal } from './PWAInstallBanner';
 import { WebRTCAudioCall } from './WebRTCAudioCall';
-import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion, limit, deleteDoc } from '../lib/firebase';
+import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion, limit, deleteDoc, originalCollection, originalDoc } from '../lib/firebase';
 import { requestPassengerFcmToken, listenToFcmForegroundMessages } from '../lib/fcmService';
+import { logSignalingEvent } from '../lib/signalingLogger';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -103,38 +104,42 @@ export function getCompanyCoordinates(comp: any): [number, number] {
 }
 
 /**
- * Hook para comparar a localização real do utilizador com a central da companhia e avisar se exceder 5km.
+ * Hook para comparar a localização do utilizador com a central da companhia em tempo real via Haversine.
  */
 export function useCompanyDistanceAlert(
   actualGpsCoords: [number, number] | null,
-  activeCompany: any
+  activeCompany: any,
+  fallbackCoords?: [number, number]
 ) {
   const [distanceAlert, setDistanceAlert] = useState<{ show: boolean; distance: number; msg: string } | null>(null);
 
   useEffect(() => {
-    if (!actualGpsCoords || !activeCompany) {
+    const coordsToUse = actualGpsCoords || fallbackCoords;
+    if (!coordsToUse || !activeCompany) {
       setDistanceAlert(null);
       return;
     }
 
     const companyCoords = getCompanyCoordinates(activeCompany);
     const dist = calculateHaversineDistance(
-      actualGpsCoords[0],
-      actualGpsCoords[1],
+      coordsToUse[0],
+      coordsToUse[1],
       companyCoords[0],
       companyCoords[1]
     );
+
+    const compName = activeCompany.name || (activeCompany.id === 'psm' ? 'PSMOREIRA' : activeCompany.id);
 
     if (dist > 5) {
       setDistanceAlert({
         show: true,
         distance: dist,
-        msg: `Aviso de Cobertura: A sua localização real está a ${dist.toFixed(1)} km da central de "${activeCompany.name}". Excedeu o raio de cobertura de 5 km!`
+        msg: `Aviso de Cobertura (Haversine): A sua localização está a ${dist.toFixed(1)} km da central de "${compName}". Excedeu o raio de cobertura operacional de 5 km!`
       });
     } else {
       setDistanceAlert(null);
     }
-  }, [actualGpsCoords, activeCompany]);
+  }, [actualGpsCoords, activeCompany, fallbackCoords]);
 
   return distanceAlert;
 }
@@ -780,56 +785,134 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   const [pickup, setPickup] = useState('');
   const [destination, setDestination] = useState('');
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [randomSuggestedVehicle, setRandomSuggestedVehicle] = useState<VehicleOption | null>(null);
+  const [isShufflingVehicle, setIsShufflingVehicle] = useState(false);
   const [passengerCount, setPassengerCount] = useState<number>(1);
   const [availableVehicles, setAvailableVehicles] = useState<VehicleOption[]>([]);
   const [isLoadingFleet, setIsLoadingFleet] = useState(false);
 
+  // Função para Baralhar e Sortear viaturas aleatoriamente com animação em tempo real
+  const handleRaffleShuffle = (autoCloseModal = false) => {
+    if (!availableVehicles || availableVehicles.length === 0) return;
+    setIsShufflingVehicle(true);
+    let iterations = 0;
+    const maxIterations = 8;
+    const interval = setInterval(() => {
+      const tempIdx = Math.floor(Math.random() * availableVehicles.length);
+      setRandomSuggestedVehicle(availableVehicles[tempIdx]);
+      iterations++;
+      if (iterations >= maxIterations) {
+        clearInterval(interval);
+        // Sorteio final aleatório
+        const shuffledList = [...availableVehicles].sort(() => Math.random() - 0.5);
+        const finalDraw = shuffledList[Math.floor(Math.random() * shuffledList.length)];
+        setRandomSuggestedVehicle(finalDraw);
+        setSelectedVehicleId('');
+        setIsShufflingVehicle(false);
+        if (autoCloseModal) {
+          setTimeout(() => setShowVehicleSelectModal(false), 300);
+        }
+      }
+    }, 60);
+  };
+
+  // Sync random suggested vehicle whenever available fleet changes
+  useEffect(() => {
+    if (availableVehicles && availableVehicles.length > 0) {
+      if (!randomSuggestedVehicle || !availableVehicles.some(v => v.id === randomSuggestedVehicle.id)) {
+        const randIdx = Math.floor(Math.random() * availableVehicles.length);
+        setRandomSuggestedVehicle(availableVehicles[randIdx]);
+      }
+    } else {
+      setRandomSuggestedVehicle(null);
+    }
+  }, [availableVehicles]);
+
   // Real-time GPS location state for exact passenger coordinates
   const [passengerCoords, setPassengerCoords] = useState<[number, number]>([-11.784422, 20.067332]);
   const [isGpsExact, setIsGpsExact] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locatedSuccess, setLocatedSuccess] = useState(false);
   const [locationAlert, setLocationAlert] = useState<{ show: boolean; msg: string } | null>(null);
   
   // Real raw GPS coordinates of the device (unprojected)
   const [actualDeviceCoords, setActualDeviceCoords] = useState<[number, number] | null>(null);
 
   useEffect(() => {
+    let watchId: number | null = null;
     if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          let lat = position.coords.latitude;
-          let lng = position.coords.longitude;
-          if (lat && lng) {
-            // Guardar a localização física real obtida para monitoramento de distância (Haversine)
-            setActualDeviceCoords([lat, lng]);
-            
-            // Se a localização estiver fora da área operacional do Luena (e.g. Lubango), projetamos no Luena
-            if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
-              // Projetar no centro do Luena com um pequeno desvio aleatório controlado para dispersar os pedidos
-              lat = -11.7833 + (Math.random() - 0.5) * 0.015;
-              lng = 19.9167 + (Math.random() - 0.5) * 0.015;
-              console.log(`[GPS Projection] Passageiro fora de Luena detetado (${position.coords.latitude}, ${position.coords.longitude}). Projetando para Luena: ${lat}, ${lng}`);
-            }
-            setPassengerCoords([lat, lng]);
-            setIsGpsExact(true);
-            console.log("GPS exato obtido com sucesso para o Passageiro:", lat, lng);
+      const handleGpsUpdate = (position: GeolocationPosition) => {
+        let lat = position.coords.latitude;
+        let lng = position.coords.longitude;
+        if (lat && lng) {
+          // Guardar a localização física real obtida para monitoramento contínuo de distância (Haversine)
+          setActualDeviceCoords([lat, lng]);
+          
+          // Se a localização estiver fora da área operacional do Luena (e.g. Lubango), projetamos no Luena
+          if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+            // Projetar no centro do Luena com um pequeno desvio aleatório controlado para dispersar os pedidos
+            lat = -11.7833 + (Math.random() - 0.5) * 0.015;
+            lng = 19.9167 + (Math.random() - 0.5) * 0.015;
+            console.log(`[GPS Projection] Passageiro fora de Luena detetado (${position.coords.latitude}, ${position.coords.longitude}). Projetando para Luena: ${lat}, ${lng}`);
           }
-        },
+          setPassengerCoords([lat, lng]);
+          setIsGpsExact(true);
+          console.log("GPS exato sincronizado em tempo real para o Passageiro:", lat, lng);
+        }
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        handleGpsUpdate,
         (error) => {
           console.warn("Permissão de GPS negada ou indisponível no iFrame/Browser. Usando centro de Luena:", error);
         },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 }
       );
+
+      try {
+        watchId = navigator.geolocation.watchPosition(
+          handleGpsUpdate,
+          (err) => console.warn("GPS watchPosition notice:", err),
+          { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
+        );
+      } catch (e) {
+        console.warn("watchPosition não suportado:", e);
+      }
     }
+
+    return () => {
+      if (watchId !== null && typeof window !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
   }, []);
 
   const pullCurrentLocation = () => {
+    // 1. Resposta Imediata: Se já existem coordenadas recolhidas em cache/tempo-real, aplica de imediato (< 50ms)
+    if (actualDeviceCoords) {
+      let lat = actualDeviceCoords[0];
+      let lng = actualDeviceCoords[1];
+      if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
+        lat = -11.7833 + (Math.random() - 0.5) * 0.015;
+        lng = 19.9167 + (Math.random() - 0.5) * 0.015;
+      }
+      setPassengerCoords([lat, lng]);
+      setIsGpsExact(true);
+      setLocatedSuccess(true);
+      setTimeout(() => setLocatedSuccess(false), 2500);
+    }
+
     if (typeof window !== 'undefined' && navigator.geolocation) {
+      if (!actualDeviceCoords) {
+        setIsLocating(true);
+      }
+      
+      // 2. Consulta de alta performance com cache recente (maximumAge: 30000) e timeout rápido (3000ms)
       navigator.geolocation.getCurrentPosition(
         (position) => {
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
           if (lat && lng) {
-            // Guardar a localização física real manual para cálculo de distância Haversine
             setActualDeviceCoords([lat, lng]);
             
             if (Math.abs(lat - (-11.7833)) > 0.8 || Math.abs(lng - 19.9167) > 0.8) {
@@ -838,13 +921,26 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
             }
             setPassengerCoords([lat, lng]);
             setIsGpsExact(true);
-            console.log("GPS exato obtido com sucesso pelo utilizador manualmente:", lat, lng);
+            setLocatedSuccess(true);
+            setTimeout(() => setLocatedSuccess(false), 2500);
+            console.log("[Haversine GeoSync / TAXIControl] GPS ultra-rápido obtido:", lat, lng);
           }
+          setIsLocating(false);
         },
         (error) => {
-          console.warn("Permissão de GPS indisponível no momento:", error);
+          console.warn("Aviso de GPS rápido (usando posição estimada/cache):", error);
+          setIsLocating(false);
+          // Fallback imediato se não houver permissão de GPS
+          if (!actualDeviceCoords) {
+            const fallbackLat = -11.7833 + (Math.random() - 0.5) * 0.01;
+            const fallbackLng = 19.9167 + (Math.random() - 0.5) * 0.01;
+            setPassengerCoords([fallbackLat, fallbackLng]);
+            setIsGpsExact(true);
+            setLocatedSuccess(true);
+            setTimeout(() => setLocatedSuccess(false), 2500);
+          }
         },
-        { enableHighAccuracy: true, timeout: 8000 }
+        { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
       );
     }
   };
@@ -863,9 +959,9 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
     const isIdValid = validateRideTransactionId(callId);
     const callParam = isIdValid ? `&callId=${encodeURIComponent(callId!)}` : '';
     if (typeof window !== 'undefined' && window.location?.origin) {
-      return `${window.location.origin}/?view=passenger${callParam}`;
+      return `${window.location.origin}/?view=passenger&mode=passenger${callParam}`;
     }
-    return `https://jis-st.web.app/?view=passenger${callParam}`;
+    return `https://jis-st.web.app/?view=passenger&mode=passenger${callParam}`;
   };
 
   const copyShareLink = () => {
@@ -889,7 +985,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
   }, [activeTenant]);
 
   const activeCompany = companies.find(c => c.id === activeTenant);
-  const distanceAlert = useCompanyDistanceAlert(actualDeviceCoords, activeCompany);
+  const distanceAlert = useCompanyDistanceAlert(actualDeviceCoords, activeCompany, passengerCoords);
   const activeWhatsappLink = activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink || activeCompany?.whatsappLink || (appConfig?.supportPhone ? `https://wa.me/${(appConfig?.supportPhone || '').replace(/\D/g, '')}` : "https://wa.me/244923456789");
   const activeWhatsappGroupLink = activeCompany?.whatsappGroupCustomers || activeCompany?.whatsappGroupLink || "";
 
@@ -1158,41 +1254,106 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
   const [passengerTab, setPassengerTab] = useState<'viagem' | 'seguranca' | 'perfil'>('viagem');
 
-  // SWR-based fleet fetcher for offline caching & instant navigability
-  const { data: swrFleet, mutate: mutateFleet } = useSWR('firestore/drivers/fleet', async () => {
-    const activeDriversSnap = await getDocs(collection(db, 'drivers'));
-    const activeDriversList: VehicleOption[] = [];
-    const activeStatuses = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em curso'];
+  // Strict Rule (JIS): As viaturas visíveis na app do passageiro são ESTRITAMENTE as da "Frota em Tempo Real" (coleção: drivers) ativas para o tenantId selecionado/autenticado
+  const filterRealTimeFleet = (docs: any[]): VehicleOption[] => {
+    const list: VehicleOption[] = [];
+    const activeStatuses = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em servico', 'em_serviço', 'em_servico', 'em curso', 'em_curso', 'active', 'online', 'livre', 'escalado', 'pronto', 'standby'];
+    const inactiveStatuses = ['inativo', 'inactivo', 'inactive', 'offline', 'bloqueado', 'cancelado', 'desativado', 'desactivado', 'rejeitado', 'manutenção', 'manutencao', 'avaria', 'reparação', 'reparacao'];
     
-    activeDriversSnap.forEach(docSnap => {
-      const data = docSnap.data();
+    const normalizeTenant = (t?: string) => {
+      if (!t) return 'psm';
+      const clean = String(t).trim().toLowerCase();
+      if (clean === 'psmoreira' || clean === 'psm_angola' || clean === 'super_taxi_psm' || clean === 'psm') return 'psm';
+      return clean;
+    };
+
+    const currentTenant = normalizeTenant(activeTenant || getActiveTenantId());
+
+    docs.forEach(d => {
+      const data = typeof d.data === 'function' ? d.data() : d;
+      const docId = d.id || data.id;
+
+      // Strict Tenant isolation: match tenant IDs or PSMoreira aliases
+      const rawDocTenant = data.tenantId || data.companyId || data.tenant;
+      const docTenant = rawDocTenant ? normalizeTenant(rawDocTenant) : 'psm';
+      
+      if (docTenant !== currentTenant && rawDocTenant !== 'all' && currentTenant !== 'all') {
+        return; // Exclude drivers from other tenants
+      }
+
+      // Check app availability & status (handles undefined defaults safely)
+      const isPassengerActive = data.passengerAppActive !== false && data.disponibilidade_app !== false;
       const status = (data.status || '').toLowerCase().trim();
-      const isPassengerActive = data.passengerAppActive !== false;
-      if ((activeStatuses.includes(status) || data.isOnline === true || data.online === true) && isPassengerActive) {
-        activeDriversList.push({
-          id: docSnap.id,
-          plate: data.plate || 'LD-92-33-PX',
-          driverName: data.name,
+      const statusOp = (data.status_operacional || '').toLowerCase().trim();
+      
+      const isInactive = inactiveStatuses.includes(status) || statusOp === 'inativo' || statusOp === 'manutencao' || data.disponibilidade_app === false || data.passengerAppActive === false;
+      const isActiveStatus = activeStatuses.includes(status) || statusOp === 'ativo' || data.isOnline === true || data.online === true || data.shiftActive === true || (!isInactive && status !== 'offline');
+
+      if (isPassengerActive && isActiveStatus && !isInactive) {
+        const prefix = String(data.prefix || data.code || '').trim();
+        const plate = String(data.plate || 'LD-92-33-PX').trim();
+
+        list.push({
+          id: docId,
+          plate: plate,
+          driverName: data.name || 'Motorista de Serviço',
           phone: data.phone || data.secondaryPhone || '+244 923 456 789',
-          model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
-          prefix: data.prefix || data.code || '',
-          driverId: data.driverId || '',
+          model: data.vehicleModel || data.brand || `Viatura ${prefix || ''}`,
+          prefix: prefix,
+          driverId: data.driverId || docId,
           lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
           lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
         });
       }
     });
+
+    // Ordenar numericamente por prefixo de viatura
+    list.sort((a, b) => (a.prefix || '').localeCompare((b.prefix || ''), undefined, { numeric: true, sensitivity: 'base' }));
+    return list;
+  };
+
+  const currentTenantId = activeTenant || getActiveTenantId() || 'psm';
+
+  // SWR-based fleet fetcher for offline caching & instant navigability scoped by tenant
+  const { data: swrFleet, mutate: mutateFleet } = useSWR(`firestore/drivers/fleet/${currentTenantId}`, async () => {
+    // 1. Fetch from active tenant drivers collection
+    const driversSnap = await getDocs(collection(db, 'drivers')).catch(() => ({ docs: [] }));
+    let driversDocs = ('docs' in driversSnap && Array.isArray(driversSnap.docs)) ? [...driversSnap.docs] : [];
+
+    // 2. If PSMoreira alias, also check alternate subcollections for robust multi-tenant resolution
+    const normalizedTenant = String(currentTenantId).trim().toLowerCase();
+    const isPsmAlias = ['psm', 'psmoreira', 'psm_angola', 'super_taxi_psm'].includes(normalizedTenant);
+    if (isPsmAlias) {
+      const aliasSnap1 = await getDocs(originalCollection(db, 'tenants', 'psm', 'drivers')).catch(() => ({ docs: [] }));
+      const aliasSnap2 = await getDocs(originalCollection(db, 'tenants', 'PSMoreira', 'drivers')).catch(() => ({ docs: [] }));
+      const aliasSnap3 = await getDocs(originalCollection(db, 'tenants', 'psmoreira', 'drivers')).catch(() => ({ docs: [] }));
+      const aliasDocs = [
+        ...('docs' in aliasSnap1 && Array.isArray(aliasSnap1.docs) ? aliasSnap1.docs : []),
+        ...('docs' in aliasSnap2 && Array.isArray(aliasSnap2.docs) ? aliasSnap2.docs : []),
+        ...('docs' in aliasSnap3 && Array.isArray(aliasSnap3.docs) ? aliasSnap3.docs : [])
+      ];
+      // Deduplicate by document id
+      const seenIds = new Set(driversDocs.map(d => d.id));
+      for (const docSnap of aliasDocs) {
+        if (!seenIds.has(docSnap.id)) {
+          seenIds.add(docSnap.id);
+          driversDocs.push(docSnap);
+        }
+      }
+    }
+
+    const activeDriversList = filterRealTimeFleet(driversDocs);
     
-    // Save to local storage cache for absolute resilience
+    // Save to local storage cache for resilience
     if (activeDriversList.length > 0) {
-      localStorage.setItem('cached_fleet_data', JSON.stringify(activeDriversList));
+      localStorage.setItem(`cached_fleet_data_${currentTenantId}`, JSON.stringify(activeDriversList));
     }
     return activeDriversList;
   }, {
-    refreshInterval: 12000, // revalidate every 12 seconds
+    refreshInterval: 10000, // revalidate every 10 seconds
     fallbackData: (() => {
       try {
-        const local = localStorage.getItem('cached_fleet_data');
+        const local = localStorage.getItem(`cached_fleet_data_${currentTenantId}`);
         return local ? JSON.parse(local) : [];
       } catch (e) {
         return [];
@@ -1203,28 +1364,26 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
   // Keep availableVehicles updated from SWR
   useEffect(() => {
-    if (swrFleet && swrFleet.length > 0) {
+    if (swrFleet) {
       setAvailableVehicles(swrFleet);
       if (selectedVehicleId !== '' && selectedVehicleId !== 'auto' && !swrFleet.some(v => v.id === selectedVehicleId)) {
         setSelectedVehicleId('');
       }
     }
-  }, [swrFleet]);
+  }, [swrFleet, selectedVehicleId]);
 
   // Fetch Vehicles & Drivers to Book
   const loadFleetData = async () => {
     setIsLoadingFleet(true);
     try {
-      // SWR revalidates and returns instantly from cache
       const freshData = await mutateFleet();
-      if (freshData && freshData.length > 0) {
+      if (freshData) {
         setAvailableVehicles(freshData);
       }
     } catch (e) {
       console.warn("Could not load fleet data (using cache):", e);
-      // Fallback to localStorage if totally offline
       try {
-        const local = localStorage.getItem('cached_fleet_data');
+        const local = localStorage.getItem(`cached_fleet_data_${currentTenantId}`);
         if (local) {
           setAvailableVehicles(JSON.parse(local));
         }
@@ -1236,50 +1395,43 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
   // Real-time listener for live GPS tracking of active drivers/vehicles on the satellite map
   useEffect(() => {
-    const activeStatuses = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em curso'];
-    const q = query(collection(db, 'drivers'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const activeDriversList: VehicleOption[] = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        const status = (data.status || '').toLowerCase().trim();
-        const isPassengerActive = data.passengerAppActive !== false;
-        if ((activeStatuses.includes(status) || data.isOnline === true || data.online === true) && isPassengerActive) {
-          activeDriversList.push({
-            id: docSnap.id,
-            plate: data.plate || 'LD-92-33-PX',
-            driverName: data.name,
-            phone: data.phone || data.secondaryPhone || '+244 923 456 789',
-            model: data.vehicleModel || `Viatura ${data.prefix || ''}`,
-            prefix: data.prefix || data.code || '',
-            driverId: data.driverId || '',
-            lat: typeof data.lat === 'number' ? data.lat : (data.location?.lat),
-            lng: typeof data.lng === 'number' ? data.lng : (data.location?.lng)
-          });
-        }
-      });
-      // Update both SWR cache and local state
+    const unsubDrivers = onSnapshot(collection(db, 'drivers'), (snapshot) => {
+      let combinedDocs = [...snapshot.docs];
+      
+      const normalizedTenant = String(currentTenantId).trim().toLowerCase();
+      const isPsmAlias = ['psm', 'psmoreira', 'psm_angola', 'super_taxi_psm'].includes(normalizedTenant);
+      if (isPsmAlias) {
+        getDocs(originalCollection(db, 'tenants', 'psm', 'drivers')).then((psmSnap) => {
+          if ('docs' in psmSnap && Array.isArray(psmSnap.docs)) {
+            const seenIds = new Set(combinedDocs.map(d => d.id));
+            for (const docSnap of psmSnap.docs) {
+              if (!seenIds.has(docSnap.id)) {
+                seenIds.add(docSnap.id);
+                combinedDocs.push(docSnap);
+              }
+            }
+            const activeDriversList = filterRealTimeFleet(combinedDocs);
+            mutateFleet(activeDriversList, false);
+            setAvailableVehicles(activeDriversList);
+            if (activeDriversList.length > 0) {
+              localStorage.setItem(`cached_fleet_data_${currentTenantId}`, JSON.stringify(activeDriversList));
+            }
+          }
+        }).catch(() => {});
+      }
+
+      const activeDriversList = filterRealTimeFleet(combinedDocs);
       mutateFleet(activeDriversList, false);
       setAvailableVehicles(activeDriversList);
       if (activeDriversList.length > 0) {
-        localStorage.setItem('cached_fleet_data', JSON.stringify(activeDriversList));
+        localStorage.setItem(`cached_fleet_data_${currentTenantId}`, JSON.stringify(activeDriversList));
       }
     }, (error) => {
       console.warn("Error listening to real-time driver coordinates:", error);
-      // Retrieve from cache if listener fails due to network
-      try {
-        const local = localStorage.getItem('cached_fleet_data');
-        if (local) {
-          const parsed = JSON.parse(local);
-          setAvailableVehicles(parsed);
-          mutateFleet(parsed, false);
-        }
-      } catch (e) {}
     });
 
-    return () => unsubscribe();
-  }, [mutateFleet]);
+    return () => unsubDrivers();
+  }, [currentTenantId, mutateFleet]);
 
   const fetchCompanies = async () => {
     setIsLoadingCompanies(true);
@@ -2047,9 +2199,17 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
       return;
     }
 
-    let selectedVehicle = (selectedVehicleId && selectedVehicleId !== 'auto') 
+    let selectedVehicle = (selectedVehicleId && selectedVehicleId !== 'auto' && selectedVehicleId !== '') 
       ? availableVehicles.find(v => v.id === selectedVehicleId)
-      : availableVehicles[0];
+      : null;
+
+    // Se o passageiro selecionou "qualquer viatura" (automático), baralhar e sortear sempre uma viatura aleatoriamente
+    if ((!selectedVehicle || selectedVehicleId === '' || selectedVehicleId === 'auto') && availableVehicles.length > 0) {
+      const shuffled = [...availableVehicles].sort(() => Math.random() - 0.5);
+      const randIdx = Math.floor(Math.random() * shuffled.length);
+      selectedVehicle = shuffled[randIdx];
+      console.log(`[PassengerFlow] 🎲 Sorteio de viatura realizado entre ${availableVehicles.length} viaturas. Viatura sorteada: ${selectedVehicle.model} (${selectedVehicle.plate})`);
+    }
 
     if (!selectedVehicle) {
       selectedVehicle = {
@@ -2117,6 +2277,22 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
 
       // Request and attach fresh FCM token if it wasn't saved yet
       requestPassengerFcmToken(docRef.id).catch(err => console.warn('[FCM] Token update error:', err));
+
+      // Record Signaling Log for call initiation
+      logSignalingEvent({
+        callId: docRef.id,
+        driverId: selectedVehicle.driverId || selectedVehicle.id || 'auto',
+        eventType: 'call_initiated',
+        status: 'success',
+        details: {
+          passengerName: passengerProfile ? passengerProfile.name : 'Passageiro',
+          passengerPhone: resolvedPhone,
+          pickup,
+          destination,
+          vehiclePlate: selectedVehicle.plate,
+          driverName: selectedVehicle.driverName
+        }
+      });
 
       activeStatusRef.current = 'pending';
       setActiveRideRecord({ 
@@ -2609,38 +2785,9 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                 </div>
               </div>
 
-              {/* 2. PALETA DE CORES EM CIMA DO MENU DOS TRÊS PONTINHOS (Direita) */}
-              <div className="flex flex-col items-end gap-1 shrink-0 ml-auto">
-                {/* Paleta de Cores (Cima) */}
-                <div className="flex items-center gap-1 bg-slate-900/90 px-2 py-0.5 rounded-full border border-white/10 shadow-inner">
-                  {(Object.keys(PALETTES) as PassengerTheme[]).map((pal) => (
-                    <button
-                      key={pal}
-                      onClick={() => handlePaletteChange(pal)}
-                      className={`w-3 h-3 rounded-full border transition-all cursor-pointer ${
-                        activePalette === pal && hasClickedTheme 
-                          ? 'scale-125 border-white shadow-lg ring-2 ring-amber-400/50' 
-                          : 'border-white/20 hover:scale-110 opacity-70 hover:opacity-100'
-                      }`}
-                      style={{ backgroundColor: PALETTES[pal].accentColor }}
-                      title={PALETTES[pal].name}
-                    />
-                  ))}
-                  {hasClickedTheme && (
-                    <button
-                      onClick={() => {
-                        setHasClickedTheme(false);
-                        localStorage.removeItem('psm-passenger-theme-clicked');
-                      }}
-                      className="text-[6.5px] font-black text-amber-400 hover:text-white uppercase tracking-tighter px-0.5 cursor-pointer transition-colors"
-                      title="Restaurar cor oficial da companhia"
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-
-                {/* Menu dos 3 Pontinhos (Baixo) */}
+              {/* 2. MENU DOS TRÊS PONTINHOS (Direita) */}
+              <div className="flex items-center gap-1 shrink-0 ml-auto">
+                {/* Menu dos 3 Pontinhos */}
                 <div ref={navMenuRef} className="relative z-[60]">
                   <button
                     onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
@@ -2649,14 +2796,52 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     }`}
                     title="Menu de Opções"
                   >
-                    <MoreVertical size={14} />
+                    <MoreVertical size={16} />
                   </button>
 
                   {isNavMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-52 bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-100">
+                    <div className="absolute right-0 mt-2 w-56 bg-slate-950 border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden py-1 animate-in slide-in-from-top-2 duration-100">
                       <div className="px-3 py-1.5 border-b border-white/5 bg-black/40">
-                        <p className="text-[8.5px] text-slate-400 font-bold tracking-wider">Navegação rápida</p>
+                        <p className="text-[8.5px] text-slate-400 font-bold tracking-wider uppercase">Navegação rápida</p>
                       </div>
+
+                      {/* PALETA DE CORES NO MENU */}
+                      <div className="px-3.5 py-2.5 border-b border-white/5 bg-slate-900/60">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-black text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <Palette size={12} className="text-amber-400" />
+                            Paleta de Cores
+                          </span>
+                          {hasClickedTheme && (
+                            <button
+                              onClick={() => {
+                                setHasClickedTheme(false);
+                                localStorage.removeItem('psm-passenger-theme-clicked');
+                              }}
+                              className="text-[7.5px] font-black text-amber-400 hover:text-white uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
+                              title="Restaurar cor padrão da frota"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {(Object.keys(PALETTES) as PassengerTheme[]).map((pal) => (
+                            <button
+                              key={pal}
+                              onClick={() => handlePaletteChange(pal)}
+                              className={`w-4 h-4 rounded-full border transition-all cursor-pointer ${
+                                activePalette === pal && hasClickedTheme 
+                                  ? 'scale-125 border-white shadow-md ring-2 ring-amber-400' 
+                                  : 'border-white/20 hover:scale-110 opacity-70 hover:opacity-100'
+                              }`}
+                              style={{ backgroundColor: PALETTES[pal].accentColor }}
+                              title={PALETTES[pal].name}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
                       <button
                         onClick={() => {
                           setPassengerTab('viagem');
@@ -2749,8 +2934,6 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         <Download size={14} className="text-amber-400" />
                         <span>Instalar SUPER Táxi Web</span>
                       </button>
-
-                      {/* No collaborator buttons inside passenger app */}
                     </div>
                   )}
                 </div>
@@ -2768,8 +2951,8 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   <div className="space-y-6 py-6 flex flex-col items-center justify-center min-h-[420px] max-w-sm mx-auto">
                     {/* Header Marca / Logo */}
                     <div className="text-center space-y-3">
-                      <div className="w-16 h-16 bg-blue-500/10 rounded-3xl flex items-center justify-center mx-auto border border-blue-500/20 mb-3 shadow-md">
-                        <Car className="text-blue-500" size={32} />
+                      <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-2 drop-shadow-xl">
+                        <img src="/logo.svg" alt="SUPER Táxi" className="w-full h-full object-contain filter drop-shadow-md" />
                       </div>
 
                       <h1 className="text-3xl font-black tracking-tighter uppercase italic leading-none text-center">
@@ -3331,7 +3514,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </div>
 
                       {/* 1. BLOCO CENTRAL FLUTUANTE À ESQUERDA POR CIMA DO MAPA */}
-                      <div className="absolute top-3 left-3 z-20 pointer-events-auto">
+                      <div className="absolute top-3 left-3 z-20 pointer-events-auto flex flex-col gap-1.5">
                         <div className="bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/10 shadow-2xl flex flex-col items-center justify-center">
                           <div className="flex items-center gap-1.5">
                             <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
@@ -3365,15 +3548,6 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         <span className="flex items-center gap-1 bg-slate-950/90 text-white text-[7.5px] font-bold px-2 py-1 rounded-xl backdrop-blur border border-white/10 shadow-lg pointer-events-auto select-none">
                           <Compass size={9} className="animate-spin text-amber-500" /> Raio Máx: {appConfig?.searchRadiusKm || 15}km
                         </span>
-                        
-                        {/* GPS Recenter button */}
-                        <button
-                          onClick={pullCurrentLocation}
-                          className="flex items-center justify-center p-2.5 bg-slate-950/90 text-amber-500 hover:text-amber-450 rounded-xl border border-white/10 shadow-lg hover:bg-slate-900 transition-all active:scale-95 pointer-events-auto cursor-pointer"
-                          title="Puxar Minha Localização Atual"
-                        >
-                          <Navigation size={14} className="fill-amber-500 rotate-45 text-amber-500" />
-                        </button>
                       </div>
 
                       {/* UPPER LAYER FLOATING INFO & CONTROLS: */}
@@ -3456,9 +3630,42 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         </div>
 
                         {/* Lower panel - floating bottom sheet containing the welcome greeting + main action cards */}
-                        <div className="space-y-3 w-full pointer-events-auto max-h-[60%] overflow-y-auto no-scrollbar bg-transparent border-none shadow-none p-4">
+                        <div className="space-y-2.5 w-full pointer-events-auto max-h-[60%] overflow-y-auto no-scrollbar bg-transparent border-none shadow-none p-4">
                           {callState === 'idle' ? (
                             <>
+                              {/* Botão Compacto Estilo Google Maps: Puxar Localização Atual (Sem escrita, redondo) */}
+                              <div className="flex justify-end pr-0.5">
+                                <motion.button
+                                  type="button"
+                                  whileHover={{ scale: 1.08 }}
+                                  whileTap={{ scale: 0.92 }}
+                                  onClick={pullCurrentLocation}
+                                  disabled={isLocating}
+                                  className={cn(
+                                    "w-10 h-10 rounded-full flex items-center justify-center shadow-2xl backdrop-blur-md border transition-all cursor-pointer relative",
+                                    locatedSuccess
+                                      ? "bg-emerald-500 text-slate-950 border-emerald-300 shadow-emerald-500/30 ring-2 ring-emerald-400/40"
+                                      : isLocating
+                                        ? "bg-amber-500 text-slate-950 border-amber-300 shadow-amber-500/30"
+                                        : "bg-slate-950/95 hover:bg-slate-900 text-amber-400 hover:text-amber-300 border-white/15 hover:border-amber-400/60 shadow-black/80"
+                                  )}
+                                  title="Puxar minha localização atual (GPS)"
+                                  aria-label="Puxar minha localização atual (GPS)"
+                                >
+                                  {locatedSuccess ? (
+                                    <Check size={18} className="stroke-[3]" />
+                                  ) : isLocating ? (
+                                    <RefreshCw size={17} className="animate-spin text-slate-950" />
+                                  ) : (
+                                    <Navigation size={17} className="fill-amber-400 rotate-45 text-amber-400" />
+                                  )}
+                                  {/* Micro indicador pulsante se GPS estiver ativo */}
+                                  {isGpsExact && !isLocating && !locatedSuccess && (
+                                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-slate-950 animate-pulse" />
+                                  )}
+                                </motion.button>
+                              </div>
+
                               {/* Custom Welcome Message exactly as loved by JIS */}
                               <div className="space-y-0.5 bg-slate-950/95 border border-white/10 rounded-xl p-3 shadow-xl">
                                 <p className="text-[12px] font-black tracking-tight leading-snug text-white">
@@ -4467,37 +4674,50 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
             )}
 
             {/* Smart Booking modal inside Phone frame */}
+            {/* Smart Booking modal em Tela Cheia (Full-Screen) */}
             {isBookModalOpen && (
-              <div className="absolute inset-0 bg-black/75 z-[2000] flex flex-col justify-end">
-                <div className="bg-slate-900 border-t border-white/10 rounded-t-[24px] p-6 space-y-4 animate-slide-up text-white max-h-[85%] overflow-y-auto no-scrollbar">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <h3 className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                      <Car size={14} className={currentTheme.textClass} />
-                      Pedir Super Táxi
-                    </h3>
-                    <button 
-                      onClick={() => setIsBookModalOpen(false)}
-                      className="p-1 hover:bg-white/10 rounded text-slate-400"
-                    >
-                      <X size={16} />
-                    </button>
+              <div className="fixed inset-0 z-[2000] bg-slate-950 flex flex-col text-white animate-in fade-in duration-200 overflow-hidden">
+                {/* Header Tela Cheia */}
+                <div className="px-5 py-4 bg-slate-900/90 border-b border-white/10 flex items-center justify-between backdrop-blur-md shrink-0 shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-amber-500 text-slate-950 rounded-2xl font-black shadow-lg shadow-amber-500/20">
+                      <Car size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                        Pedir Super Táxi
+                      </h3>
+                      <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+                        Solicitação Direta • Frota de Luena
+                      </p>
+                    </div>
                   </div>
+                  <button 
+                    onClick={() => setIsBookModalOpen(false)}
+                    className="p-2 bg-white/10 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-xl transition-all cursor-pointer border border-white/10 active:scale-95"
+                    title="Fechar"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
 
+                {/* Conteúdo Tela Cheia Scrollável */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-w-xl mx-auto w-full custom-scrollbar">
                   {/* Progressive Step Progress Header */}
-                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-950/80 border border-white/10 rounded-xl text-[9px] font-black uppercase text-center shadow-inner">
+                  <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-900/80 border border-white/10 rounded-2xl text-[9px] font-black uppercase text-center shadow-inner">
                     <div className={cn(
-                      "py-1.5 rounded-lg transition-all flex items-center justify-center gap-1",
+                      "py-2 rounded-xl transition-all flex items-center justify-center gap-1",
                       pickup.trim() && destination.trim() ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black" : "bg-amber-500/10 text-amber-400"
                     )}>
                       <span>1. Trajeto</span>
                       {pickup.trim() && destination.trim() && <CheckCircle2 size={11} className="text-emerald-400 animate-pulse" />}
                     </div>
-                    <div className="py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all flex items-center justify-center gap-1 font-black">
+                    <div className="py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-all flex items-center justify-center gap-1 font-black">
                       <span>2. Lotação ({passengerCount})</span>
                       <CheckCircle2 size={11} className="text-amber-400" />
                     </div>
                     <div className={cn(
-                      "py-1.5 rounded-lg transition-all flex items-center justify-center gap-1",
+                      "py-2 rounded-xl transition-all flex items-center justify-center gap-1",
                       selectedVehicleId ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black" : "bg-slate-800/80 text-slate-400"
                     )}>
                       <span>3. Viatura</span>
@@ -4512,49 +4732,49 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         initial={{ opacity: 0, height: 0, y: -5 }}
                         animate={{ opacity: 1, height: 'auto', y: 0 }}
                         exit={{ opacity: 0, height: 0, y: -5 }}
-                        className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-medium flex items-center gap-2 shadow-sm"
+                        className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10.5px] font-medium flex items-center gap-2.5 shadow-sm"
                       >
-                        <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                        <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
                         <span>Trajeto configurado! Confirme o número de passageiros e escolha a viatura abaixo.</span>
                       </motion.div>
                     )}
                   </AnimatePresence>
 
-                  <div className="space-y-3 text-xs">
-                    <div className="space-y-1">
-                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                        <MapPin size={11} className="text-amber-400" />
+                  <div className="space-y-4 text-xs">
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
+                        <MapPin size={13} className="text-amber-400" />
                         Ponto de Recolha (Passo 1)
                       </label>
                       <input 
-                        className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-amber-400 font-bold transition-colors" 
-                        placeholder="" 
+                        className="w-full p-3 bg-slate-900/90 border border-white/10 rounded-2xl outline-none text-white focus:border-amber-400 font-bold transition-colors shadow-inner" 
+                        placeholder="Ex: Aeroporto, Hospital Geral, Mercado..." 
                         value={pickup}
                         onChange={e => setPickup(e.target.value)}
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[8.5px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                        <Navigation size={11} className="text-amber-400" />
-                        Destinos Finais (Passo 1)
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
+                        <Navigation size={13} className="text-amber-400" />
+                        Destino Final (Passo 1)
                       </label>
                       <input 
-                        className="w-full p-2.5 bg-white/5 border border-white/10 rounded-xl outline-none text-white focus:border-amber-400 font-bold transition-colors" 
-                        placeholder="" 
+                        className="w-full p-3 bg-slate-900/90 border border-white/10 rounded-2xl outline-none text-white focus:border-amber-400 font-bold transition-colors shadow-inner" 
+                        placeholder="Ex: Estação CFM, Bairro Aço, Centro..." 
                         value={destination}
                         onChange={e => setDestination(e.target.value)}
                       />
                     </div>
 
                     {/* Número de Passageiros - Design Atractivo e Interativo */}
-                    <div className="space-y-2 bg-white/5 border border-white/10 p-3 rounded-2xl">
+                    <div className="space-y-2.5 bg-slate-900/70 border border-white/10 p-3.5 rounded-2xl">
                       <div className="flex items-center justify-between">
-                        <label className="text-[9px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
-                          <Users size={13} />
+                        <label className="text-[9.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <Users size={14} />
                           Número de Passageiros (Passo 2)
                         </label>
-                        <span className="text-[9px] font-extrabold text-slate-300 bg-white/10 px-2 py-0.5 rounded-full">
+                        <span className="text-[9.5px] font-extrabold text-slate-200 bg-white/10 px-2.5 py-0.5 rounded-full">
                           {passengerCount === 1 ? '1 (Individual)' :
                            passengerCount <= 4 ? `${passengerCount} (Lotação Padrão)` :
                            `${passengerCount} (Lotação Máxima)`}
@@ -4567,19 +4787,19 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           <motion.button
                             key={num}
                             type="button"
-                            whileHover={{ scale: 1.12 }}
-                            whileTap={{ scale: 0.85 }}
+                            whileHover={{ scale: 1.08 }}
+                            whileTap={{ scale: 0.9 }}
                             transition={{ type: "spring", stiffness: 500, damping: 15 }}
                             onClick={() => setPassengerCount(num)}
                             className={cn(
-                              "py-2 rounded-xl text-xs font-black transition-all flex flex-col items-center justify-center gap-0.5 border cursor-pointer select-none",
+                              "py-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center justify-center gap-0.5 border cursor-pointer select-none",
                               passengerCount === num 
                                 ? "bg-amber-500 text-slate-950 border-amber-300 shadow-lg shadow-amber-500/30 font-mono ring-2 ring-amber-300 scale-105" 
-                                : "bg-slate-900/80 text-slate-300 border-white/10 hover:bg-white/10 hover:text-white"
+                                : "bg-slate-900/90 text-slate-300 border-white/10 hover:bg-white/10 hover:text-white"
                             )}
                           >
                             <span>{num}</span>
-                            <span className="text-[8px] opacity-80">
+                            <span className="text-[8.5px] opacity-80">
                               {num === 1 ? '👤' : num <= 4 ? '👥' : '🚐'}
                             </span>
                           </motion.button>
@@ -4590,25 +4810,25 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       <div className="flex items-center gap-2 pt-1">
                         <motion.button 
                           type="button"
-                          whileHover={{ scale: 1.12 }}
-                          whileTap={{ scale: 0.85 }}
+                          whileHover={{ scale: 1.08 }}
+                          whileTap={{ scale: 0.9 }}
                           transition={{ type: "spring", stiffness: 500, damping: 15 }}
                           onClick={() => setPassengerCount(prev => Math.max(1, prev - 1))}
-                          className="w-9 h-9 bg-slate-900/90 border border-white/10 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 transition-all text-white font-black rounded-xl text-base flex items-center justify-center cursor-pointer shadow"
+                          className="w-10 h-10 bg-slate-900/90 border border-white/10 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 transition-all text-white font-black rounded-xl text-lg flex items-center justify-center cursor-pointer shadow"
                         >
                           -
                         </motion.button>
-                        <div className="flex-1 bg-slate-950/80 border border-amber-500/30 rounded-xl py-2 text-center font-black text-xs text-amber-300 font-mono flex items-center justify-center gap-2">
+                        <div className="flex-1 bg-slate-950/80 border border-amber-500/30 rounded-xl py-2.5 text-center font-black text-xs text-amber-300 font-mono flex items-center justify-center gap-2 shadow-inner">
                           <Users size={14} className="text-amber-400" />
                           <span>{passengerCount} {passengerCount === 1 ? 'Passageiro Selecionado' : 'Passageiros Selecionados'}</span>
                         </div>
                         <motion.button 
                           type="button"
-                          whileHover={{ scale: 1.12 }}
-                          whileTap={{ scale: 0.85 }}
+                          whileHover={{ scale: 1.08 }}
+                          whileTap={{ scale: 0.9 }}
                           transition={{ type: "spring", stiffness: 500, damping: 15 }}
                           onClick={() => setPassengerCount(prev => Math.min(6, prev + 1))}
-                          className="w-9 h-9 bg-slate-900/90 border border-white/10 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 transition-all text-white font-black rounded-xl text-base flex items-center justify-center cursor-pointer shadow"
+                          className="w-10 h-10 bg-slate-900/90 border border-white/10 hover:bg-amber-500 hover:text-slate-950 hover:border-amber-400 transition-all text-white font-black rounded-xl text-lg flex items-center justify-center cursor-pointer shadow"
                         >
                           +
                         </motion.button>
@@ -4616,13 +4836,13 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     </div>
 
                     {/* Bloco Viatura Desejada -> Abre Modal de Viaturas em Serviço */}
-                    <div className="space-y-2 bg-white/5 border border-white/10 p-3 rounded-2xl">
+                    <div className="space-y-2.5 bg-slate-900/70 border border-white/10 p-3.5 rounded-2xl">
                       <div className="flex items-center justify-between">
-                        <label className="text-[9px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
-                          <Car size={13} />
+                        <label className="text-[9.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <Car size={14} />
                           Viatura Desejada (Passo 3)
                         </label>
-                        <span className="flex items-center gap-1 text-[8.5px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                        <span className="flex items-center gap-1 text-[8.5px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
                           <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
                           {availableVehicles.length} {availableVehicles.length === 1 ? 'Viatura em Serviço' : 'Viaturas em Serviço'}
                         </span>
@@ -4633,37 +4853,69 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         whileHover={{ scale: 1.01 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => setShowVehicleSelectModal(true)}
-                        className="w-full p-3 rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-amber-500/30 text-left transition-all flex items-center justify-between cursor-pointer shadow-md active:scale-98"
+                        className="w-full p-3.5 rounded-2xl bg-slate-950/90 hover:bg-slate-900 border border-amber-500/30 text-left transition-all flex items-center justify-between cursor-pointer shadow-md active:scale-98"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-amber-500 text-slate-950 rounded-xl font-black text-xs font-mono shrink-0 shadow-sm">
-                            <Car size={16} />
+                          <div className={cn(
+                            "p-2.5 rounded-xl font-black text-xs font-mono shrink-0 shadow-md transition-all",
+                            isShufflingVehicle 
+                              ? "bg-amber-400 text-slate-950 animate-spin" 
+                              : "bg-amber-500 text-slate-950"
+                          )}>
+                            <Car size={18} />
                           </div>
                           <div>
-                            <p className="text-xs font-black text-white uppercase tracking-tight">
+                            <p className="text-xs font-black text-white uppercase tracking-tight flex items-center gap-1.5">
                               {selectedVehicleId === '' || selectedVehicleId === 'auto'
-                                ? 'Qualquer viatura'
+                                ? (randomSuggestedVehicle 
+                                    ? `Qualquer Viatura (Sorteada: ${randomSuggestedVehicle.model})`
+                                    : 'Qualquer Viatura (Sorteio Automático)')
                                 : (availableVehicles.find(v => v.id === selectedVehicleId)?.model || 'Viatura Selecionada')}
+                              {isShufflingVehicle && (
+                                <span className="text-[9px] text-amber-400 font-extrabold animate-pulse">
+                                  🎲 A sortear...
+                                </span>
+                              )}
                             </p>
                             <p className="text-[9.5px] text-amber-400 font-medium">
                               {selectedVehicleId === '' || selectedVehicleId === 'auto'
-                                ? 'Atribuição automática à viatura mais próxima'
+                                ? (randomSuggestedVehicle 
+                                    ? `Matrícula: ${randomSuggestedVehicle.plate} • Sorteio aleatório`
+                                    : 'Sorteio aleatório entre as viaturas livres')
                                 : `Matrícula: ${availableVehicles.find(v => v.id === selectedVehicleId)?.plate || ''}`}
                             </p>
                           </div>
                         </div>
-                        <div className="px-2.5 py-1.5 bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-slate-950 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all border border-amber-500/30 flex items-center gap-1 shrink-0">
+                        <div className="px-3 py-1.5 bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-slate-950 rounded-xl text-[9.5px] font-black uppercase tracking-wider transition-all border border-amber-500/30 flex items-center gap-1.5 shrink-0">
                           <span>Navegar Frota</span>
-                          <ArrowRight size={12} />
+                          <ArrowRight size={13} />
                         </div>
                       </motion.button>
+
+                      {/* Botão de Atalho Rápido para Baralhar e Sortear Viatura */}
+                      {availableVehicles.length > 0 && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRaffleShuffle(false);
+                            }}
+                            disabled={isShufflingVehicle}
+                            className="flex-1 py-2 px-3 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 hover:text-amber-200 rounded-xl text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                          >
+                            <Sparkles size={13} className={isShufflingVehicle ? "animate-spin text-amber-400" : "text-amber-400"} />
+                            <span>{isShufflingVehicle ? 'A baralhar e sortear...' : '🎲 Baralhar & Sortear Viatura'}</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Club Bonus Redemption options (SUPER TAXI) */}
                     {appConfig?.bonusClubEnabled !== false && passengerProfile && (
-                      <div className="pt-3 border-t border-white/5 space-y-2">
+                      <div className="pt-2 border-t border-white/5 space-y-2">
                         {Number(passengerProfile.bonusBalance || 0) > 0 ? (
-                          <label className="flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 cursor-pointer hover:bg-amber-500/20 transition-all">
+                          <label className="flex items-center gap-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 cursor-pointer hover:bg-amber-500/20 transition-all">
                             <input 
                               type="checkbox" 
                               checked={useBonusForRide} 
@@ -4676,7 +4928,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             </div>
                           </label>
                         ) : (
-                          <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-left leading-tight">
+                          <div className="p-3.5 rounded-2xl bg-white/5 border border-white/5 text-left leading-tight">
                             <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">SUPER Táxi Clube de Bónus 🌟</p>
                             <p className="text-[9px] text-slate-400 font-medium mt-0.5">
                               Tem <strong className="text-white font-extrabold">{Number(passengerProfile.bonusBalance || 0).toLocaleString()} Kz</strong> acumulados. Faça viagens para acumular bónus e viajar de graça!
@@ -4687,13 +4939,15 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     )}
                   </div>
 
-                  <button 
-                    onClick={handleInitiateCall}
-                    className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest mt-4 flex items-center justify-center gap-2 ${currentTheme.btnClass}`}
-                  >
-                    <Phone size={12} />
-                    PEDIR PREÇO (LIGAR)
-                  </button>
+                  <div className="pt-2">
+                    <button 
+                      onClick={handleInitiateCall}
+                      className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl cursor-pointer ${currentTheme.btnClass}`}
+                    >
+                      <Phone size={15} />
+                      PEDIR PREÇO (LIGAR)
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -5642,50 +5896,86 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       </motion.div>
                     </AnimatePresence>
 
-                    {/* Option 1: Any vehicle (Automatic Assignment) */}
-                    <motion.button
-                      type="button"
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => {
-                        setSelectedVehicleId('');
-                        setTimeout(() => setShowVehicleSelectModal(false), 250);
-                      }}
-                      className={cn(
-                        "w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer active:scale-98 shadow-md relative overflow-hidden",
-                        selectedVehicleId === '' || selectedVehicleId === 'auto'
-                          ? "bg-amber-500/20 border-amber-400 text-white ring-2 ring-amber-400/50 shadow-amber-500/20"
-                          : "bg-slate-950/80 border-slate-800 hover:bg-slate-800 text-slate-300"
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "p-2.5 rounded-xl font-black transition-colors",
-                          selectedVehicleId === '' || selectedVehicleId === 'auto' 
-                            ? "bg-amber-500 text-slate-950 animate-pulse" 
-                            : "bg-slate-800 text-slate-300"
-                        )}>
-                          <Sparkles size={18} />
+                    {/* Option 1: Any vehicle (Automatic Random Assignment with Raffle / Shuffle) */}
+                    <div className="space-y-2">
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => {
+                          setSelectedVehicleId('');
+                          handleRaffleShuffle(true);
+                        }}
+                        className={cn(
+                          "w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer active:scale-98 shadow-md relative overflow-hidden",
+                          selectedVehicleId === '' || selectedVehicleId === 'auto'
+                            ? "bg-amber-500/20 border-amber-400 text-white ring-2 ring-amber-400/50 shadow-amber-500/20"
+                            : "bg-slate-950/80 border-slate-800 hover:bg-slate-800 text-slate-300"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "p-2.5 rounded-xl font-black transition-all",
+                            isShufflingVehicle
+                              ? "bg-amber-400 text-slate-950 animate-spin"
+                              : (selectedVehicleId === '' || selectedVehicleId === 'auto' 
+                                ? "bg-amber-500 text-slate-950 animate-pulse" 
+                                : "bg-slate-800 text-slate-300")
+                          )}>
+                            <Sparkles size={18} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-white uppercase tracking-tight flex items-center gap-1.5">
+                              <span>Qualquer Viatura (Sorteio Automático)</span>
+                              {isShufflingVehicle && (
+                                <span className="text-[9px] text-amber-400 font-extrabold animate-pulse">
+                                  🎲 A sortear...
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                              {randomSuggestedVehicle 
+                                ? `Viatura sorteada: ${randomSuggestedVehicle.model} (${randomSuggestedVehicle.plate})`
+                                : 'Baralha e sorteia aleatoriamente entre as viaturas livres'}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-xs font-black text-white uppercase tracking-tight">Qualquer Viatura Disponível</p>
-                          <p className="text-[10px] text-slate-400 font-medium mt-0.5">Atribuição automática à viatura livre mais próxima</p>
-                        </div>
-                      </div>
-                      {(selectedVehicleId === '' || selectedVehicleId === 'auto') && (
-                        <motion.div 
-                          initial={{ scale: 0.5, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                          className="flex items-center gap-1.5 bg-amber-500 text-slate-950 px-3 py-1.5 rounded-full text-[9.5px] font-black uppercase shrink-0 shadow-md ring-2 ring-amber-300"
+                        {(selectedVehicleId === '' || selectedVehicleId === 'auto') && (
+                          <motion.div 
+                            initial={{ scale: 0.5, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 20 }}
+                            className="flex items-center gap-1.5 bg-amber-500 text-slate-950 px-3 py-1.5 rounded-full text-[9.5px] font-black uppercase shrink-0 shadow-md ring-2 ring-amber-300"
+                          >
+                            <CheckCircle2 size={13} className="animate-bounce" />
+                            <span>Selecionado ✔</span>
+                          </motion.div>
+                        )}
+                      </motion.button>
+
+                      {/* Botão de Sortear Novamente dentro do Modal */}
+                      {availableVehicles.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRaffleShuffle(false)}
+                          disabled={isShufflingVehicle}
+                          className="w-full py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                         >
-                          <CheckCircle2 size={13} className="animate-bounce" />
-                          <span>Selecionado ✔</span>
-                        </motion.div>
+                          <Sparkles size={12} className={isShufflingVehicle ? "animate-spin text-amber-400" : "text-amber-400"} />
+                          <span>{isShufflingVehicle ? 'A baralhar frota...' : '🎲 Baralhar e Sortear Outra Viatura'}</span>
+                        </button>
                       )}
-                    </motion.button>
+                    </div>
 
                     {/* List of Individual Active Vehicles (NO DRIVER NAMES) */}
+                    {availableVehicles.length === 0 && (
+                      <div className="p-5 text-center rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
+                        <p className="text-xs font-black text-amber-400 uppercase tracking-tight">Nenhuma Viatura Disponível</p>
+                        <p className="text-[10.5px] text-slate-400 font-medium leading-relaxed">
+                          Não há viaturas ativas no momento na Frota em Tempo Real com visibilidade na app do passageiro.
+                        </p>
+                      </div>
+                    )}
                     {availableVehicles.map((v) => {
                       const isSelected = selectedVehicleId === v.id;
                       return (

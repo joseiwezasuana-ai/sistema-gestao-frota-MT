@@ -1,8 +1,8 @@
 {
-  "short_name": "PSM Táxi",
-  "name": "PSM Táxi - JIS TaxiControl",
-  "id": "/",
-  "start_url": "/",
+  "short_name": "SUPER Táxi",
+  "name": "SUPER Táxi - JIS TaxiControl",
+  "id": "/?view=passenger&mode=passenger",
+  "start_url": "/?view=passenger&mode=passenger",
   "scope": "/",
   "display": "standalone",
   "theme_color": "#0f172a",

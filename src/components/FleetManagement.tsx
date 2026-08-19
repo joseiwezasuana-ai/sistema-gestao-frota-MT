@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, onSnapshot, addDoc, deleteDoc, doc, query, orderBy, serverTimestamp, updateDoc, arrayRemove, limit, getDocs, where, writeBatch } from '../lib/firebase';
-import { db, handleFirestoreError, OperationType, withTimeout } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, withTimeout, getActiveTenantId } from '../lib/firebase';
 import { formatSafe } from '../lib/dateUtils';
 import { cn } from '../lib/utils';
 
@@ -338,6 +338,9 @@ export default function FleetManagement({ user }: { user?: any }) {
         ...newDriver,
         driverId,
         status: 'Ativo',
+        status_operacional: 'ativo',
+        disponibilidade_app: true,
+        tenantId: getActiveTenantId() || 'psm',
         gps: 'Signal Good',
         lat: -11.7833, // Default Luena
         lng: 19.9167,
@@ -734,7 +737,9 @@ export default function FleetManagement({ user }: { user?: any }) {
                               try {
                                 const isPassengerActive = driver.passengerAppActive !== false;
                                 await updateDoc(doc(db, 'drivers', driver.id), {
-                                  passengerAppActive: !isPassengerActive
+                                  passengerAppActive: !isPassengerActive,
+                                  disponibilidade_app: !isPassengerActive,
+                                  status_operacional: !isPassengerActive ? 'ativo' : 'inativo'
                                 });
                               } catch (err) {
                                 console.error("Error toggling passengerAppActive:", err);

@@ -1,6 +1,8 @@
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { db } from './firebase';
 import { doc, updateDoc, setDoc } from 'firebase/firestore';
+import { logFcmDeliveryError } from './errorLogger';
+import { logSignalingEvent } from './signalingLogger';
 
 let messagingInstance: any = null;
 
@@ -322,10 +324,12 @@ export async function sendDriverPushNotification({
   body: string;
   notificationType?: string;
 }) {
+  const callReceivedTimestamp = new Date().toISOString();
+  const targetDriverId = driverId || 'motorista_desconhecido';
   try {
     const activeToken = fcmToken || localStorage.getItem('driver_fcm_token');
 
-    console.log(`[FCM Service] Triggering driver push '${title}' for driver '${driverId}', call '${callId}'`);
+    console.log(`[FCM Service] Triggering driver push '${title}' for driver '${targetDriverId}', call '${callId}'`);
 
     const response = await fetch('/api/fcm/send-driver-push', {
       method: 'POST',
@@ -335,7 +339,7 @@ export async function sendDriverPushNotification({
       body: JSON.stringify({
         fcmToken: activeToken || null,
         callId: callId || null,
-        driverId: driverId || null,
+        driverId: targetDriverId,
         title,
         body,
         notificationType: notificationType || 'call_received'
@@ -345,6 +349,17 @@ export async function sendDriverPushNotification({
     const result = await response.json();
     console.log('[FCM Service] Driver push server response:', result);
 
+    if (!result.success || result.error) {
+      await logFcmDeliveryError({
+        driverId: targetDriverId,
+        serverCallReceivedTimestamp: result.serverCallReceivedTimestamp || callReceivedTimestamp,
+        callId: callId,
+        errorMessage: result.error || 'Falha retornada pelo servidor no envio do push FCM',
+        failureReason: result.error || 'Erro de envio FCM',
+        fcmToken: activeToken || undefined
+      });
+    }
+
     // Fallback local notification
     await triggerLocalNotificationViaSw(title, {
       body,
@@ -352,8 +367,17 @@ export async function sendDriverPushNotification({
     });
 
     return result;
-  } catch (err) {
+  } catch (err: any) {
     console.warn('[FCM Service] Driver push notification request failed:', err);
+    await logFcmDeliveryError({
+      driverId: targetDriverId,
+      serverCallReceivedTimestamp: callReceivedTimestamp,
+      callId: callId,
+      errorMessage: err?.message || 'Falha de rede ou servidor inacessível ao disparar push FCM',
+      failureReason: 'Falha de conexão / Fetch Error',
+      fcmToken: fcmToken || undefined,
+      stack: err?.stack
+    });
     return null;
   }
 }

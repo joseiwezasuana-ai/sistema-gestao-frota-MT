@@ -1017,6 +1017,66 @@ export default function Dashboard({ user }: { user: any }) {
               </motion.div>
             ))}
 
+            {/* Centro de Tracking Frota Activa em Luena - POSICIONADO ACIMA DO GATEWAY */}
+            <div className="col-span-1 md:col-span-2 bg-white dark:bg-slate-900 rounded-[2.25rem] border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden h-[550px] lg:h-[650px] flex flex-col group">
+               <div className="px-8 py-6 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
+                  <div>
+                     <h3 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-widest italic flex items-center gap-3 text-brand-primary">
+                       <MapPin size={20} />
+                       Centro de Tracking
+                     </h3>
+                     <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-[0.2em] mt-1">Frota Activa em Luena</p>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full border border-emerald-100 dark:border-emerald-800/30 text-[10px] font-black uppercase italic tracking-widest shadow-sm">
+                     <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                     Monitor Activo
+                  </div>
+               </div>
+               <div className="flex-1 bg-slate-50 dark:bg-slate-950 relative z-0">
+                  {/* @ts-ignore */}
+                  <MapContainer key={`${mapCenter[0]}-${mapCenter[1]}-${mapZoom}`} center={mapCenter} zoom={mapZoom} style={{ height: '100%', width: '100%' }} zoomControl={false} className="grayscale-[0.2] contrast-[1.1]">
+                     {/* @ts-ignore */}
+                     <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                     {vehicles.map((driver, idx) => (
+                     /* @ts-ignore */
+                     <Marker key={`${driver.id}-${idx}`} position={[Number(driver.lat) || -11.7833, Number(driver.lng) || 19.9167]} icon={createDashboardIcon(driver)}>
+                        {/* @ts-ignore */}
+                        <Popup offset={[0, -15]}>
+                           <div className="p-3 min-w-[140px] font-sans dark:bg-slate-900">
+                              <p className={cn("font-black text-brand-primary text-sm mb-1 italic tracking-tight", driver.speed > 85 ? "text-red-600 animate-pulse" : "")}>{driver.prefix} {driver.speed > 85 && "⚠️"}</p>
+                              <p className="text-[11px] text-slate-900 dark:text-white font-black uppercase">Staff: {driver.name}</p>
+                              <div className="mt-2 pt-2 border-t border-slate-100 dark:border-white/5">
+                                 <p className="text-[9px] text-slate-500 font-bold uppercase">Status: <span className="text-slate-900 dark:text-white">{driver.status}</span></p>
+                                 <p className={cn("text-[11px] font-black uppercase mt-0.5", driver.speed > 85 ? "text-red-600" : "text-slate-900 dark:text-white")}>V: {driver.speed || 0} km/h</p>
+                              </div>
+                           </div>
+                        </Popup>
+                     </Marker>
+                     ))}
+                      {panicAlerts.map(alert => {
+                        if (!alert.lat || !alert.lng) return null;
+                        return (
+                          /* @ts-ignore */
+                          <Marker key={`panic-marker-${alert.id}`} position={[alert.lat, alert.lng]} icon={createPanicIcon(alert.prefix)}>
+                            {/* @ts-ignore */}
+                            <Popup offset={[0, -15]}>
+                              <div className="p-3 min-w-[150px] font-sans dark:bg-slate-900">
+                                <p className="font-sans font-black text-rose-600 text-sm mb-1 italic tracking-tight animate-pulse">⚠️ ALERTA DE PÂNICO ⚠️</p>
+                                <p className="text-[11px] text-slate-1050 dark:text-white font-black uppercase">Viatura: {alert.prefix || 'N/A'}</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase">Motorista: {alert.driverName || 'Motorista'}</p>
+                                {alert.driverPhone && (
+                                  <p className="text-[10px] text-emerald-600 font-bold uppercase mt-1 font-mono">Contacto: {alert.driverPhone}</p>
+                                )}
+                                <p className="text-[8px] text-slate-400 mt-2 italic font-mono">{alert.timestamp ? new Date(alert.timestamp).toLocaleString() : ''}</p>
+                              </div>
+                            </Popup>
+                          </Marker>
+                        );
+                      })}
+                  </MapContainer>
+               </div>
+            </div>
+
             {/* Real-Time Mobile Interactions Monitor - NEW GATEWAY */}
             <motion.div 
                initial={{ opacity: 0, scale: 0.95 }}
@@ -1445,65 +1505,7 @@ export default function Dashboard({ user }: { user: any }) {
             </motion.div>
           )}
 
-          <div className="bg-white dark:bg-slate-900 rounded-[2.25rem] border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden h-[650px] flex flex-col group">
-             <div className="px-8 py-6 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
-                <div>
-                   <h3 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-widest italic flex items-center gap-3 text-brand-primary">
-                     <MapPin size={20} />
-                     Centro de Tracking
-                   </h3>
-                   <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-[0.2em] mt-1">Frota Activa em Luena</p>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full border border-emerald-100 dark:border-emerald-800/30 text-[10px] font-black uppercase italic tracking-widest shadow-sm">
-                   <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                   Monitor Activo
-                </div>
-             </div>
-             <div className="flex-1 bg-slate-50 dark:bg-slate-950 relative z-0">
-                {/* @ts-ignore */}
-                <MapContainer key={`${mapCenter[0]}-${mapCenter[1]}-${mapZoom}`} center={mapCenter} zoom={mapZoom} style={{ height: '100%', width: '100%' }} zoomControl={false} className="grayscale-[0.2] contrast-[1.1]">
-                   {/* @ts-ignore */}
-                   <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                   {vehicles.map((driver, idx) => (
-                   /* @ts-ignore */
-                   <Marker key={`${driver.id}-${idx}`} position={[Number(driver.lat) || -11.7833, Number(driver.lng) || 19.9167]} icon={createDashboardIcon(driver)}>
-                      {/* @ts-ignore */}
-                      <Popup offset={[0, -15]}>
-                         <div className="p-3 min-w-[140px] font-sans dark:bg-slate-900">
-                            <p className={cn("font-black text-brand-primary text-sm mb-1 italic tracking-tight", driver.speed > 85 ? "text-red-600 animate-pulse" : "")}>{driver.prefix} {driver.speed > 85 && "⚠️"}</p>
-                            <p className="text-[11px] text-slate-900 dark:text-white font-black uppercase">Staff: {driver.name}</p>
-                            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-white/5">
-                               <p className="text-[9px] text-slate-500 font-bold uppercase">Status: <span className="text-slate-900 dark:text-white">{driver.status}</span></p>
-                               <p className={cn("text-[11px] font-black uppercase mt-0.5", driver.speed > 85 ? "text-red-600" : "text-slate-900 dark:text-white")}>V: {driver.speed || 0} km/h</p>
-                            </div>
-                         </div>
-                      </Popup>
-                   </Marker>
-                   ))}
-                    {panicAlerts.map(alert => {
-                      if (!alert.lat || !alert.lng) return null;
-                      return (
-                        /* @ts-ignore */
-                        <Marker key={`panic-marker-${alert.id}`} position={[alert.lat, alert.lng]} icon={createPanicIcon(alert.prefix)}>
-                          {/* @ts-ignore */}
-                          <Popup offset={[0, -15]}>
-                            <div className="p-3 min-w-[150px] font-sans dark:bg-slate-900">
-                              <p className="font-sans font-black text-rose-600 text-sm mb-1 italic tracking-tight animate-pulse">⚠️ ALERTA DE PÂNICO ⚠️</p>
-                              <p className="text-[11px] text-slate-1050 dark:text-white font-black uppercase">Viatura: {alert.prefix || 'N/A'}</p>
-                              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase">Motorista: {alert.driverName || 'Motorista'}</p>
-                              {alert.driverPhone && (
-                                <p className="text-[10px] text-emerald-600 font-bold uppercase mt-1 font-mono">Contacto: {alert.driverPhone}</p>
-                              )}
-                              <p className="text-[8px] text-slate-400 mt-2 italic font-mono">{alert.timestamp ? new Date(alert.timestamp).toLocaleString() : ''}</p>
-                            </div>
-                          </Popup>
-                        </Marker>
-                      );
-                    })}
-                </MapContainer>
-                {/* ... existing legend ... */}
-             </div>
-          </div>
+           {/* Centro de Tracking foi movido para cima do Gateway de Monitorização */}
 
           <div className="bg-slate-950 rounded-[2.25rem] border border-slate-850 dark:border-white/5 shadow-2xl overflow-hidden group">
              <div className="px-8 py-6 bg-red-600 flex items-center justify-between text-white">
