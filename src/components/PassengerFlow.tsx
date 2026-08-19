@@ -8,7 +8,7 @@ import {
   MapPinCheck, Navigation, PhoneCall, PhoneOff, Check, X, CheckCircle, 
   Trash2, Landmark, Trophy, Smartphone, AlertCircle, RefreshCw, Lock, AlertOctagon,
   Wifi, ArrowRight, ArrowLeft, ShieldAlert, MessageSquare, Compass, Gift, MoreVertical, QrCode, Copy, Upload, Download,
-  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut, LogIn, ChevronRight, Key, Palette
+  ThumbsUp, ThumbsDown, Clock, CheckCircle2, MessageCircle, Share2, Tag, LogOut, LogIn, ChevronRight, Key, Palette, Briefcase, LayoutDashboard
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { customConfirm } from '../lib/customConfirm';
@@ -2192,6 +2192,20 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
     }
   };
 
+  const handleExitToCollaborators = () => {
+    if (window.confirm("Deseja sair do aplicativo de passageiro e voltar ao Painel de Colaboradores / Funcionários?")) {
+      localStorage.removeItem('app_mode');
+      localStorage.setItem('collaborator_mode', 'true');
+      localStorage.removeItem('psm-passenger-profile');
+      localStorage.removeItem('active_call_id');
+      setPassengerProfile(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jis-exit-passenger-mode'));
+        window.location.href = `${window.location.pathname}?view=staff&mode=staff`;
+      }
+    }
+  };
+
   // Initiate call / request price
   const handleInitiateCall = async () => {
     if (!pickup.trim() || !destination.trim()) {
@@ -3058,6 +3072,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                               <span>Instalar PWA</span>
                             </button>
                           </div>
+
                         </div>
                       </div>
                     </motion.div>

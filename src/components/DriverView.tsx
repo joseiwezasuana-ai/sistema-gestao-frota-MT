@@ -911,14 +911,50 @@ export default function DriverView({ user }: DriverViewProps) {
   const vibrateIntervalRef = useRef<any>(null);
 
   const baseRingtones = [
-    { id: 'classic', name: 'Clássico', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
-    { id: 'modern', name: 'Moderno', url: 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3' },
-    { id: 'alert', name: 'Alerta', url: 'https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3' },
-    { id: 'melodic', name: 'Melódico', url: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3' },
-    { id: 'voice_supertaxi', name: 'Voz: Pedido Super Táxi 🗣️', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3' },
+    { id: 'samsung_horizon', name: 'Samsung • Over the Horizon 📱', url: 'https://cdn.freesound.org/previews/563/563638_11861866-lq.mp3', brand: 'Samsung' },
+    { id: 'iphone_marimba', name: 'iPhone • Marimba / Opening 🍎', url: 'https://cdn.freesound.org/previews/682/682631_11861866-lq.mp3', brand: 'Apple' },
+    { id: 'nokia_tune', name: 'Nokia • Gran Vals Clássico 📞', url: 'https://cdn.freesound.org/previews/538/538059_11861866-lq.mp3', brand: 'Nokia' },
+    { id: 'google_pixel', name: 'Google Pixel • Pure Chimes 🤖', url: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3', brand: 'Google' },
+    { id: 'classic', name: 'Telefone Fixo Clássico ☎️', url: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3', brand: 'Vintage' },
+    { id: 'voice_supertaxi', name: 'Voz Oficial: Pedido SUPER TÁXI 🗣️', url: '', brand: 'SuperTáxi' },
+    { id: 'synthesized_double', name: 'Sintetizador Digital 0ms 🔔', url: '', brand: 'Digital' },
+    { id: 'alert', name: 'Alerta VIP • Despacho Urgente 🚨', url: 'https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3', brand: 'VIP' },
+    { id: 'melodic', name: 'Melódico Suave de Frota 🎵', url: 'https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3', brand: 'Melodic' },
   ];
 
   const ringtones = [...customRingtones, ...baseRingtones];
+  const audioCacheRef = useRef<{ [key: string]: HTMLAudioElement }>({});
+
+  // Preload ringtone audio files into memory on mount to eliminate network buffering delay
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    baseRingtones.forEach(r => {
+      if (r.url && !audioCacheRef.current[r.id]) {
+        try {
+          const AudioClass = (window as any).Audio;
+          const a = new AudioClass(r.url);
+          a.preload = 'auto';
+          a.load();
+          audioCacheRef.current[r.id] = a;
+        } catch (e) {
+          console.warn("Failed to preload ringtone:", r.id, e);
+        }
+      }
+    });
+
+    // Warm up Web Audio on first user gesture
+    const unlockAudio = () => {
+      getUnlockedAudioContext();
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+    window.addEventListener('click', unlockAudio);
+    window.addEventListener('touchstart', unlockAudio);
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+    };
+  }, []);
 
   // Helper to initialize and unlock Web Audio context on user interaction
   const getUnlockedAudioContext = () => {
@@ -936,6 +972,117 @@ export default function DriverView({ user }: DriverViewProps) {
     } catch (e) {
       console.warn("Web Audio context init error:", e);
       return null;
+    }
+  };
+
+  // Synthesize instant iconic brand melodies & dual-tone bell (100% zero network delay)
+  const playBrandSynthesizedRingtone = (brandId: string) => {
+    try {
+      const ctx = getUnlockedAudioContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+
+      if (brandId === 'samsung_horizon') {
+        // Samsung Over the Horizon iconic notes
+        const notes = [
+          { freq: 392.00, start: 0.00, dur: 0.22 }, // G4
+          { freq: 587.33, start: 0.22, dur: 0.22 }, // D5
+          { freq: 659.25, start: 0.44, dur: 0.35 }, // E5
+          { freq: 880.00, start: 0.82, dur: 0.28 }, // A5
+          { freq: 987.77, start: 1.12, dur: 0.32 }, // B5
+          { freq: 1174.66, start: 1.48, dur: 0.60 }, // D6
+        ];
+        notes.forEach(n => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(n.freq, now + n.start);
+          gain.gain.setValueAtTime(0, now + n.start);
+          gain.gain.linearRampToValueAtTime(0.35, now + n.start + 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + n.start);
+          osc.stop(now + n.start + n.dur);
+        });
+      } else if (brandId === 'iphone_marimba') {
+        // iPhone Marimba / Opening notes
+        const notes = [
+          { freq: 659.25, start: 0.00 },
+          { freq: 1108.73, start: 0.14 },
+          { freq: 987.77, start: 0.28 },
+          { freq: 830.61, start: 0.42 },
+          { freq: 659.25, start: 0.56 },
+          { freq: 739.99, start: 0.70 },
+          { freq: 987.77, start: 0.84 },
+        ];
+        notes.forEach(n => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(n.freq, now + n.start);
+          gain.gain.setValueAtTime(0.4, now + n.start);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + 0.22);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + n.start);
+          osc.stop(now + n.start + 0.25);
+        });
+      } else if (brandId === 'nokia_tune') {
+        // Nokia Gran Vals classic strophe
+        const notes = [
+          { freq: 1318.5, start: 0.00, dur: 0.14 },
+          { freq: 1174.6, start: 0.15, dur: 0.14 },
+          { freq: 739.9, start: 0.30, dur: 0.28 },
+          { freq: 830.6, start: 0.60, dur: 0.28 },
+          { freq: 1108.7, start: 0.90, dur: 0.14 },
+          { freq: 987.7, start: 1.05, dur: 0.14 },
+          { freq: 587.3, start: 1.20, dur: 0.28 },
+          { freq: 659.2, start: 1.50, dur: 0.28 },
+          { freq: 987.7, start: 1.80, dur: 0.14 },
+          { freq: 880.0, start: 1.95, dur: 0.14 },
+          { freq: 554.3, start: 2.10, dur: 0.28 },
+          { freq: 659.2, start: 2.40, dur: 0.28 },
+          { freq: 880.0, start: 2.70, dur: 0.55 },
+        ];
+        notes.forEach(n => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(n.freq, now + n.start);
+          gain.gain.setValueAtTime(0.18, now + n.start);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + n.start);
+          osc.stop(now + n.start + n.dur);
+        });
+      } else if (brandId === 'google_pixel') {
+        // Google Pixel Chime
+        const notes = [
+          { freq: 523.25, start: 0.00, dur: 0.18 },
+          { freq: 659.25, start: 0.18, dur: 0.18 },
+          { freq: 783.99, start: 0.36, dur: 0.18 },
+          { freq: 1046.50, start: 0.54, dur: 0.50 },
+        ];
+        notes.forEach(n => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(n.freq, now + n.start);
+          gain.gain.setValueAtTime(0.35, now + n.start);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + n.start);
+          osc.stop(now + n.start + n.dur);
+        });
+      } else {
+        // Default dual-tone telephone bell
+        playSynthesizedPhoneRingBurst();
+      }
+    } catch (e) {
+      console.warn("Brand synth ring error:", e);
     }
   };
 
@@ -980,16 +1127,16 @@ export default function DriverView({ user }: DriverViewProps) {
     }
   };
 
-  // Start continuous incoming call ringtone (Audio + Speech + Vibration + Dual-tone Fallback)
+  // Start continuous incoming call ringtone (Audio + Speech + Vibration + Instant Web Audio Brand Melodies)
   const startIncomingCallRing = () => {
     if (isRingingRef.current) return;
     isRingingRef.current = true;
-    console.log("[DriverView] 🔔 Starting continuous incoming call ringtone...");
+    console.log("[DriverView] 🔔 Starting continuous zero-delay incoming call ringtone...");
 
-    // 1. Vibration
+    // 1. Vibration (Strong continuous pulse)
     try {
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate([600, 300, 600, 300, 1000]);
+        navigator.vibrate([800, 300, 800, 300, 800, 300, 1200]);
         if (vibrateIntervalRef.current) clearInterval(vibrateIntervalRef.current);
         vibrateIntervalRef.current = setInterval(() => {
           if (!isRingingRef.current) {
@@ -997,21 +1144,23 @@ export default function DriverView({ user }: DriverViewProps) {
             return;
           }
           try {
-            navigator.vibrate([600, 300, 600, 300, 1000]);
+            navigator.vibrate([800, 300, 800, 300, 800, 300, 1200]);
           } catch {}
-        }, 3000);
+        }, 2800);
       }
     } catch (err) {
       console.warn("Vibration error:", err);
     }
 
-    // 2. Speech Synthesis or Ringtone Playback
+    // 2. Ringtone Playback (Instant zero-delay execution)
     const currentRingtoneId = selectedRingtone || localStorage.getItem('driver_ringtone') || 'voice_supertaxi';
-    const ringtoneObj = ringtones.find(r => r.id === currentRingtoneId) || baseRingtones[4];
+    const ringtoneObj = ringtones.find(r => r.id === currentRingtoneId) || baseRingtones[0];
+
+    // Trigger instant Web Audio brand melody first (<1ms delay)
+    playBrandSynthesizedRingtone(currentRingtoneId);
 
     if (currentRingtoneId === 'voice_supertaxi') {
       speakNotification();
-      playSynthesizedPhoneRingBurst();
       if (speechIntervalRef.current) clearInterval(speechIntervalRef.current);
       speechIntervalRef.current = setInterval(() => {
         if (!isRingingRef.current) {
@@ -1019,35 +1168,36 @@ export default function DriverView({ user }: DriverViewProps) {
           return;
         }
         speakNotification();
-        playSynthesizedPhoneRingBurst();
-      }, 4000);
+        playBrandSynthesizedRingtone(currentRingtoneId);
+      }, 3500);
     } else {
-      // Play Audio file loop + Synthesizer fallback
-      try {
-        if (incomingAudioRef.current) {
-          incomingAudioRef.current.pause();
-          incomingAudioRef.current.currentTime = 0;
+      // Loop instant Web Audio brand melody + preloaded HTML5 audio
+      if (ringingIntervalRef.current) clearInterval(ringingIntervalRef.current);
+      ringingIntervalRef.current = setInterval(() => {
+        if (!isRingingRef.current) {
+          clearInterval(ringingIntervalRef.current);
+          return;
         }
-        if (typeof window !== 'undefined' && 'Audio' in window) {
+        playBrandSynthesizedRingtone(currentRingtoneId);
+      }, 2500);
+
+      // Also play preloaded HTML5 audio if available
+      try {
+        let cachedAudio = audioCacheRef.current[currentRingtoneId];
+        if (cachedAudio) {
+          cachedAudio.currentTime = 0;
+          cachedAudio.loop = true;
+          cachedAudio.play().catch(() => {});
+          incomingAudioRef.current = cachedAudio;
+        } else if (ringtoneObj.url && typeof window !== 'undefined' && 'Audio' in window) {
           const AudioClass = (window as any).Audio;
-          incomingAudioRef.current = new AudioClass(ringtoneObj.url);
-          incomingAudioRef.current.loop = true;
-          incomingAudioRef.current.play().catch((err) => {
-            console.warn("HTML5 audio playback blocked/failed, using Web Audio phone bell fallback:", err);
-            playSynthesizedPhoneRingBurst();
-            if (ringingIntervalRef.current) clearInterval(ringingIntervalRef.current);
-            ringingIntervalRef.current = setInterval(() => {
-              if (!isRingingRef.current) {
-                clearInterval(ringingIntervalRef.current);
-                return;
-              }
-              playSynthesizedPhoneRingBurst();
-            }, 3000);
-          });
+          const a = new AudioClass(ringtoneObj.url);
+          a.loop = true;
+          a.play().catch(() => {});
+          incomingAudioRef.current = a;
         }
       } catch (err) {
-        console.warn("Audio element error, using synthesizer:", err);
-        playSynthesizedPhoneRingBurst();
+        console.warn("Audio element play error:", err);
       }
     }
   };
@@ -1201,19 +1351,21 @@ export default function DriverView({ user }: DriverViewProps) {
         return;
       }
       setIsPlayingAudioId(ringId || null);
+
+      if (ringId) {
+        playBrandSynthesizedRingtone(ringId);
+      }
+
       if (ringId === 'voice_supertaxi') {
         speakNotification();
-        playSynthesizedPhoneRingBurst();
         return;
       }
-      if (typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
+      if (url && typeof window !== 'undefined' && 'Audio' in window && typeof (window as any).Audio === 'function') {
         const AudioClass = (window as any).Audio;
         audioRef.current = new AudioClass(url);
         audioRef.current.onended = () => setIsPlayingAudioId(null);
         audioRef.current.play().catch(e => {
-          console.warn(e);
-          playSynthesizedPhoneRingBurst();
-          setIsPlayingAudioId(null);
+          console.warn("Audio element preview warning, using synthesizer:", e);
         });
       }
     } catch (e) {

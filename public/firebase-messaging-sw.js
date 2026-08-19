@@ -33,7 +33,7 @@ messaging.onBackgroundMessage((payload) => {
     body: body,
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    vibrate: [500, 200, 500, 200, 500, 200, 800],
+    vibrate: [800, 300, 800, 300, 800, 300, 1200],
     tag: callId ? `supertaxi_call_${callId}` : `supertaxi_msg_${Date.now()}`,
     renotify: true,
     requireInteraction: true,

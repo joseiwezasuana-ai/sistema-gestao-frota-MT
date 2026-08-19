@@ -93,6 +93,14 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    match /calls/{callId} {
+      allow read, write: if true;
+    }
+
+    match /complaints/{complaintId} {
+      allow read, write: if true;
+    }
+
     match /passengers/{passengerId} {
       allow read, write: if true;
     }
@@ -103,6 +111,57 @@ service cloud.firestore {
 
     match /passenger_ratings/{ratingId} {
       allow read, write: if true;
+    }
+
+    match /fcm_tokens/{tokenId} {
+      allow read, write: if true;
+    }
+
+    match /notifications/{notifId} {
+      allow read, write: if true;
+    }
+
+    match /company_phones/{phoneId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isMasterAdmin();
+    }
+
+    match /psm_phones/{phoneId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isMasterAdmin();
+    }
+
+    match /panic_alerts/{alertId} {
+      allow read, write: if true;
+    }
+
+    match /interaction_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    match /gps_history/{logId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isMasterAdmin();
+    }
+
+    match /warehouse_inventory/{itemId} {
+      allow read, write: if isSignedIn() || isMasterAdmin();
+    }
+
+    match /warehouse_logs/{logId} {
+      allow read, write: if isSignedIn() || isMasterAdmin();
+    }
+
+    match /contract_attendance/{logId} {
+      allow read, write: if isSignedIn() || isMasterAdmin();
+    }
+
+    match /messages/{messageId} {
+      allow read, write: if isSignedIn() || isMasterAdmin();
+    }
+
+    match /sms_logs/{logId} {
+      allow read, write: if isSignedIn() || isMasterAdmin();
     }
 
     match /system_backups/{backupId} {
@@ -121,25 +180,25 @@ service cloud.firestore {
     // =========================================================================
 
     match /drivers/{driverId} {
-      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow read: if true; // Public access so passenger map displays available taxis & live GPS
       allow create: if isSignedIn() && isIncomingInUserTenant();
       allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
     }
 
     match /drivers_master/{driverId} {
-      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow read: if true; // Public access for driver name/rating resolution
       allow create: if isSignedIn() && isIncomingInUserTenant();
       allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
     }
 
     match /vehicles/{vehicleId} {
-      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow read: if true; // Public access for vehicle models and plate lookup
       allow create: if isSignedIn() && isIncomingInUserTenant();
       allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
     }
 
     match /master_vehicles/{vehicleId} {
-      allow read: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
+      allow read: if true;
       allow create: if isSignedIn() && isIncomingInUserTenant();
       allow update, delete: if isSignedIn() && (isMasterAdmin() || isDocInUserTenant(resource.data));
     }
@@ -228,24 +287,36 @@ service cloud.firestore {
         allow read, write: if true;
       }
 
+      match /calls/{callId} {
+        allow read, write: if true;
+      }
+
+      match /complaints/{complaintId} {
+        allow read, write: if true;
+      }
+
       match /access_codes/{codeId} {
         allow read, write: if true; // Used for registration/code activation
       }
 
       match /drivers/{driverId} {
-        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+        allow read: if true; // Public access for passenger satellite map & booking
+        allow write: if belongsToTenant(tenantId) || isMasterAdmin() || isSignedIn();
       }
 
       match /drivers_master/{driverId} {
-        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+        allow read: if true;
+        allow write: if belongsToTenant(tenantId) || isMasterAdmin() || isSignedIn();
       }
 
       match /vehicles/{vehicleId} {
-        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+        allow read: if true;
+        allow write: if belongsToTenant(tenantId) || isMasterAdmin() || isSignedIn();
       }
 
       match /master_vehicles/{vehicleId} {
-        allow read, write: if belongsToTenant(tenantId) || isMasterAdmin();
+        allow read: if true;
+        allow write: if belongsToTenant(tenantId) || isMasterAdmin() || isSignedIn();
       }
 
       match /shifts/{shiftId} {

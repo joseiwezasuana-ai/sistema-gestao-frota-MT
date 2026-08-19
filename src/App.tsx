@@ -532,6 +532,20 @@ export default function App() {
     }
   }, []);
 
+  // Event listener to exit passenger mode and return to collaborators / staff view (JIS)
+  useEffect(() => {
+    const handleExitPassenger = () => {
+      localStorage.removeItem('app_mode');
+      localStorage.setItem('collaborator_mode', 'true');
+      setShowPublicPassengerFlow(false);
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        window.history.replaceState({}, document.title, `${window.location.pathname}?view=staff`);
+      }
+    };
+    window.addEventListener('jis-exit-passenger-mode', handleExitPassenger);
+    return () => window.removeEventListener('jis-exit-passenger-mode', handleExitPassenger);
+  }, []);
+
   const [isProfileEditOpen, setIsProfileEditOpen] = useState(false);
   const [globalSettings, setGlobalSettings] = useState<any>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);

@@ -434,9 +434,34 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["client", "vehicle", "startDate", "endDate", "dailyPrice", "phone", "status", "createdAt"]
+    },
+    "Complaint": {
+      "title": "Passenger Complaint & Protection Report",
+      "description": "Reports and complaints submitted by passengers for fleet audit.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "passengerName": { "type": "string" },
+        "passengerPhone": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "vehicle": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "in_review", "resolved"] },
+        "satisfaction": { "type": "string", "enum": ["satisfied", "unsatisfied"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "description"]
     }
   },
   "firestore": {
+    "/complaints/{complaintId}": {
+      "schema": "Complaint",
+      "description": "Passenger complaints, feedback and safety audits."
+    },
+    "/tenants/{tenantId}/complaints/{complaintId}": {
+      "schema": "Complaint",
+      "description": "Tenant-specific passenger complaints and safety audits."
+    },
     "/interaction_logs/{logId}": {
       "schema": "InteractionLog",
       "description": "Logs from the mobile telemetry gateway."

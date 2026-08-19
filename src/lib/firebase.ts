@@ -71,7 +71,12 @@ const GLOBAL_COLLECTIONS = [
   'passenger_profiles',
   'passenger_ratings',
   'system_backups',
-  'system_error_logs'
+  'system_error_logs',
+  'calls',
+  'complaints',
+  'fcm_tokens',
+  'notifications',
+  'company_phones'
 ];
 
 export function getActiveTenantId(): string {
