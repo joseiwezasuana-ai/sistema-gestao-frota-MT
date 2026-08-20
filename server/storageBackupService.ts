@@ -311,7 +311,25 @@ export async function executeWeeklyStorageBackup(
     categories,
   };
 
-  // 4. Record the Backup Manifest in Firestore for audit & historical tracking
+  // 4. Record the Backup Manifest locally and in Firestore for audit & historical tracking
+  try {
+    const rootBackupDir = path.join(process.cwd(), ".data", "backups");
+    if (!fs.existsSync(rootBackupDir)) {
+      fs.mkdirSync(rootBackupDir, { recursive: true });
+    }
+    const manifestsPath = path.join(rootBackupDir, "manifests.json");
+    let manifests: any[] = [];
+    if (fs.existsSync(manifestsPath)) {
+      try {
+        manifests = JSON.parse(fs.readFileSync(manifestsPath, "utf8"));
+      } catch {}
+    }
+    manifests.unshift(result);
+    fs.writeFileSync(manifestsPath, JSON.stringify(manifests.slice(0, 50), null, 2), "utf8");
+  } catch (fsErr: any) {
+    console.warn("[Storage Backup] Notice writing local manifest:", fsErr.message);
+  }
+
   try {
     await db.collection("system_backups").doc(backupId).set({
       ...result,
@@ -330,7 +348,7 @@ export async function executeWeeklyStorageBackup(
 
     console.log(`[Storage Backup] Weekly backup manifest recorded in Firestore: ${backupId}`);
   } catch (dbErr: any) {
-    console.error("[Storage Backup] Failed to record manifest in Firestore:", dbErr.message);
+    console.warn("[Storage Backup] Notice recording manifest in Cloud Firestore (local manifest retained):", dbErr.message);
   }
 
   return result;

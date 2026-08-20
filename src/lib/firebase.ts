@@ -4,7 +4,7 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import 'firebase/auth'; // Force registration
 import { 
   getFirestore,
-  initializeFirestore, 
+  initializeFirestore,
   collection as originalCollection,
   doc as originalDoc,
   CollectionReference,
@@ -15,7 +15,6 @@ import {
   updateDoc as originalUpdateDoc,
   deleteDoc as originalDeleteDoc,
   onSnapshot as originalOnSnapshot,
-  getDocFromServer,
   getDocs
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -49,15 +48,23 @@ try {
 // Initialize services with guards
 export const auth = app ? getAuth(app) : { onAuthStateChanged: () => () => {}, currentUser: null } as any;
 
-// Handle (default) or named database correctly
-const databaseId = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "" && firebaseConfig.firestoreDatabaseId !== "(default)"
-  ? firebaseConfig.firestoreDatabaseId 
-  : undefined; 
+// Initialize Firestore properly with default or custom database and disabled auto-detect long polling
+const databaseId = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+  ? firebaseConfig.firestoreDatabaseId
+  : undefined;
 
-export const db = app ? initializeFirestore(app, {
-  ignoreUndefinedProperties: true,
-  experimentalForceLongPolling: true
-}, databaseId) : { collection: () => ({}), doc: () => ({}) } as any;
+export const db = app 
+  ? (() => {
+      try {
+        return initializeFirestore(app, {
+          experimentalAutoDetectLongPolling: false,
+          experimentalForceLongPolling: false
+        }, databaseId);
+      } catch (e) {
+        return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+      }
+    })()
+  : { collection: () => ({}), doc: () => ({}) } as any;
 
 // --- MULTI-TENANT CONFIGURATION AND WRAPPERS ---
 let activeTenantId: string | null = null;
@@ -184,22 +191,6 @@ export function onSnapshot(...args: any[]): () => void {
     return originalOnSnapshot(ref, args[1], onNext, safeOnError, onCompletion);
   }
 }
-
-// Test initial connection to Cloud Firestore
-async function testConnection() {
-  try {
-    if (app && db) {
-      await withTimeout(getDocFromServer(originalDoc(db, 'settings', 'global')), 4000);
-    }
-  } catch (error: any) {
-    if (error?.message?.includes('offline') || error?.message?.includes('unavailable') || error?.code === 'unavailable' || error?.message?.includes('ERRO_TIMEOUT')) {
-      console.warn("[Firebase] Client operating in offline cache mode until Cloud Firestore backend is reached.");
-    }
-  }
-}
-testConnection();
-// -----------------------------------------------
-
 
 // Diagnostic helper to detect hangs
 export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 15000): Promise<T> {
