@@ -984,6 +984,39 @@ export default function DriverView({ user }: DriverViewProps) {
     }
   };
 
+  // High-urgency persistent acoustic alert tone burst (Designed for in-car ambient noise penetration)
+  const playHighUrgencyRideAlertBurst = () => {
+    try {
+      const ctx = getUnlockedAudioContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+
+      // Two-stage penetrating chime (880Hz -> 1174Hz -> 1760Hz)
+      const pitches = [880.0, 1174.66, 1760.0, 1174.66, 1760.0];
+      pitches.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const startTime = now + (idx * 0.14);
+        const duration = 0.12;
+
+        osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
+        osc.frequency.setValueAtTime(freq, startTime);
+
+        gain.gain.setValueAtTime(0.001, startTime);
+        gain.gain.linearRampToValueAtTime(0.45, startTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration + 0.02);
+      });
+    } catch (e) {
+      console.warn("Urgent ride alert sound error:", e);
+    }
+  };
+
   // Synthesize instant iconic brand melodies & dual-tone bell (100% zero network delay)
   const playBrandSynthesizedRingtone = (brandId: string) => {
     try {
@@ -1007,7 +1040,7 @@ export default function DriverView({ user }: DriverViewProps) {
           osc.type = 'sine';
           osc.frequency.setValueAtTime(n.freq, now + n.start);
           gain.gain.setValueAtTime(0, now + n.start);
-          gain.gain.linearRampToValueAtTime(0.35, now + n.start + 0.04);
+          gain.gain.linearRampToValueAtTime(0.45, now + n.start + 0.04);
           gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -1030,7 +1063,7 @@ export default function DriverView({ user }: DriverViewProps) {
           const gain = ctx.createGain();
           osc.type = 'triangle';
           osc.frequency.setValueAtTime(n.freq, now + n.start);
-          gain.gain.setValueAtTime(0.4, now + n.start);
+          gain.gain.setValueAtTime(0.45, now + n.start);
           gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + 0.22);
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -1059,7 +1092,7 @@ export default function DriverView({ user }: DriverViewProps) {
           const gain = ctx.createGain();
           osc.type = 'square';
           osc.frequency.setValueAtTime(n.freq, now + n.start);
-          gain.gain.setValueAtTime(0.18, now + n.start);
+          gain.gain.setValueAtTime(0.25, now + n.start);
           gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -1079,7 +1112,7 @@ export default function DriverView({ user }: DriverViewProps) {
           const gain = ctx.createGain();
           osc.type = 'sine';
           osc.frequency.setValueAtTime(n.freq, now + n.start);
-          gain.gain.setValueAtTime(0.35, now + n.start);
+          gain.gain.setValueAtTime(0.45, now + n.start);
           gain.gain.exponentialRampToValueAtTime(0.001, now + n.start + n.dur);
           osc.connect(gain);
           gain.connect(ctx.destination);
@@ -1087,8 +1120,9 @@ export default function DriverView({ user }: DriverViewProps) {
           osc.stop(now + n.start + n.dur);
         });
       } else {
-        // Default dual-tone telephone bell
+        // Default dual-tone telephone bell + high urgency chime
         playSynthesizedPhoneRingBurst();
+        playHighUrgencyRideAlertBurst();
       }
     } catch (e) {
       console.warn("Brand synth ring error:", e);
@@ -1113,14 +1147,14 @@ export default function DriverView({ user }: DriverViewProps) {
 
       gain.gain.setValueAtTime(0, now);
       // Ring burst 1
-      gain.gain.linearRampToValueAtTime(0.35, now + 0.05);
-      gain.gain.setValueAtTime(0.35, now + 0.8);
+      gain.gain.linearRampToValueAtTime(0.45, now + 0.05);
+      gain.gain.setValueAtTime(0.45, now + 0.8);
       gain.gain.linearRampToValueAtTime(0, now + 0.85);
 
       // Ring burst 2
       gain.gain.setValueAtTime(0, now + 1.0);
-      gain.gain.linearRampToValueAtTime(0.35, now + 1.05);
-      gain.gain.setValueAtTime(0.35, now + 1.85);
+      gain.gain.linearRampToValueAtTime(0.45, now + 1.05);
+      gain.gain.setValueAtTime(0.45, now + 1.85);
       gain.gain.linearRampToValueAtTime(0, now + 1.9);
 
       osc1.connect(gain);
@@ -1136,11 +1170,20 @@ export default function DriverView({ user }: DriverViewProps) {
     }
   };
 
-  // Start continuous incoming call ringtone (Audio + Speech + Vibration + Instant Web Audio Brand Melodies)
+  // Start continuous, non-stop incoming call & ride request ringtone (Audio + Speech + Vibration + Instant Web Audio Brand Melodies)
   const startIncomingCallRing = () => {
     if (isRingingRef.current) return;
     isRingingRef.current = true;
-    console.log("[DriverView] 🔔 Starting continuous zero-delay incoming call ringtone...");
+    console.log("[DriverView] 🔔 Starting persistent continuous incoming call ringtone...");
+
+    // Request Screen Wake Lock during incoming call so phone does not sleep
+    try {
+      if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
+        (navigator as any).wakeLock.request('screen').then((lock: any) => {
+          (window as any)._driverWakeLock = lock;
+        }).catch(() => {});
+      }
+    } catch {}
 
     // 1. Vibration (Strong continuous pulse)
     try {
@@ -1155,7 +1198,7 @@ export default function DriverView({ user }: DriverViewProps) {
           try {
             navigator.vibrate([800, 300, 800, 300, 800, 300, 1200]);
           } catch {}
-        }, 2800);
+        }, 2600);
       }
     } catch (err) {
       console.warn("Vibration error:", err);
@@ -1167,6 +1210,7 @@ export default function DriverView({ user }: DriverViewProps) {
 
     // Trigger instant Web Audio brand melody first (<1ms delay)
     playBrandSynthesizedRingtone(currentRingtoneId);
+    playHighUrgencyRideAlertBurst();
 
     if (currentRingtoneId === 'voice_supertaxi') {
       speakNotification();
@@ -1177,10 +1221,10 @@ export default function DriverView({ user }: DriverViewProps) {
           return;
         }
         speakNotification();
-        playBrandSynthesizedRingtone(currentRingtoneId);
-      }, 3500);
+        playHighUrgencyRideAlertBurst();
+      }, 3200);
     } else {
-      // Loop instant Web Audio brand melody + preloaded HTML5 audio
+      // Loop instant Web Audio brand melody + high urgency alarm tone
       if (ringingIntervalRef.current) clearInterval(ringingIntervalRef.current);
       ringingIntervalRef.current = setInterval(() => {
         if (!isRingingRef.current) {
@@ -1188,7 +1232,8 @@ export default function DriverView({ user }: DriverViewProps) {
           return;
         }
         playBrandSynthesizedRingtone(currentRingtoneId);
-      }, 2500);
+        playHighUrgencyRideAlertBurst();
+      }, 2200);
 
       // Also play preloaded HTML5 audio if available
       try {
@@ -1215,6 +1260,15 @@ export default function DriverView({ user }: DriverViewProps) {
   const stopIncomingCallRing = () => {
     isRingingRef.current = false;
     console.log("[DriverView] 🔕 Stopped incoming call ringtone.");
+
+    // Release Screen Wake Lock
+    try {
+      if ((window as any)._driverWakeLock) {
+        (window as any)._driverWakeLock.release().catch(() => {});
+        (window as any)._driverWakeLock = null;
+      }
+    } catch {}
+
     try {
       if (incomingAudioRef.current) {
         incomingAudioRef.current.pause();
@@ -1245,16 +1299,31 @@ export default function DriverView({ user }: DriverViewProps) {
     }
   };
 
-  // Global user gesture listener to prime audio on device
+  // Global user gesture listener to prime and unlock audio on device
   useEffect(() => {
     const handleUnlock = () => {
       getUnlockedAudioContext();
     };
     window.addEventListener('click', handleUnlock, { passive: true });
     window.addEventListener('touchstart', handleUnlock, { passive: true });
+    window.addEventListener('pointerdown', handleUnlock, { passive: true });
+    
+    // Visibility change handler: resume audio alert if page becomes visible while a call is pending
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && currentServiceRef.current?.status === 'pending') {
+        getUnlockedAudioContext();
+        if (!isRingingRef.current) {
+          startIncomingCallRing();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       window.removeEventListener('click', handleUnlock);
       window.removeEventListener('touchstart', handleUnlock);
+      window.removeEventListener('pointerdown', handleUnlock);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -3440,7 +3509,7 @@ export default function DriverView({ user }: DriverViewProps) {
             </div>
           </div>
 
-          {/* Action Row: Terminar/Iniciar Turno + S.O.S Emergência */}
+          {/* Action Row: Terminar/Iniciar Turno + Alerta Sonoro Test + S.O.S Emergência */}
           <div className="flex items-center gap-2 pt-0.5">
             <button
               onClick={handleStartShift}
@@ -3453,6 +3522,29 @@ export default function DriverView({ user }: DriverViewProps) {
             >
               <Power size={13} />
               {isOnline ? "Terminar Turno" : "Iniciar Turno"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                getUnlockedAudioContext();
+                playHighUrgencyRideAlertBurst();
+                speakNotification();
+                if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+                  navigator.vibrate([300, 100, 300]);
+                }
+                setNotificationBanner({
+                  title: "🔊 TESTE DE ALARME SONORO",
+                  message: "Alerta sonoro persistente verificado com sucesso no dispositivo.",
+                  type: "info",
+                  visible: true
+                });
+              }}
+              className="py-2.5 px-2.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-400/30 shadow-md active:scale-95 flex items-center justify-center gap-1 shrink-0"
+              title="Testar Alarme Sonoro de Viagens"
+            >
+              <Volume2 size={13} />
+              <span className="hidden sm:inline">Som</span>
             </button>
 
             <button
@@ -3755,6 +3847,33 @@ export default function DriverView({ user }: DriverViewProps) {
                       {currentService.status === "active" ? "Viatura em Movimento no Luena" : "Negociação de Super Táxi"}
                     </p>
                   </div>
+
+                  {/* Persistent Sound & Alarm Indicator when Service is Pending */}
+                  {currentService.status === "pending" && (
+                    <div className="p-3 bg-amber-500/20 border-2 border-amber-400/60 rounded-2xl flex items-center justify-between gap-3 relative z-10 animate-pulse">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-lg shadow-amber-500/40 animate-bounce">
+                          <Volume2 size={16} />
+                        </div>
+                        <div className="min-w-0 text-left">
+                          <p className="text-[9px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1.5 leading-none">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block" />
+                            Alerta Sonoro Persistente Ativo
+                          </p>
+                          <p className="text-[10px] font-bold text-white leading-tight mt-0.5 truncate">
+                            Toque no ecrã para desbloquear áudio e atender
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="flex h-3.5 gap-0.5 items-end px-1">
+                          <span className="w-1 bg-amber-400 rounded-full h-full animate-bounce [animation-delay:-0.3s]" />
+                          <span className="w-1 bg-amber-400 rounded-full h-2/3 animate-bounce [animation-delay:-0.15s]" />
+                          <span className="w-1 bg-amber-400 rounded-full h-full animate-bounce" />
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Live Real-Time Passenger Waiting Time - Directly below status subtitle */}
                   {currentService.status !== 'active' && (
