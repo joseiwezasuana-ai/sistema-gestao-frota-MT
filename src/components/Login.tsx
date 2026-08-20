@@ -882,7 +882,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                   <form onSubmit={handleUnlockMaster} className="p-2.5 bg-slate-50 rounded-2xl border border-slate-100 space-y-2 text-left">
                     <div className="flex items-center gap-1.5 text-[9px] font-black uppercase text-brand-primary tracking-wider">
                       <Shield className="animate-pulse" size={12} />
-                      Confirmar Palavra-passe JIS
+                      Confirmar Palavra-passe
                     </div>
                     <div className="space-y-1.5">
                       <input 
@@ -1074,7 +1074,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                     </span>
                     <h4 className="text-base font-black uppercase tracking-wider text-white mt-1">Acesso ao Sistema TAXIControl</h4>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
-                      Selecione a opção desejada para aceder ou ativar a sua conta
+                      
                     </p>
                   </div>
 
@@ -1094,7 +1094,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                             Entrar na Conta
                           </span>
                           <span className="block text-[9px] font-bold text-slate-900/80 uppercase">
-                            Acesso com ID e Palavra-passe
+                            
                           </span>
                         </div>
                       </div>
@@ -1121,36 +1121,6 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                         </div>
                       </div>
                       <ChevronRight size={18} className="text-slate-400 group-hover:translate-x-1 transition-transform" />
-                    </button>
-
-                    {/* Botão Azul - Entrar no Painel de Passageiro */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        localStorage.setItem('app_mode', 'passenger');
-                        localStorage.removeItem('collaborator_mode');
-                        if (onPassengerFlow) {
-                          onPassengerFlow();
-                        } else {
-                          window.location.href = '/?view=passenger&mode=passenger';
-                        }
-                      }}
-                      className="w-full p-4 bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-[0.98] text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-between shadow-xl shadow-blue-500/25 border border-blue-400/30 group cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-slate-950/30 border border-white/20 flex items-center justify-center shrink-0">
-                          <Car size={20} className="text-white" />
-                        </div>
-                        <div className="text-left">
-                          <span className="block text-xs font-black uppercase tracking-tight text-white">
-                            Entrar no Painel de Passageiro
-                          </span>
-                          <span className="block text-[9px] font-bold text-blue-100/90 uppercase">
-                            App do Cliente • Pedir Viagem & Tarifas
-                          </span>
-                        </div>
-                      </div>
-                      <ArrowRight size={18} className="text-white group-hover:translate-x-1 transition-transform" />
                     </button>
 
                     {/* Esqueceu a Palavra-passe */}
@@ -1370,7 +1340,7 @@ export default function Login({ onGoogleLogin, onPassengerFlow }: LoginProps) {
                     {!isCodeValidated ? (
                        <div className="space-y-4">
                           <div className="space-y-1 text-left">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID Colaborador / Viatura</label>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ID Colaborador</label>
                             <input 
                               placeholder="Ex: OP-123 ou TX-104"
                               value={id}

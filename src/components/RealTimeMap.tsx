@@ -63,7 +63,7 @@ const TaxiMarker = ({ driver, ...props }: any) => {
           </span>
         </div>
       </div>
-    
+
       <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white p-3 rounded-xl shadow-2xl border border-slate-200 hidden group-hover:block z-[9999] min-w-[180px]">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-2">
           <div className={`w-2.5 h-2.5 rounded-full ${getMarkerColor(driver.status)} ${isSpeeding ? 'animate-pulse' : ''}`} />

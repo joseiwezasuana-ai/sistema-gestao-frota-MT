@@ -50,8 +50,9 @@ import { cn } from '../lib/utils';
 import RealTimeMap from './RealTimeMap';
 import GPSTimeline from './GPSTimeline';
 import ShiftMonitor from './ShiftMonitor';
+import DriverSessionShiftAudit from './DriverSessionShiftAudit';
 
-type MonitorTab = 'psm' | 'unitel' | 'shifts' | 'map' | 'gps_timeline' | 'sos';
+type MonitorTab = 'psm' | 'unitel' | 'shifts' | 'map' | 'gps_timeline' | 'sos' | 'session_audit';
 
 interface RealTimeMonitorProps {
   user?: any;
@@ -457,6 +458,7 @@ export default function RealTimeMonitor({ user, initialSubTab }: RealTimeMonitor
                { id: 'psm', label: 'Histórico PSM COMERCIAL', icon: Phone, color: 'bg-brand-primary', roles: ['admin', 'operator', 'mecanico'] },
                { id: 'unitel', label: 'Monitoria Taxicontrol', icon: Wifi, color: 'bg-amber-500', roles: ['admin', 'operator', 'mecanico'] },
                { id: 'shifts', label: 'Monitoria de Turnos', icon: Clock, color: 'bg-blue-600', roles: ['admin', 'operator', 'mecanico'] },
+               { id: 'session_audit', label: 'Auditoria Sessão vs Turno', icon: ShieldAlert, color: 'bg-rose-600', roles: ['admin', 'operator'] },
                { id: 'map', label: 'Geolocalização Live', icon: MapIcon, color: 'bg-indigo-600', roles: ['admin', 'operator', 'mecanico', 'contabilista'] },
                { id: 'gps_timeline', label: 'Auditoria GPS', icon: HistoryIcon, color: 'bg-teal-600', roles: ['admin', 'operator'] },
                { id: 'sos', label: 'Gestão de S.O.S 🚨', icon: ShieldAlert, color: 'bg-rose-700', roles: ['admin', 'operator'] },
@@ -701,6 +703,18 @@ export default function RealTimeMonitor({ user, initialSubTab }: RealTimeMonitor
               className="h-full flex flex-col"
             >
               <ShiftMonitor user={user} />
+            </motion.div>
+          )}
+
+          {activeSubTab === 'session_audit' && (
+            <motion.div 
+              key="session_audit"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-full flex flex-col"
+            >
+              <DriverSessionShiftAudit user={user} />
             </motion.div>
           )}
 

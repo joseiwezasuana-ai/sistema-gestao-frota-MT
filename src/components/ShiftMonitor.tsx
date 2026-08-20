@@ -15,9 +15,11 @@ import {
   RefreshCw,
   LogOut,
   LogIn,
-  Filter
+  Filter,
+  Smartphone
 } from 'lucide-react';
 import { db, collection, query, orderBy, limit, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, getActiveTenantId } from '../lib/firebase';
+import DriverSessionShiftAudit from './DriverSessionShiftAudit';
 
 interface ShiftMonitorProps {
   user?: any;
@@ -27,7 +29,7 @@ export default function ShiftMonitor({ user }: ShiftMonitorProps) {
   const [drivers, setDrivers] = useState<any[]>([]);
   const [shiftLogs, setShiftLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSubTab, setActiveSubTab] = useState<'current' | 'history'>('current');
+  const [activeSubTab, setActiveSubTab] = useState<'current' | 'history' | 'session_audit'>('current');
   const [filterShiftState, setFilterShiftState] = useState<'all' | 'online' | 'offline'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -183,10 +185,10 @@ export default function ShiftMonitor({ user }: ShiftMonitorProps) {
           </div>
 
           {/* SubTab Toggle */}
-          <div className="flex items-center bg-slate-950 p-1 rounded-2xl border border-slate-800 shrink-0">
+          <div className="flex items-center bg-slate-950 p-1 rounded-2xl border border-slate-800 shrink-0 gap-1 flex-wrap sm:flex-nowrap">
             <button
               onClick={() => setActiveSubTab('current')}
-              className={`px-4 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider flex items-center gap-2 transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider flex items-center gap-2 transition-all ${
                 activeSubTab === 'current' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -195,12 +197,32 @@ export default function ShiftMonitor({ user }: ShiftMonitorProps) {
             </button>
             <button
               onClick={() => setActiveSubTab('history')}
-              className={`px-4 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider flex items-center gap-2 transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider flex items-center gap-2 transition-all ${
                 activeSubTab === 'history' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
               }`}
             >
               <History size={14} />
-              Histórico de Encerramentos
+              Histórico
+            </button>
+            <button
+              onClick={() => setActiveSubTab('session_audit')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-extrabold uppercase tracking-wider flex items-center gap-2 transition-all ${
+                activeSubTab === 'session_audit' ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-500/40' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <ShieldAlert size={14} />
+              Auditoria Sessão vs Turno
+              {drivers.filter(d => 
+                (d.sessionActive === true || d.isLoggedIn === true || d.online === true || d.isOnline === true || d.disponibilidade_app === true) &&
+                (d.shiftEnded === true || d.shiftActive === false || d.status === 'offline' || d.status === 'indisponível')
+              ).length > 0 && (
+                <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-black animate-pulse">
+                  {drivers.filter(d => 
+                    (d.sessionActive === true || d.isLoggedIn === true || d.online === true || d.isOnline === true || d.disponibilidade_app === true) &&
+                    (d.shiftEnded === true || d.shiftActive === false || d.status === 'offline' || d.status === 'indisponível')
+                  ).length}
+                </span>
+              )}
             </button>
           </div>
         </div>
@@ -213,51 +235,58 @@ export default function ShiftMonitor({ user }: ShiftMonitorProps) {
         </div>
       )}
 
-      {/* KPI Overview Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Turno LIGADO (Ativos)</p>
-            <p className="text-2xl font-black text-emerald-400 mt-1">{onlineDrivers.length}</p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-            <Power size={20} />
-          </div>
-        </div>
+      {/* Session Audit SubTab */}
+      {activeSubTab === 'session_audit' && (
+        <DriverSessionShiftAudit user={user} />
+      )}
 
-        <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Turno DESLIGADO (Offline)</p>
-            <p className="text-2xl font-black text-slate-300 mt-1">{offlineDrivers.length}</p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center">
-            <LogOut size={20} />
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-slate-900 border border-amber-500/30 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">Turno Prolongado (&gt;10h)</p>
-            <p className="text-2xl font-black text-amber-400 mt-1">{longShiftDrivers.length}</p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
-            <AlertTriangle size={20} />
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-slate-900 border border-blue-500/30 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Total Frota Auditada</p>
-            <p className="text-2xl font-black text-blue-400 mt-1">{drivers.length}</p>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
-            <Car size={20} />
-          </div>
-        </div>
-      </div>
-
+      {/* Current Shifts SubTab */}
       {activeSubTab === 'current' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* KPI Overview Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Turno LIGADO (Ativos)</p>
+                <p className="text-2xl font-black text-emerald-400 mt-1">{onlineDrivers.length}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                <Power size={20} />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Turno DESLIGADO (Offline)</p>
+                <p className="text-2xl font-black text-slate-300 mt-1">{offlineDrivers.length}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center">
+                <LogOut size={20} />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 border border-amber-500/30 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">Turno Prolongado (&gt;10h)</p>
+                <p className="text-2xl font-black text-amber-400 mt-1">{longShiftDrivers.length}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                <AlertTriangle size={20} />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 border border-blue-500/30 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Total Frota Auditada</p>
+                <p className="text-2xl font-black text-blue-400 mt-1">{drivers.length}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                <Car size={20} />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
           {/* Controls toolbar */}
           <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="relative w-full md:w-80">
@@ -426,6 +455,7 @@ export default function ShiftMonitor({ user }: ShiftMonitorProps) {
               </div>
             )}
           </div>
+        </div>
         </div>
       )}
 

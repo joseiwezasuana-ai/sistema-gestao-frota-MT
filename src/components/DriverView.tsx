@@ -87,6 +87,7 @@ import {
 
 import { auth } from "../lib/firebase";
 import { signOut } from "firebase/auth";
+import { saveOfflineRideRequest, setupAutomaticOfflineSync } from "../lib/offlineQueue";
 
 import { MapContainer, TileLayer, Marker, useMap, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -335,6 +336,14 @@ export default function DriverView({ user }: DriverViewProps) {
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
   const [isTeamChatOpen, setIsTeamChatOpen] = useState(false);
   const { hasUnread, markAsRead } = useUnreadTeamChat(user?.uid || user?.id);
+
+  // Setup IndexedDB automatic offline queue synchronizer for driver
+  useEffect(() => {
+    const cleanup = setupAutomaticOfflineSync(db);
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, []);
 
   // Listen to background chat commands to open/close chat modal
   useEffect(() => {
@@ -2091,8 +2100,10 @@ export default function DriverView({ user }: DriverViewProps) {
         }
       }
 
-      // If no current active service doc found, search for new active service for this driver
-      if (!ourMatchedDoc) {
+      // Rule: Driver with ended shift, turned off, or offline MUST NOT receive calls
+      if (!isOnline) {
+        ourMatchedDoc = null;
+      } else if (!ourMatchedDoc) {
         ourMatchedDoc = snapshot.docs.find((doc: any) => {
           const d = doc.data();
           if (["completed", "cancelled", "rejected", "ignored"].includes(d.status)) return false;
@@ -2599,8 +2610,14 @@ export default function DriverView({ user }: DriverViewProps) {
     const nowIso = new Date().toISOString();
     if (assignedVehicle?.id) {
       updateDoc(doc(db, "drivers", assignedVehicle.id), { 
-        status: "indisponível",
+        status: "offline",
+        status_operacional: "inativo",
+        isOnline: false,
+        online: false,
         shiftActive: false,
+        shiftEnded: true,
+        disponibilidade_app: false,
+        passengerAppActive: false,
         lastShiftEndedAt: nowIso,
         lastShiftEndedBy: user?.name || "Motorista"
       }).catch(e => console.warn(e));
@@ -2629,9 +2646,17 @@ export default function DriverView({ user }: DriverViewProps) {
         localStorage.setItem("driver_is_online", "true");
         const nowIso = new Date().toISOString();
         if (assignedVehicle?.id) {
+          const userTenant = user?.tenantId || user?.companyId || getActiveTenantId() || 'psm';
           updateDoc(doc(db, "drivers", assignedVehicle.id), { 
             status: "disponível",
+            status_operacional: "ativo",
+            isOnline: true,
+            online: true,
             shiftActive: true,
+            shiftEnded: false,
+            disponibilidade_app: true,
+            passengerAppActive: true,
+            tenantId: userTenant,
             lastShiftStartedAt: nowIso,
             lastShiftStartedBy: user?.name || "Motorista"
           }).catch(e => console.warn(e));
@@ -2662,9 +2687,13 @@ export default function DriverView({ user }: DriverViewProps) {
       const userTenant = user?.tenantId || user?.companyId || getActiveTenantId() || 'psm';
       updateDoc(doc(db, "drivers", assignedVehicle.id), { 
         status: "disponível",
-        shiftActive: true,
-        disponibilidade_app: true,
         status_operacional: "ativo",
+        isOnline: true,
+        online: true,
+        shiftActive: true,
+        shiftEnded: false,
+        disponibilidade_app: true,
+        passengerAppActive: true,
         tenantId: userTenant,
         lastShiftStartedAt: nowIso,
         lastShiftStartedBy: user?.name || "Motorista"

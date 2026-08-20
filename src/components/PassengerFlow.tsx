@@ -17,6 +17,7 @@ import { WebRTCAudioCall } from './WebRTCAudioCall';
 import { db, getActiveTenantId, setActiveTenantId, addDoc, collection, getDocs, onSnapshot, query, where, doc, setDoc, getDoc, updateDoc, arrayUnion, limit, deleteDoc, originalCollection, originalDoc } from '../lib/firebase';
 import { requestPassengerFcmToken, listenToFcmForegroundMessages } from '../lib/fcmService';
 import { logSignalingEvent } from '../lib/signalingLogger';
+import { saveOfflineRideRequest, setupAutomaticOfflineSync } from '../lib/offlineQueue';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -435,6 +436,14 @@ export default function PassengerFlow({ isPublicApp = false, isEmbed = false, on
   });
 
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+
+  // Setup IndexedDB automatic offline queue synchronizer
+  useEffect(() => {
+    const cleanup = setupAutomaticOfflineSync(db);
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, []);
 
   useEffect(() => {
     const configDocRef = doc(db, 'settings', 'passenger_app');
@@ -1258,7 +1267,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
   const filterRealTimeFleet = (docs: any[]): VehicleOption[] => {
     const list: VehicleOption[] = [];
     const activeStatuses = ['available', 'ativo', 'disponível', 'disponivel', 'busy', 'ocupado', 'em serviço', 'em servico', 'em_serviço', 'em_servico', 'em curso', 'em_curso', 'active', 'online', 'livre', 'escalado', 'pronto', 'standby'];
-    const inactiveStatuses = ['inativo', 'inactivo', 'inactive', 'offline', 'bloqueado', 'cancelado', 'desativado', 'desactivado', 'rejeitado', 'manutenção', 'manutencao', 'avaria', 'reparação', 'reparacao'];
+    const inactiveStatuses = ['inativo', 'inactivo', 'inactive', 'offline', 'bloqueado', 'cancelado', 'desativado', 'desactivado', 'rejeitado', 'manutenção', 'manutencao', 'avaria', 'reparação', 'reparacao', 'desligado', 'indisponível', 'indisponivel', 'turno_terminado', 'off', 'fechado', 'desconectado'];
     
     const normalizeTenant = (t?: string) => {
       if (!t) return 'psm';
@@ -1281,15 +1290,30 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
         return; // Exclude drivers from other tenants
       }
 
-      // Check app availability & status (handles undefined defaults safely)
-      const isPassengerActive = data.passengerAppActive !== false && data.disponibilidade_app !== false;
+      // Explicit Rule: O motorista com turno terminado, desligado, ou sessão não iniciada NÃO aparece no mapa nem na lista
+      if (
+        data.shiftEnded === true ||
+        data.shiftActive === false ||
+        data.isOnline === false ||
+        data.online === false ||
+        data.disponibilidade_app === false ||
+        data.passengerAppActive === false ||
+        data.sessionActive === false ||
+        data.isLoggedIn === false
+      ) {
+        return; // Exclude completely
+      }
+
       const status = (data.status || '').toLowerCase().trim();
       const statusOp = (data.status_operacional || '').toLowerCase().trim();
       
-      const isInactive = inactiveStatuses.includes(status) || statusOp === 'inativo' || statusOp === 'manutencao' || data.disponibilidade_app === false || data.passengerAppActive === false;
-      const isActiveStatus = activeStatuses.includes(status) || statusOp === 'ativo' || data.isOnline === true || data.online === true || data.shiftActive === true || (!isInactive && status !== 'offline');
+      if (inactiveStatuses.includes(status) || inactiveStatuses.includes(statusOp)) {
+        return; // Exclude completely
+      }
 
-      if (isPassengerActive && isActiveStatus && !isInactive) {
+      const isActiveStatus = activeStatuses.includes(status) || statusOp === 'ativo' || data.isOnline === true || data.online === true || data.shiftActive === true;
+
+      if (isActiveStatus) {
         const prefix = String(data.prefix || data.code || '').trim();
         const plate = String(data.plate || 'LD-92-33-PX').trim();
 
@@ -2247,47 +2271,79 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
     setActiveRideRecord(null); // Clear previous record to ensure new subscription starts fresh
     activeStatusRef.current = 'pending';
 
-    // Write preliminary ride to Firestore
-    try {
-      const boardingToken = generateToken();
-      const currentFcmToken = localStorage.getItem('passenger_fcm_token') || '';
+    // Write preliminary ride to Firestore or local IndexedDB queue if offline
+    const boardingToken = generateToken();
+    const currentFcmToken = localStorage.getItem('passenger_fcm_token') || '';
 
-      const resolvedPhone = passengerProfile?.backupPhone || passengerProfile?.phone || '+244923000000';
-      const resolvedCount = Number(passengerCount) || 1;
+    const resolvedPhone = passengerProfile?.backupPhone || passengerProfile?.phone || '+244923000000';
+    const resolvedCount = Number(passengerCount) || 1;
 
-      const docRef = await addDoc(collection(db, 'calls'), {
-        passengerId: passengerProfile ? passengerProfile.name.toLowerCase().replace(/\s/g, '') : 'anon',
-        passengerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
-        passengerPhone: resolvedPhone,
-        customerPhone: resolvedPhone,
-        phone: resolvedPhone,
-        passengerAge: passengerProfile?.age || 'N/A',
-        passengerProvince: passengerProfile ? passengerProfile.province : 'Luena, Moxico',
+    const ridePayload = {
+      passengerId: passengerProfile ? passengerProfile.name.toLowerCase().replace(/\s/g, '') : 'anon',
+      passengerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
+      passengerPhone: resolvedPhone,
+      customerPhone: resolvedPhone,
+      phone: resolvedPhone,
+      passengerAge: passengerProfile?.age || 'N/A',
+      passengerProvince: passengerProfile ? passengerProfile.province : 'Luena, Moxico',
+      passengerPhoto: passengerProfile?.photoUrl || '',
+      pickup,
+      destination,
+      passengerCount: resolvedCount,
+      passengersCount: resolvedCount,
+      numPassengers: resolvedCount,
+      customerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
+      pickupAddress: pickup,
+      destinationAddress: destination,
+      pickupLat: passengerCoords[0],
+      pickupLng: passengerCoords[1],
+      vehiclePlate: selectedVehicle.plate,
+      driverName: selectedVehicle.driverName,
+      driverPhone: selectedVehicle.phone,
+      vehicleModel: selectedVehicle.model,
+      driverId: selectedVehicle.driverId || selectedVehicle.id,
+      price: null,
+      status: 'pending',
+      boardingToken,
+      usedBonus: useBonusForRide,
+      fcmToken: currentFcmToken,
+      passengerFcmToken: currentFcmToken,
+      createdAt: new Date().toISOString(),
+      timestamp: new Date().toISOString()
+    };
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      console.log("[PassengerFlow] Sem ligação à internet. Guardando solicitação de 'Nova Corrida' em fila local IndexedDB...");
+      const tempId = await saveOfflineRideRequest(ridePayload);
+      activeStatusRef.current = 'pending';
+      setActiveRideRecord({ 
+        ...selectedVehicle, 
+        id: tempId, 
+        status: 'pending',
+        price: null,
+        usedBonus: useBonusForRide,
         passengerPhoto: passengerProfile?.photoUrl || '',
-        pickup,
-        destination,
-        passengerCount: resolvedCount,
-        passengersCount: resolvedCount,
-        numPassengers: resolvedCount,
+        pickup, 
+        destination, 
+        passengerCount,
+        boardingToken,
         customerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
+        customerPhone: resolvedPhone,
         pickupAddress: pickup,
         destinationAddress: destination,
-        pickupLat: passengerCoords[0],
-        pickupLng: passengerCoords[1],
-        vehiclePlate: selectedVehicle.plate,
-        driverName: selectedVehicle.driverName,
-        driverPhone: selectedVehicle.phone,
-        vehicleModel: selectedVehicle.model,
-        driverId: selectedVehicle.driverId || selectedVehicle.id,
-        price: null,
-        status: 'pending',
-        boardingToken,
-        usedBonus: useBonusForRide,
-        fcmToken: currentFcmToken,
-        passengerFcmToken: currentFcmToken,
-        createdAt: new Date().toISOString(),
-        timestamp: new Date().toISOString()
+        isOfflineQueued: true
       });
+      setNotificationBanner({
+        title: "⚡ MODO OFFLINE ATIVO (FILA LOCAL)",
+        message: "A sua solicitação de 'Nova Corrida' foi gravada na Fila Local IndexedDB. Será enviada automaticamente ao recuperar a ligação à internet!",
+        type: "warning",
+        visible: true
+      });
+      return;
+    }
+
+    try {
+      const docRef = await addDoc(collection(db, 'calls'), ridePayload);
 
       // Request and attach fresh FCM token if it wasn't saved yet
       requestPassengerFcmToken(docRef.id).catch(err => console.warn('[FCM] Token update error:', err));
@@ -2325,8 +2381,33 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
         pickupAddress: pickup,
         destinationAddress: destination
       });
-    } catch (e) {
-      console.error("Erro firestore ao criar corrida:", e);
+    } catch (e: any) {
+      console.error("Erro firestore ao criar corrida online, gravando na fila local IndexedDB:", e);
+      const tempId = await saveOfflineRideRequest(ridePayload);
+      activeStatusRef.current = 'pending';
+      setActiveRideRecord({ 
+        ...selectedVehicle, 
+        id: tempId, 
+        status: 'pending',
+        price: null,
+        usedBonus: useBonusForRide,
+        passengerPhoto: passengerProfile?.photoUrl || '',
+        pickup, 
+        destination, 
+        passengerCount,
+        boardingToken,
+        customerName: passengerProfile ? passengerProfile.name : 'Passageiro de Teste',
+        customerPhone: resolvedPhone,
+        pickupAddress: pickup,
+        destinationAddress: destination,
+        isOfflineQueued: true
+      });
+      setNotificationBanner({
+        title: "⚡ MODO OFFLINE ATIVO (FILA LOCAL)",
+        message: "A sua solicitação de 'Nova Corrida' foi guardada na Fila Local IndexedDB e será sincronizada automaticamente assim que o sinal for restabelecido!",
+        type: "warning",
+        visible: true
+      });
     }
   };
 
@@ -2997,7 +3078,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           </span>
                           <h4 className="text-base font-black uppercase tracking-wider text-white mt-1">Acesso ao Sistema TAXIControl</h4>
                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
-                            Selecione a opção desejada para aceder ou criar o seu perfil
+                            
                           </p>
                         </div>
 
@@ -3020,7 +3101,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                                   Entrar na Conta
                                 </span>
                                 <span className="block text-[9px] font-bold text-slate-900/80 uppercase">
-                                  Acesso com Nome e Palavra-passe
+                                  
                                 </span>
                               </div>
                             </div>
@@ -3045,7 +3126,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                                   Criar / Registar Conta
                                 </span>
                                 <span className="block text-[9px] font-bold text-slate-400 uppercase">
-                                  Registo Rápido para Viagens e Descontos
+                                  
                                 </span>
                               </div>
                             </div>
@@ -3099,7 +3180,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       <h2 className="text-lg font-black tracking-tight mt-1">
                         {authMode === 'register' ? 'CRIAR CONTA PASSAGEIRO' : 'ENTRAR NA CONTA'}
                       </h2>
-                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Luena - Moxico • Angola</p>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Super Taxi • Angola</p>
                     </div>
 
                     <div className={`flex p-1 rounded-xl border mb-2 ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-200/50 border-slate-300/60'}`}>
@@ -3150,7 +3231,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           </div>
                           <input type="file" accept="image/*" onChange={handleAvatarFileChange} className="hidden" />
                         </label>
-                        <p className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Toque acima para abrir a galeria</p>
+                        <p className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Toque no avatar para abrir a galeria</p>
                       </motion.div>
 
                       <motion.div 
@@ -3275,7 +3356,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                           />
                         </div>
                         <p className="text-[8px] text-slate-400 mt-1 font-extrabold uppercase tracking-tight">
-                          * Usado se o telemóvel principal estiver offline.
+                          * Usado para acessar a conta ou se o telemóvel estiver offline.
                         </p>
                       </motion.div>
 
@@ -3355,12 +3436,12 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                         transition={{ duration: 0.2, delay: 0.05 }}
                         className="space-y-1"
                       >
-                        <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Nome de Utilizador ou Nº de Telefone</label>
+                        <label className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest ml-1">Nome ou Nº de Telefone</label>
                         <div className="relative">
                           <User size={12} className="absolute left-3.5 top-3.5 text-slate-500" />
                           <input 
                             type="text" 
-                            placeholder="Nome de utilizador ou Telefone (+244...)" 
+                            placeholder="Telefone (+244...) ou nome" 
                             value={loginName}
                             onChange={e => setLoginName(e.target.value)}
                             className={`w-full pl-10 pr-4 py-3 rounded-xl text-xs font-bold outline-none border transition-all ${
@@ -4658,7 +4739,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             onClick={() => setIsCallMinimized(true)}
                             className="w-full py-3 bg-white/10 hover:bg-white/15 text-white font-black text-xs uppercase tracking-wide rounded-xl border border-white/10 active:scale-95 transition-transform"
                           >
-                            Minimizar & Voltar ao Menu
+                            Minimizar
                           </button>
                         </div>
                       ) : (
@@ -4759,11 +4840,11 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     <div className="space-y-1.5">
                       <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
                         <MapPin size={13} className="text-amber-400" />
-                        Ponto de Recolha (Passo 1)
+                        Ponto de Recolha (I)
                       </label>
                       <input 
                         className="w-full p-3 bg-slate-900/90 border border-white/10 rounded-2xl outline-none text-white focus:border-amber-400 font-bold transition-colors shadow-inner" 
-                        placeholder="Ex: Aeroporto, Hospital Geral, Mercado..." 
+                        placeholder="Localização atual / onde está?" 
                         value={pickup}
                         onChange={e => setPickup(e.target.value)}
                       />
@@ -4772,11 +4853,11 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                     <div className="space-y-1.5">
                       <label className="text-[9px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
                         <Navigation size={13} className="text-amber-400" />
-                        Destino Final (Passo 1)
+                        Destinos Finais (I)
                       </label>
                       <input 
                         className="w-full p-3 bg-slate-900/90 border border-white/10 rounded-2xl outline-none text-white focus:border-amber-400 font-bold transition-colors shadow-inner" 
-                        placeholder="Ex: Estação CFM, Bairro Aço, Centro..." 
+                        placeholder="Onde vamos? Ex: Estação CFB, Bairro Aço, Centro..." 
                         value={destination}
                         onChange={e => setDestination(e.target.value)}
                       />
@@ -4787,7 +4868,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       <div className="flex items-center justify-between">
                         <label className="text-[9.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
                           <Users size={14} />
-                          Número de Passageiros (Passo 2)
+                          Número de Passageiros (II)
                         </label>
                         <span className="text-[9.5px] font-extrabold text-slate-200 bg-white/10 px-2.5 py-0.5 rounded-full">
                           {passengerCount === 1 ? '1 (Individual)' :
@@ -4855,7 +4936,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                       <div className="flex items-center justify-between">
                         <label className="text-[9.5px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
                           <Car size={14} />
-                          Viatura Desejada (Passo 3)
+                          Viatura Desejada (III)
                         </label>
                         <span className="flex items-center gap-1 text-[8.5px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
                           <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
@@ -5889,7 +5970,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                   {/* Modal Body - List of Vehicles */}
                   <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
                     <p className="text-[10.5px] text-slate-300 font-medium leading-relaxed">
-                      Escolha a viatura de sua preferência ou selecione automáticamente.
+                      Escolher viatura ou selecionar automáticamente.
                     </p>
 
                     {/* Active Confirmation Toast Banner */}
@@ -5951,7 +6032,7 @@ const validateRideTransactionId = (callId: string | null | undefined): boolean =
                             <p className="text-[10px] text-slate-400 font-medium mt-0.5">
                               {randomSuggestedVehicle 
                                 ? `Viatura sorteada: ${randomSuggestedVehicle.model} (${randomSuggestedVehicle.plate})`
-                                : 'Baralha e sorteia aleatoriamente entre as viaturas livres'}
+                                : 'Sorteio aleatório entre as viaturas livres'}
                             </p>
                           </div>
                         </div>

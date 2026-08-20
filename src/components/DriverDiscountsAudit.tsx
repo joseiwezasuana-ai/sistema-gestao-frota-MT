@@ -231,8 +231,8 @@ export default function DriverDiscountsAudit({
       doc.setFont("helvetica", "normal");
       doc.setTextColor(203, 213, 225); // slate-300
       doc.text("Endereço: Luena, Província do Moxico • República de Angola | NIF: 5417089201", 14, 26);
-      doc.text(`Doc Ref: ${docCode} | Emissão: ${issueDate} | Gestor Audit: ${user?.name || "JIS Operações / Audit"}`, 14, 31);
-      doc.text("Sistema Oficial JIS ANGOLA • SUPER TÁXI CONTROL", 14, 36);
+      doc.text(`Doc Ref: ${docCode} | Emissão: ${issueDate} | Gestor Audit: ${user?.name || "Operações / Audit"}`, 14, 31);
+      doc.text("Sistema Oficial TAXIControl • SUPER TÁXI", 14, 36);
 
       // Selo de Certificação Digital no canto superior direito do Timbre
       doc.setDrawColor(245, 158, 11);
@@ -347,7 +347,7 @@ export default function DriverDiscountsAudit({
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.text("__________________________________________", 120, footerY + 8);
-      doc.text("Direção Geral - JIS ANGOLA", 132, footerY + 13);
+      doc.text("Direção Geral - TAXIControl", 132, footerY + 13);
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.text("Aprovação & Validação Final", 135, footerY + 17);
