@@ -7,7 +7,32 @@
     <meta name="microsoft" content="notranslate" />
     <meta http-equiv="content-language" content="pt" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-    <link rel="manifest" href="/manifest.json" />
+    <script>
+      (function() {
+        try {
+          var search = window.location.search.toLowerCase();
+          var manifestHref = '/manifest.json';
+          var appTitle = 'SUPER Táxi';
+
+          if (search.indexOf('view=staff') !== -1 || search.indexOf('view=admin') !== -1 || search.indexOf('view=login') !== -1 || search.indexOf('mode=staff') !== -1) {
+            manifestHref = '/manifest-staff.json';
+            appTitle = 'ST Staff';
+          } else if (search.indexOf('view=passenger') !== -1 || search.indexOf('mode=passenger') !== -1) {
+            manifestHref = '/manifest-passenger.json';
+            appTitle = 'ST Passageiro';
+          }
+
+          var manifestLink = document.createElement('link');
+          manifestLink.rel = 'manifest';
+          manifestLink.id = 'pwa-manifest';
+          manifestLink.href = manifestHref;
+          document.head.appendChild(manifestLink);
+
+          var appleTitleMeta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+          if (appleTitleMeta) appleTitleMeta.setAttribute('content', appTitle);
+        } catch(e) {}
+      })();
+    </script>
     <meta name="theme-color" content="#0f172a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="SUPER Táxi" />

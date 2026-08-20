@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Download, Smartphone, X, Share, Plus, Car, Sparkles, CheckCircle2, ExternalLink } from 'lucide-react';
+import { cn } from '../lib/utils';
 
 // Store prompt globally if captured before component mount
 if (typeof window !== 'undefined') {
@@ -25,6 +26,13 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
   const [installedSuccess, setInstalledSuccess] = useState<boolean>(false);
   const [isInstalling, setIsInstalling] = useState<boolean>(false);
   const [showManualSteps, setShowManualSteps] = useState<boolean>(false);
+
+  const isStaffView = typeof window !== 'undefined' && (
+    window.location.search.includes('view=staff') || 
+    window.location.search.includes('view=admin') ||
+    window.location.search.includes('view=login')
+  );
+  const isPassengerView = typeof window !== 'undefined' && window.location.search.includes('view=passenger');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -126,7 +134,9 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
                 <img src="/icon-192.png" alt="SUPER Táxi" className="w-full h-full object-cover rounded-[14px]" referrerPolicy="no-referrer" />
               </div>
               <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-white">Instalar SUPER Táxi</h3>
+                <h3 className="text-xs font-black uppercase tracking-wider text-white">
+                  {isStaffView ? 'Instalar ST Staff (Gestão)' : isPassengerView ? 'Instalar ST Passageiro' : 'Instalar SUPER Táxi'}
+                </h3>
                 <p className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">JIS ANGOLA • PWA Oficial</p>
               </div>
             </div>
@@ -145,7 +155,9 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
               <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
                 <CheckCircle2 size={28} />
               </div>
-              <p className="text-xs font-black text-white uppercase tracking-wider">A aplicação já está instalada!</p>
+              <p className="text-xs font-black text-white uppercase tracking-wider">
+                {isStaffView ? 'PWA Staff Instalado!' : 'A Aplicação Já Está Instalada!'}
+              </p>
               <p className="text-[10px] text-slate-400">Você já está a utilizar o SUPER Táxi como aplicação no seu telemóvel.</p>
             </div>
           ) : installedSuccess ? (
@@ -161,8 +173,39 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
               <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-3 flex items-start gap-2.5">
                 <Sparkles className="text-amber-400 shrink-0 mt-0.5" size={16} />
                 <p className="text-[11px] text-amber-200 font-medium leading-snug">
-                  Aceda instantaneamente ao SUPER Táxi no seu ecrã inicial com desempenho máximo e acesso offline.
+                  Pode instalar <strong>2 atalhos/PWAs separados</strong> no mesmo dispositivo: um para a <strong>Gestão/Staff</strong> e outro para <strong>Passageiros</strong>.
                 </p>
+              </div>
+
+              {/* Botões para Alternar e Instalar Duas PWAs Distintas */}
+              <div className="grid grid-cols-2 gap-2 p-2 bg-slate-950 rounded-2xl border border-slate-800">
+                <a
+                  href="/?view=staff"
+                  target="_top"
+                  className={cn(
+                    "p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-center gap-1",
+                    isStaffView 
+                      ? "bg-amber-500/20 border-amber-500 text-amber-300 font-black shadow-lg shadow-amber-500/10" 
+                      : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                  )}
+                >
+                  <span className="text-[10px] uppercase font-black tracking-wider block">1. PWA Staff</span>
+                  <span className="text-[8px] font-bold opacity-80 block">Gestão & Frota</span>
+                </a>
+
+                <a
+                  href="/?view=passenger"
+                  target="_top"
+                  className={cn(
+                    "p-2.5 rounded-xl border text-center transition-all flex flex-col items-center justify-center gap-1",
+                    isPassengerView 
+                      ? "bg-amber-500/20 border-amber-500 text-amber-300 font-black shadow-lg shadow-amber-500/10" 
+                      : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                  )}
+                >
+                  <span className="text-[10px] uppercase font-black tracking-wider block">2. PWA Passageiro</span>
+                  <span className="text-[8px] font-bold opacity-80 block">Pedir Táxi</span>
+                </a>
               </div>
 
               {/* Botão de Instalação Imediata (Always Visible) */}
@@ -180,7 +223,9 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
                 ) : (
                   <>
                     <Download size={16} className="stroke-[2.5]" />
-                    <span>Instalar PWA Agora (1-Toque)</span>
+                    <span>
+                      Instalar PWA ({isStaffView ? 'ST Staff' : isPassengerView ? 'ST Passageiro' : 'Atual'})
+                    </span>
                     {isInIframe && <ExternalLink size={12} className="ml-1 opacity-70" />}
                   </>
                 )}
