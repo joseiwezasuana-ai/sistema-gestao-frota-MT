@@ -101,213 +101,7 @@ import { motion } from 'motion/react';
 import { ConnectivityBanner } from './components/ConnectivityBanner';
 import { PullToRefresh } from './components/PullToRefresh';
 
-const CURRENT_SYSTEM_VERSION = '6.0.0';
-
-const MandatoryUpdateModal = ({
-  versionDiscrepancy,
-  onDismiss,
-  user
-}: {
-  versionDiscrepancy: { 
-    runningVersion: string; 
-    requiredVersion: string; 
-    isRealDiscrepancy: boolean;
-    shouldNotify: boolean;
-    isCritical: boolean;
-    apkDetails: any 
-  };
-  onDismiss: () => void;
-  user?: any;
-}) => {
-  const [isSyncing, setIsSyncing] = useState(false);
-  const isMasterOrAdmin = user?.email?.toLowerCase() === 'joseiwezasuana@gmail.com' || user?.role === 'admin' || user?.role === 'gerente';
-
-  const handleAdminSyncAndClear = async () => {
-    setIsSyncing(true);
-    try {
-      await updateDoc(doc(db, 'settings', 'apk_distribution'), {
-        version: CURRENT_SYSTEM_VERSION,
-        isCriticalUpdate: false,
-        notifyOnStartup: false,
-        forceUpdate: false,
-        updatedAt: serverTimestamp(),
-        updatedBy: user?.name || user?.email || 'José Iweza Suana'
-      });
-      sessionStorage.setItem('jis_dismissed_update_version', CURRENT_SYSTEM_VERSION);
-      onDismiss();
-    } catch (e) {
-      console.warn("Could not sync apk_distribution in firestore:", e);
-      onDismiss();
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleClearCacheAndReload = async () => {
-    try {
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(key => caches.delete(key)));
-      }
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          await registration.unregister();
-        }
-      }
-    } catch (e) {
-      console.warn("Cache clear notice:", e);
-    }
-    sessionStorage.setItem('jis_dismissed_update_version', CURRENT_SYSTEM_VERSION);
-    window.location.reload();
-  };
-
-  const isDiscrepant = versionDiscrepancy.isRealDiscrepancy;
-
-  return (
-    <div className="fixed inset-0 z-[99999] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto font-sans">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative text-slate-900 dark:text-white my-auto animate-in fade-in zoom-in duration-200">
-        
-        {/* Header Badge */}
-        <div className="flex items-center justify-between mb-4">
-          <div className={cn(
-            "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border",
-            isDiscrepant ? "bg-red-500/10 dark:bg-red-500/20 border-red-500/30 text-red-600 dark:text-red-400" : "bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/30 text-amber-600 dark:text-amber-400"
-          )}>
-            <AlertTriangle className={cn("w-3.5 h-3.5", isDiscrepant ? "animate-bounce" : "")} />
-            <span>{isDiscrepant ? "Atualização Obrigatória" : "Aviso Oficial de Lançamento"}</span>
-          </div>
-          <span className="text-[10px] font-mono font-bold text-slate-400">JIS ANGOLA • TAXICONTROL</span>
-        </div>
-
-        {/* Title */}
-        <h3 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white">
-          {isDiscrepant ? "Discrepância de Versão Detetada" : "Nova Distribuição Oficial v" + versionDiscrepancy.requiredVersion}
-        </h3>
-        <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">
-          {isDiscrepant ? (
-            <>
-              A versão do sistema em execução no seu dispositivo (<span className="font-mono font-bold text-red-500">v{versionDiscrepancy.runningVersion}</span>) difere da versão oficial guardada no servidor (<span className="font-mono font-bold text-emerald-500">v{versionDiscrepancy.requiredVersion}</span>). Por motivos de estabilidade e segurança da frota, é necessário atualizar.
-            </>
-          ) : (
-            <>
-              O seu sistema está atualizado (<span className="font-mono font-bold text-emerald-500">v{versionDiscrepancy.runningVersion}</span>). O alerta foi ativado no painel de distribuição oficial de APK para notificar os colaboradores.
-            </>
-          )}
-        </p>
-
-        {/* Version Compare Cards */}
-        <div className="grid grid-cols-2 gap-3 my-5 p-3.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/50 text-center">
-          <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-            <span className="text-[9px] font-black uppercase text-slate-400 block mb-1">Versão em Execução</span>
-            <span className={cn("text-sm font-mono font-black", isDiscrepant ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400")}>
-              v{versionDiscrepancy.runningVersion}
-            </span>
-            <span className="text-[8px] font-bold text-slate-400 block uppercase mt-0.5">
-              {isDiscrepant ? "⚠️ Requer Update" : "✓ Instalada"}
-            </span>
-          </div>
-          <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-900/50">
-            <span className="text-[9px] font-black uppercase text-slate-400 block mb-1">Versão no Servidor</span>
-            <span className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400">v{versionDiscrepancy.requiredVersion}</span>
-            <span className="text-[8px] font-bold text-emerald-500 block uppercase mt-0.5">✓ Requerida</span>
-          </div>
-        </div>
-
-        {/* Release Notes */}
-        {versionDiscrepancy.apkDetails?.releaseNotes && (
-          <div className="mb-5 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-left">
-            <span className="text-[9.5px] font-black uppercase text-amber-600 dark:text-amber-400 block mb-1 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> Notas de Lançamento (v{versionDiscrepancy.requiredVersion})
-            </span>
-            <p className="text-[11px] text-slate-700 dark:text-slate-300 italic leading-snug">
-              "{versionDiscrepancy.apkDetails.releaseNotes}"
-            </p>
-          </div>
-        )}
-
-        {/* Download Buttons */}
-        <div className="space-y-2">
-          <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider text-left mb-1">
-            Descarregar Ficheiro APK Oficial:
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {versionDiscrepancy.apkDetails?.passengerAppUrl && (
-              <a 
-                href={versionDiscrepancy.apkDetails.passengerAppUrl}
-                download
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all text-center"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Passageiro</span>
-              </a>
-            )}
-            {versionDiscrepancy.apkDetails?.driverAppUrl && (
-              <a 
-                href={versionDiscrepancy.apkDetails.driverAppUrl}
-                download
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all text-center"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Motorista</span>
-              </a>
-            )}
-            {versionDiscrepancy.apkDetails?.staffAppUrl && (
-              <a 
-                href={versionDiscrepancy.apkDetails.staffAppUrl}
-                download
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all text-center"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Staff / Gestão</span>
-              </a>
-            )}
-          </div>
-
-          {/* Refresh App Button with cache flush */}
-          <button
-            type="button"
-            onClick={handleClearCacheAndReload}
-            className="w-full mt-3 py-3 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-2xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
-          >
-            <RefreshCw className="w-4 h-4 animate-spin-slow" />
-            <span>Limpar Cache & Recarregar Aplicação</span>
-          </button>
-
-          {/* Admin Fast Sync Button */}
-          {isMasterOrAdmin && (
-            <button
-              type="button"
-              onClick={handleAdminSyncAndClear}
-              disabled={isSyncing}
-              className="w-full py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-700 hover:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 mt-2"
-            >
-              <CheckCircle2 size={13} />
-              <span>{isSyncing ? "A sincronizar..." : "Sincronizar Servidor com v6.0.0 & Desativar Alertas (Admin)"}</span>
-            </button>
-          )}
-
-          {/* Dismiss button */}
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="w-full py-2 px-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] font-bold uppercase tracking-wider transition-all mt-1 cursor-pointer"
-          >
-            Entendido, Continuar na Aplicação
-          </button>
-        </div>
-
-      </div>
-    </div>
-  );
-};
+const CURRENT_SYSTEM_VERSION = '6.0.2';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -451,31 +245,7 @@ export default function App() {
   const [showPublicPassengerFlow, setShowPublicPassengerFlow] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
-  const [versionDiscrepancy, setVersionDiscrepancy] = useState<{
-    runningVersion: string;
-    requiredVersion: string;
-    isRealDiscrepancy: boolean;
-    shouldNotify: boolean;
-    isCritical: boolean;
-    apkDetails: any;
-  } | null>(null);
-  const [dismissedUpdateNotice, setDismissedUpdateNotice] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('jis_dismissed_update_notice') === 'true';
-    }
-    return false;
-  });
   const startTimeRef = useRef<number>(Date.now());
-
-  const handleDismissUpdateNotice = useCallback(() => {
-    setDismissedUpdateNotice(true);
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('jis_dismissed_update_notice', 'true');
-      if (versionDiscrepancy) {
-        sessionStorage.setItem('jis_dismissed_version', versionDiscrepancy.requiredVersion);
-      }
-    }
-  }, [versionDiscrepancy]);
 
   const finishLoading = useCallback(() => {
     const MIN_SPLASH_TIME = 5000; // Min 5 seconds requested by José Iweza Suana (JIS)
@@ -636,18 +406,18 @@ export default function App() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Verify latest APK Distribution version on startup and compare with running version
+  // Auto-synchronize APK Distribution settings in Firestore to ensure smooth operation without blocking popups
   useEffect(() => {
     const unsubApkCheck = onSnapshot(doc(db, 'settings', 'apk_distribution'), async (docSnap) => {
-      if (!docSnap.exists()) {
-        // Seed default APK Distribution config in Firestore
-        try {
+      try {
+        if (!docSnap.exists()) {
           await setDoc(doc(db, 'settings', 'apk_distribution'), {
             version: CURRENT_SYSTEM_VERSION,
             releaseDate: '2026-08-10',
             buildNumber: '60021',
             isCriticalUpdate: false,
             notifyOnStartup: false,
+            forceUpdate: false,
             minAndroidVersion: 'Android 8.0+ (API 26)',
             storageProvider: 'Alojamento Próprio (JIS Angola Cloud Server)',
             releaseNotes: 'Versão 6.0 Enterprise com suporte a Módulos Offline, Telemetria GPS 24h, Chat de Equipa com Alertas SOS, e Integração Contabilística em Tempo Real.',
@@ -658,35 +428,20 @@ export default function App() {
             passengerAppUrl: 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk',
             passengerAppSize: '16.8 MB'
           }, { merge: true });
-        } catch (err) {
-          console.warn("Error seeding apk_distribution defaults:", err);
-        }
-        setVersionDiscrepancy(null);
-      } else {
-        const data = docSnap.data();
-        const rawSavedVersion = (data?.version || '').trim();
-        const normSaved = rawSavedVersion.replace(/^v/i, '').trim();
-        const normRunning = CURRENT_SYSTEM_VERSION.replace(/^v/i, '').trim();
-        const isRealDiscrepancy = Boolean(normSaved && normSaved !== normRunning);
-        const isCritical = data?.isCriticalUpdate === true || data?.forceUpdate === true;
-        const shouldNotify = data?.notifyOnStartup === true || isCritical;
-        
-        const dismissedVersion = typeof window !== 'undefined' ? sessionStorage.getItem('jis_dismissed_version') : null;
-        const isDismissedThisSession = typeof window !== 'undefined' && sessionStorage.getItem('jis_dismissed_update_notice') === 'true' && (dismissedVersion === (rawSavedVersion || CURRENT_SYSTEM_VERSION));
-
-        if ((isRealDiscrepancy || shouldNotify) && (!isDismissedThisSession || isCritical)) {
-          console.warn(`[VersionCheck] Update Notice Active: Running v${CURRENT_SYSTEM_VERSION}, Server v${rawSavedVersion || CURRENT_SYSTEM_VERSION}, isRealDiscrepancy=${isRealDiscrepancy}`);
-          setVersionDiscrepancy({
-            runningVersion: CURRENT_SYSTEM_VERSION,
-            requiredVersion: rawSavedVersion || CURRENT_SYSTEM_VERSION,
-            isRealDiscrepancy,
-            shouldNotify,
-            isCritical,
-            apkDetails: data
-          });
         } else {
-          setVersionDiscrepancy(null);
+          const data = docSnap.data();
+          // If Firestore still contains legacy forced modal flags, quietly clear them
+          if (data?.isCriticalUpdate || data?.notifyOnStartup || data?.forceUpdate) {
+            await updateDoc(doc(db, 'settings', 'apk_distribution'), {
+              version: CURRENT_SYSTEM_VERSION,
+              isCriticalUpdate: false,
+              notifyOnStartup: false,
+              forceUpdate: false
+            }).catch(() => {});
+          }
         }
+      } catch (err) {
+        console.warn("APK background sync notice:", err);
       }
     }, (err) => console.warn("APK startup check fallback:", err));
 
@@ -1160,28 +915,19 @@ export default function App() {
 
   if (showPublicPassengerFlow) {
     return (
-      <>
-        {versionDiscrepancy && !dismissedUpdateNotice && (
-          <MandatoryUpdateModal 
-            versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={handleDismissUpdateNotice}
-            user={userProfile || user}
-          />
-        )}
-        <PullToRefresh>
-          <ConnectivityBanner user={userProfile || user} />
-          <div className="h-[100dvh] h-[var(--app-height,100dvh)] relative w-full bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
-            <React.Suspense fallback={
-              <div className="flex flex-col items-center justify-center gap-4 text-white font-sans">
-                <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar aplicação...</span>
-              </div>
-            }>
-              <PassengerFlow isPublicApp={true} />
-            </React.Suspense>
-          </div>
-        </PullToRefresh>
-      </>
+      <PullToRefresh>
+        <ConnectivityBanner user={userProfile || user} />
+        <div className="h-[100dvh] h-[var(--app-height,100dvh)] relative w-full bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
+          <React.Suspense fallback={
+            <div className="flex flex-col items-center justify-center gap-4 text-white font-sans">
+              <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400 animate-pulse">A carregar aplicação...</span>
+            </div>
+          }>
+            <PassengerFlow isPublicApp={true} />
+          </React.Suspense>
+        </div>
+      </PullToRefresh>
     );
   }
 
@@ -1198,44 +944,26 @@ export default function App() {
       }
     };
     return (
-      <>
-        {versionDiscrepancy && !dismissedUpdateNotice && (
-          <MandatoryUpdateModal 
-            versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={handleDismissUpdateNotice}
-            user={userProfile || user}
-          />
-        )}
-        <PullToRefresh>
-          <ConnectivityBanner user={userProfile || user} />
-          <Login 
-            key="login-view" 
-            onGoogleLogin={handleGoogleLogin} 
-            onPassengerFlow={() => {
-              localStorage.removeItem('collaborator_mode');
-              setShowPublicPassengerFlow(true);
-            }} 
-          />
-        </PullToRefresh>
-      </>
+      <PullToRefresh>
+        <ConnectivityBanner user={userProfile || user} />
+        <Login 
+          key="login-view" 
+          onGoogleLogin={handleGoogleLogin} 
+          onPassengerFlow={() => {
+            localStorage.removeItem('collaborator_mode');
+            setShowPublicPassengerFlow(true);
+          }} 
+        />
+      </PullToRefresh>
     );
   }
 
   if (!userProfile) {
     return (
-      <>
-        {versionDiscrepancy && !dismissedUpdateNotice && (
-          <MandatoryUpdateModal 
-            versionDiscrepancy={versionDiscrepancy} 
-            onDismiss={handleDismissUpdateNotice}
-            user={userProfile || user}
-          />
-        )}
-        <PullToRefresh>
-          <ConnectivityBanner user={userProfile || user} />
-          <ProfileSetup key="setup-view" user={user} onComplete={setUserProfile} />
-        </PullToRefresh>
-      </>
+      <PullToRefresh>
+        <ConnectivityBanner user={userProfile || user} />
+        <ProfileSetup key="setup-view" user={user} onComplete={setUserProfile} />
+      </PullToRefresh>
     );
   }
 
@@ -1392,14 +1120,6 @@ export default function App() {
 
   return (
     <>
-      {versionDiscrepancy && !dismissedUpdateNotice && (
-        <MandatoryUpdateModal 
-          versionDiscrepancy={versionDiscrepancy} 
-          onDismiss={handleDismissUpdateNotice}
-          user={userProfile || user}
-        />
-      )}
-
       {mainContent}
 
       {/* Logout Confirmation Modal ("Desejas realmente sair da sua conta?") */}

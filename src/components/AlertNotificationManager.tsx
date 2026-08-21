@@ -306,35 +306,11 @@ export default function AlertNotificationManager({ user }: { user?: any }) {
       });
     }, (error) => handleFirestoreError(error, OperationType.GET, 'messages'));
 
-    // 5. Monitor APK Distribution for Critical System Updates (Only alert if there is a newer version than current running 6.0.0)
+    // 5. Monitor APK Distribution (Quiet background monitoring, no intrusive blocking alerts)
     const unsubApk = onSnapshot(doc(db, 'settings', 'apk_distribution'), (snap) => {
       if (snap.exists()) {
-        const data = snap.data();
-        const latestVersion = (data.version || '').trim();
-        const currentVersion = '6.0.0';
-        const isCritical = data.isCriticalUpdate === true || data.forceUpdate === true;
-        
-        // Show update alert ONLY if a strictly newer version is released and marked for update
-        if (latestVersion && latestVersion !== currentVersion && (isCritical || data.notifyOnStartup === true)) {
-          const updateId = `apk-update-${latestVersion}${data.updatedAt?.seconds ? `-${data.updatedAt.seconds}` : ''}`;
-          triggerAlert({
-            id: updateId,
-            type: 'system_update',
-            title: `🚨 ATUALIZAÇÃO CRÍTICA APK (v${latestVersion})`,
-            message: data.releaseNotes || `Nova versão v${latestVersion} disponível no Alojamento Directo JIS ANGOLA. Atualize a aplicação da frota!`,
-            severity: 'critical',
-            timestamp: new Date(),
-            metadata: {
-              version: latestVersion,
-              driverAppUrl: data.driverAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-driver-v6.0.0.apk',
-              staffAppUrl: data.staffAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-staff-v6.0.0.apk',
-              passengerAppUrl: data.passengerAppUrl || 'https://github.com/joseiwezasuana-ai/sistema-gestao-frota-MT/releases/download/v6.0.0/supertaxi-passenger-v6.0.0.apk'
-            }
-          });
-        } else {
-          // If system is already on 6.0.0 or matching version, dismiss any old update alerts
-          setAlerts((prev) => prev.filter((a) => a.type !== 'system_update'));
-        }
+        // Clear any old system update alerts to keep screen clean for the user
+        setAlerts((prev) => prev.filter((a) => a.type !== 'system_update'));
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, 'settings/apk_distribution'));
 
